@@ -1,11 +1,11 @@
-﻿## Qué cambia
+## Qué cambia
 
-## Work items
-<!-- Vincula la historia de usuario y sus tareas en la sección Work items del PR -->
+<!-- Qué se hizo y por qué, en pocas líneas. -->
+
+## Incluye además
+
+<!-- Cambios que no son parte del work item vinculado (por ejemplo, ajustes de configuración o de la plantilla). Borrar esta sección si no aplica. -->
 
 ## Cómo se probó
 
-## Checklist
-- [ ] Compila y todas las pruebas pasan
-- [ ] Si toca la base de datos: modelo de datos actualizado y deploy.sql probado sobre una base limpia
-- [ ] Sin contraseñas ni cadenas de conexión en el código
+<!-- Describir cómo se verificó el cambio. -->
