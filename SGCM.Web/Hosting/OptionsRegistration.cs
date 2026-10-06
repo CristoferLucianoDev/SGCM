@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Options;
 using SGCM.Data.Application.Identity;
 using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Infrastructure.Notifications.Channels;
 using SGCM.Data.Infrastructure.Persistence;
 using SGCM.Data.Infrastructure.Security;
 using SGCM.Web.Jobs;
@@ -11,6 +12,7 @@ public static class OptionsRegistration
 {
     public static IServiceCollection AddSgcmOptions(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddValidatedOptions<SmtpOptions, SmtpOptionsValidator>(configuration, SmtpOptions.SectionName);
         services.AddValidatedOptions<DatabaseOptions, DatabaseOptionsValidator>(configuration, DatabaseOptions.SectionName);
         services.AddValidatedOptions<SchedulingOptions, SchedulingOptionsValidator>(configuration, SchedulingOptions.SectionName);
         services.AddValidatedOptions<JwtOptions, JwtOptionsValidator>(configuration, JwtOptions.SectionName);

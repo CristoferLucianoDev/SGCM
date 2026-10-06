@@ -8,6 +8,7 @@
     <PackageVersion Include="EFCore.NamingConventions" Version="8.0.3" />
     <PackageVersion Include="FluentValidation" Version="12.1.1" />
     <PackageVersion Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
+    <PackageVersion Include="MailKit" Version="4.18.1" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.31" />
     <PackageVersion Include="Microsoft.AspNetCore.DataProtection" Version="8.0.31" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.31" />
@@ -22,6 +23,7 @@
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
     <PackageVersion Include="Otp.NET" Version="1.4.1" />
     <PackageVersion Include="Reqnroll.xUnit" Version="3.3.4" />
+    <PackageVersion Include="Serilog" Version="3.1.1" />
     <PackageVersion Include="Serilog.AspNetCore" Version="8.0.3" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="10.2.3" />
