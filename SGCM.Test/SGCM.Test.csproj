@@ -41,4 +41,8 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+	<ItemGroup>
+		<EmbeddedResource Include="Unit\Infrastructure\Templates\*.html" />
+	</ItemGroup>
+
 </Project>

@@ -1,3 +1,5 @@
+using Serilog;
+using SGCM.Data.Infrastructure;
 using SGCM.Web.Hosting;
 
 namespace SGCM.Web;
@@ -8,20 +10,24 @@ public class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
+        builder.Services.AddSgcmLogging(builder.Configuration);
         builder.Services.AddSgcmOptions(builder.Configuration);
+        builder.Services.AddInfrastructure();
+        builder.Services.AddSgcmApiDocumentation();
 
-        // Add services to the container.
         builder.Services.AddControllersWithViews();
 
         var app = builder.Build();
 
-        // Configure the HTTP request pipeline.
+        app.UseSerilogRequestLogging();
+
         if (!app.Environment.IsDevelopment())
         {
             app.UseExceptionHandler("/Home/Error");
-            // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
             app.UseHsts();
         }
+
+        app.UseSgcmApiDocumentation();
 
         app.UseHttpsRedirection();
         app.UseStaticFiles();
