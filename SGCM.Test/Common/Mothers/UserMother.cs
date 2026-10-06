@@ -1,0 +1,46 @@
+using SGCM.Data.Domain.Common.ValueObjects;
+using SGCM.Data.Domain.Identity.Users;
+
+namespace SGCM.Test.Common.Mothers;
+
+/// <summary>
+/// Object Mother de <see cref="User"/>: crea usuarios en estados conocidos con datos
+/// fijos, para que las pruebas solo declaren lo que les importa.
+/// </summary>
+public static class UserMother
+{
+    /// <summary>Momento fijo que usan las pruebas como "ahora".</summary>
+    public static readonly DateTimeOffset Now = new(2026, 10, 6, 15, 0, 0, TimeSpan.Zero);
+
+    /// <summary>Vigencia del token de confirmación de los usuarios creados.</summary>
+    public static readonly TimeSpan ConfirmationLifetime = TimeSpan.FromMinutes(15);
+
+    /// <summary>Correo de los usuarios creados.</summary>
+    public static readonly Email DefaultEmail = Email.Create("paciente@correo.com").Value;
+
+    /// <summary>Hash de contraseña de los usuarios creados.</summary>
+    public const string DefaultPasswordHash = "hash-de-contrasena";
+
+    /// <summary>Token de confirmación en claro del registro inicial.</summary>
+    public const string DefaultRawToken = "raw-token";
+
+    /// <summary>Hash del token de confirmación del registro inicial.</summary>
+    public const string DefaultTokenHash = "hash-token";
+
+    /// <summary>
+    /// Paciente recién registrado, con la cuenta pendiente de confirmar.
+    /// </summary>
+    public static User Pending() =>
+        User.RegisterPending(DefaultEmail, DefaultPasswordHash, DefaultRawToken, DefaultTokenHash, Now, ConfirmationLifetime);
+
+    /// <summary>
+    /// Paciente con el correo ya confirmado. Usa reflexión porque el agregado todavía
+    /// no expone la operación de confirmar; cuando exista, debe reemplazarse por ella.
+    /// </summary>
+    public static User Confirmed()
+    {
+        var user = Pending();
+        typeof(User).GetProperty(nameof(User.IsEmailConfirmed))!.SetValue(user, true);
+        return user;
+    }
+}
