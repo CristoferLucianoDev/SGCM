@@ -49,3 +49,6 @@ public class SchedulingOptionsValidatorTests
         _validator.Validate(null, options).Failed.ShouldBeTrue();
     }
 }
+
+
+// COMENTARIO DE PRUEBA BACANA COMO EL GRUPO DevOps'nt
