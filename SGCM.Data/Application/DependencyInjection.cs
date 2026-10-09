@@ -3,6 +3,7 @@ using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Behaviors;
+using SGCM.Data.Application.Identity.EventHandlers;
 
 namespace SGCM.Data.Application;
 
@@ -17,6 +18,7 @@ public static class DependencyInjection
     {
         services.AddValidatorsFromAssembly(ApplicationAssembly, includeInternalTypes: true);
         services.AddCommandHandlers();
+        services.AddDomainEventHandlers();
 
         return services;
     }
@@ -49,4 +51,19 @@ public static class DependencyInjection
 
     private static object Wrap(IServiceProvider provider, Type decorator, Type[] arguments, object inner) =>
         ActivatorUtilities.CreateInstance(provider, decorator.MakeGenericType(arguments), inner);
+
+    private static void AddDomainEventHandlers(this IServiceCollection services)
+    {
+        var handlers = ApplicationAssembly.GetTypes()
+            .Where(type => type is { IsAbstract: false, IsGenericTypeDefinition: false })
+            .SelectMany(type => type.GetInterfaces()
+                .Where(contract => contract.IsGenericType
+                    && contract.GetGenericTypeDefinition() == typeof(IDomainEventHandler<>))
+                .Select(contract => (Implementation: type, Service: contract)));
+
+        foreach (var (implementation, service) in handlers)
+        {
+            services.AddScoped(service, implementation);
+        }
+    }
 }
