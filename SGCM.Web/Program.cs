@@ -1,6 +1,7 @@
 using Serilog;
 using SGCM.Data.Infrastructure;
 using SGCM.Web.Hosting;
+using SGCM.Data.Application;
 
 namespace SGCM.Web;
 
@@ -12,6 +13,7 @@ public class Program
 
         builder.Services.AddSgcmLogging(builder.Configuration);
         builder.Services.AddSgcmOptions(builder.Configuration);
+        builder.Services.AddApplication();
         builder.Services.AddInfrastructure();
         builder.Services.AddSgcmApiDocumentation();
 
