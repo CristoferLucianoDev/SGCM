@@ -1,7 +1,14 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using SGCM.Data.Application.Abstractions.Notifications;
+using SGCM.Data.Application.Abstractions.Persistence;
+using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Infrastructure.Notifications;
 using SGCM.Data.Infrastructure.Notifications.Channels;
+using SGCM.Data.Infrastructure.Persistence;
+using SGCM.Data.Infrastructure.Persistence.Interceptors;
+using SGCM.Data.Infrastructure.Persistence.Repositories.Identity;
 
 namespace SGCM.Data.Infrastructure;
 
@@ -9,6 +16,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
+        services.AddPersistence();
         services.AddNotifications();
 
         return services;
@@ -22,6 +30,23 @@ public static class DependencyInjection
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<INotificationChannel, EmailNotificationChannel>();
         services.AddScoped<IEmailTransport, SmtpEmailTransport>();
+
+        return services;
+    }
+
+    private static IServiceCollection AddPersistence(this IServiceCollection services)
+    {
+        services.AddScoped<DomainEventsQueue>();
+        services.AddScoped<DomainEventDispatcher>();
+        services.AddScoped<DomainEventsInterceptor>();
+
+        services.AddDbContext<AppDbContext>((provider, options) => options
+            .UseNpgsql(provider.GetRequiredService<IOptions<DatabaseOptions>>().Value.SgcmDatabase)
+            .UseSnakeCaseNamingConvention()
+            .AddInterceptors(provider.GetRequiredService<DomainEventsInterceptor>()));
+
+        services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddScoped<IUserRepository, UserRepository>();
 
         return services;
     }
