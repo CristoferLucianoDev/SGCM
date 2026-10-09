@@ -1,9 +1,9 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NSubstitute;
-using Shouldly;
 using SGCM.Data.Application;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Abstractions.Notifications;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.Abstractions.Services;
@@ -14,6 +14,7 @@ using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Test.Common.Fakes;
+using Shouldly;
 
 namespace SGCM.Test.Unit.Application;
 
@@ -58,6 +59,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(_unitOfWork);
         services.AddSingleton(Substitute.For<IPasswordHasher>());
         services.AddSingleton(Substitute.For<ISecureTokenGenerator>());
+        services.AddSingleton(Substitute.For<INotificationService>());
         services.AddSingleton<IDateTimeProvider>(new FakeDateTimeProvider());
         services.AddSingleton(Options.Create(new AccountsOptions { EmailConfirmationTokenMinutes = 15 }));
 

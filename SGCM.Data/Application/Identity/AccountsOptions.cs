@@ -10,6 +10,7 @@ public sealed class AccountsOptions
     public int EmailConfirmationTokenMinutes { get; set; }
     public int ResendConfirmationCooldownSeconds { get; set; }
     public int PasswordResetTokenMinutes { get; set; }
+    public string EmailConfirmationUrl { get; set; } = string.Empty;
 }
 
 public sealed class AccountsOptionsValidator : IValidateOptions<AccountsOptions>
@@ -21,6 +22,8 @@ public sealed class AccountsOptionsValidator : IValidateOptions<AccountsOptions>
         OptionsRules.Positive(errors, "Accounts:EmailConfirmationTokenMinutes", options.EmailConfirmationTokenMinutes);
         OptionsRules.Positive(errors, "Accounts:ResendConfirmationCooldownSeconds", options.ResendConfirmationCooldownSeconds);
         OptionsRules.Positive(errors, "Accounts:PasswordResetTokenMinutes", options.PasswordResetTokenMinutes);
+        OptionsRules.Required(errors, "Accounts:EmailConfirmationUrl", options.EmailConfirmationUrl);
+        OptionsRules.AbsoluteHttpsUrl(errors, "Accounts:EmailConfirmationUrl", options.EmailConfirmationUrl);
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
     }

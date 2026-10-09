@@ -46,4 +46,18 @@ public static class OptionsRules
 
     public static string Describe(string key) =>
         $"{key} (variable de entorno {key.Replace(":", "__")})";
+
+    public static void AbsoluteHttpsUrl(ICollection<string> errors, string key, string? value)
+    {
+        // El valor vacío lo reporta Required.
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        {
+            errors.Add($"{Describe(key)} debe ser una URL absoluta https (valor actual: {value}).");
+        }
+    }
 }
