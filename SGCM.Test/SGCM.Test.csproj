@@ -45,4 +45,8 @@
 		<EmbeddedResource Include="Unit\Infrastructure\Templates\*.html" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <ReqnrollFeatureFile Remove="Acceptance\Features\RegistroDePaciente.feature" />
+	</ItemGroup>
+
 </Project>
