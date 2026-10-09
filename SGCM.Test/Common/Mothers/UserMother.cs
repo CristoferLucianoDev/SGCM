@@ -30,16 +30,16 @@ public static class UserMother
     /// <summary>
     /// Paciente recién registrado, con la cuenta pendiente de confirmar.
     /// </summary>
-    public static User Pending() =>
-        User.RegisterPending(DefaultEmail, DefaultPasswordHash, DefaultRawToken, DefaultTokenHash, Now, ConfirmationLifetime);
+    public static User Pending(Email? email = null) =>
+        User.RegisterPending(email ?? DefaultEmail, DefaultPasswordHash, DefaultRawToken, DefaultTokenHash, Now, ConfirmationLifetime);
 
     /// <summary>
     /// Paciente con el correo ya confirmado. Usa reflexión porque el agregado todavía
     /// no expone la operación de confirmar; cuando exista, debe reemplazarse por ella.
     /// </summary>
-    public static User Confirmed()
+    public static User Confirmed(Email? email = null)
     {
-        var user = Pending();
+        var user = Pending(email);
         typeof(User).GetProperty(nameof(User.IsEmailConfirmed))!.SetValue(user, true);
         return user;
     }
