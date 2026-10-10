@@ -36,4 +36,22 @@ public sealed class SecureTokenGeneratorTests
         token.Hash.Length.ShouldBe(Sha256HexLength);
         token.Hash.ShouldNotBe(token.Value);
     }
+
+    [Fact]
+    public void Hash_OfGeneratedValue_MatchesGeneratedHash()
+    {
+        var token = _generator.Generate();
+
+        _generator.Hash(token.Value).ShouldBe(token.Hash);
+    }
+
+    [Fact]
+    public void Hash_IsDeterministic()
+    {
+        const string text = "token-de-prueba";
+        const string otherText = "otro-token-de-prueba";
+
+        _generator.Hash(text).ShouldBe(_generator.Hash(text));
+        _generator.Hash(text).ShouldNotBe(_generator.Hash(otherText));
+    }
 }

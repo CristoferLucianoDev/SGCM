@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Identity.Commands.ConfirmEmail;
 using SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
 using SGCM.Data.Domain.Common;
 using SGCM.Web.Api.Infrastructure;
@@ -29,5 +30,27 @@ public sealed class AccountsController : ApiControllerBase
         var result = await handler.HandleAsync(request.ToCommand(), cancellationToken);
 
         return result.IsSuccess ? Accepted() : ErrorResult(result.Error);
+    }
+
+    /// <summary>
+    /// Confirma el correo de una cuenta pendiente con el token del enlace.
+    /// </summary>
+    /// <remarks>
+    /// Es POST y no GET para que los escáneres de enlaces de los servicios de correo
+    /// no consuman el token al revisar el mensaje.
+    /// </remarks>
+    [HttpPost("confirm-email")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ConfirmEmail(
+        ConfirmEmailRequest request,
+        [FromServices] ICommandHandler<ConfirmEmailCommand, Unit> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToCommand(), cancellationToken);
+
+        return result.IsSuccess ? NoContent() : ErrorResult(result.Error);
     }
 }
