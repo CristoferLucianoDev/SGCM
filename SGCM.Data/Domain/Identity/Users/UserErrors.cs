@@ -38,4 +38,29 @@ public static class UserErrors
         code: "User.AccountInactive",
         description: "La cuenta está desactivada."
     );
+
+    /// <summary>
+    /// El token no existe, ya se usó o fue reemplazado por otro.
+    /// </summary>
+    public static readonly Error TokenInvalid = Error.Validation(
+        code: "User.TokenInvalid",
+        description: "El enlace no es válido o ya fue usado."
+    );
+
+    /// <summary>
+    /// El token existe y no se usó, pero pasó su fecha de vencimiento.
+    /// </summary>
+    public static readonly Error TokenExpired = Error.Validation(
+        code: "User.TokenExpired",
+        description: "El enlace venció."
+    );
+
+    /// <summary>
+    /// El registro pendiente ya no tiene ningún token de confirmación vigente,
+    /// así que se trata como inexistente.
+    /// </summary>
+    public static readonly Error RegistrationExpired = Error.Validation(
+        code: "User.RegistrationExpired",
+        description: "El enlace venció. Debes registrarte de nuevo."
+    );
 }
