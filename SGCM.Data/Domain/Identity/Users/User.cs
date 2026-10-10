@@ -151,6 +151,88 @@ public sealed class User : ActivatableAggregateRoot
         Raise(new UserTokenIssuedEvent(Email.Value, type, rawToken));
     }
 
+    /// <summary>
+    /// Consume el token del tipo indicado cuyo hash coincide, marcándolo como usado
+    /// para que el mismo enlace no funcione dos veces.
+    /// </summary>
+    /// <param name="type">Propósito del token.</param>
+    /// <param name="tokenHash">Hash del token recibido en el enlace.</param>
+    /// <param name="now">Momento del consumo.</param>
+    /// <returns>
+    /// Éxito; <see cref="UserErrors.TokenInvalid"/> si el token no existe, ya se usó
+    /// o fue reemplazado; o <see cref="UserErrors.TokenExpired"/> si ya venció.
+    /// En ambos casos de error el token no se modifica.
+    /// </returns>
+    public Result ConsumeToken(UserTokenType type, string tokenHash, DateTimeOffset now)
+    {
+        // El hash viene de fuera: si es nulo o vacío simplemente no coincide con ninguno.
+        var token = _tokens.FirstOrDefault(token => token.Type == type && token.TokenHash == tokenHash);
+
+        if (token is null || token.UsedAt is not null || token.InvalidatedAt is not null)
+        {
+            return UserErrors.TokenInvalid;
+        }
+
+        if (token.ExpiresAt <= now)
+        {
+            return UserErrors.TokenExpired;
+        }
+
+        token.MarkUsed(now);
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Indica si el registro pendiente venció. La vida del registro pendiente la marca
+    /// el último token de confirmación emitido; cuando ninguno está vigente, el registro
+    /// se trata como inexistente aunque la fila siga en la base.
+    /// </summary>
+    /// <param name="now">Momento de la consulta.</param>
+    /// <returns>
+    /// <c>true</c> si la cuenta no está confirmada y no tiene ningún token de confirmación
+    /// vigente en <paramref name="now"/>; <c>false</c> en cualquier otro caso.
+    /// </returns>
+    public bool IsPendingRegistrationExpiredAt(DateTimeOffset now) =>
+        !IsEmailConfirmed
+        && !_tokens.Any(token => token.Type == UserTokenType.EmailConfirmation && token.IsValidAt(now));
+
+    /// <summary>
+    /// Confirma el correo de la cuenta consumiendo el token de confirmación recibido en el enlace.
+    /// </summary>
+    /// <param name="tokenHash">Hash del token de confirmación recibido en el enlace.</param>
+    /// <param name="now">Momento de la confirmación.</param>
+    /// <returns>
+    /// Éxito; <see cref="UserErrors.AccountInactive"/> si la cuenta está desactivada;
+    /// <see cref="UserErrors.RegistrationExpired"/> si el registro pendiente venció;
+    /// o <see cref="UserErrors.TokenInvalid"/> o <see cref="UserErrors.TokenExpired"/>
+    /// según lo que devuelva <see cref="ConsumeToken"/>.
+    /// En todos los casos de error el usuario no se modifica.
+    /// </returns>
+    public Result ConfirmEmail(string tokenHash, DateTimeOffset now)
+    {
+        if (!IsActive)
+        {
+            return UserErrors.AccountInactive;
+        }
+
+        if (IsPendingRegistrationExpiredAt(now))
+        {
+            return UserErrors.RegistrationExpired;
+        }
+
+        var consumed = ConsumeToken(UserTokenType.EmailConfirmation, tokenHash, now);
+
+        if (consumed.IsFailure)
+        {
+            return consumed;
+        }
+
+        IsEmailConfirmed = true;
+
+        return Result.Success();
+    }
+
     private static void EnsurePasswordHash(string passwordHash)
     {
         if (string.IsNullOrWhiteSpace(passwordHash))

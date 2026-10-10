@@ -67,4 +67,10 @@ public sealed class UserToken : Entity
     /// Invalida el token. Si ya estaba invalidado, conserva la fecha original.
     /// </summary>
     internal void Invalidate(DateTimeOffset now) => InvalidatedAt ??= now;
+
+    /// <summary>
+    /// Marca el token como usado. Lo llama <see cref="User.ConsumeToken"/> después
+    /// de validar que el token es válido.
+    /// </summary>
+    internal void MarkUsed(DateTimeOffset now) => UsedAt = now;
 }
