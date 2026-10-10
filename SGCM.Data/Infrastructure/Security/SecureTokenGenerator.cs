@@ -21,6 +21,8 @@ internal sealed class SecureTokenGenerator : ISecureTokenGenerator
         return new SecureToken(value, ComputeHash(value));
     }
 
+    public string Hash(string rawToken) => ComputeHash(rawToken);
+
     private static string ComputeHash(string value)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));

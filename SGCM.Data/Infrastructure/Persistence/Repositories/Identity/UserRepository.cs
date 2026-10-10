@@ -11,5 +11,12 @@ internal sealed class UserRepository(AppDbContext context) : IUserRepository
             .Include(user => user.Tokens)
             .SingleOrDefaultAsync(user => user.Email == email, cancellationToken);
 
+    public Task<User?> GetByTokenHashAsync(UserTokenType type, string tokenHash, CancellationToken cancellationToken) =>
+        context.Users
+            .Include(user => user.Tokens)
+            .SingleOrDefaultAsync(
+                user => user.Tokens.Any(token => token.Type == type && token.TokenHash == tokenHash),
+                cancellationToken);
+
     public void Add(User user) => context.Users.Add(user);
 }

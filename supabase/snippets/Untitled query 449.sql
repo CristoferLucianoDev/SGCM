@@ -1,0 +1,1 @@
+SELECT indexname FROM pg_indexes WHERE tablename = 'user_token';

@@ -888,6 +888,8 @@ ALTER TABLE messaging.reminder_template
 
 -- app
 CREATE INDEX ix_user_token_user_id_token_type_id ON app.user_token (user_id, token_type_id);
+-- Confirmacion y restablecimiento: buscar el token por su hash.
+CREATE INDEX ix_user_token_token_type_id_token_hash ON app.user_token (token_type_id, token_hash);
 -- Purga de registros pendientes de confirmacion.
 CREATE INDEX ix_user_created_at_unconfirmed ON app."user" (created_at) WHERE is_email_confirmed = false;
 -- Sesiones activas de un usuario (limite de 5, revocar todas).
