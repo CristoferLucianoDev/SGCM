@@ -18,5 +18,14 @@ internal sealed class UserRepository(AppDbContext context) : IUserRepository
                 user => user.Tokens.Any(token => token.Type == type && token.TokenHash == tokenHash),
                 cancellationToken);
 
+    public Task<int> DeleteExpiredPendingRegistrationsAsync(DateTimeOffset now, CancellationToken cancellationToken) =>
+        context.Users
+            .Where(user => !user.IsEmailConfirmed
+                && !user.Tokens.Any(token => token.Type == UserTokenType.EmailConfirmation
+                    && token.UsedAt == null
+                    && token.InvalidatedAt == null
+                    && token.ExpiresAt > now))
+            .ExecuteDeleteAsync(cancellationToken);
+
     public void Add(User user) => context.Users.Add(user);
 }

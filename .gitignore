@@ -483,3 +483,6 @@ $RECYCLE.BIN/
 
 #auto-generate feautre.cs
 *.feature.cs
+
+# instrucciones locales de Claude Code
+CLAUDE.md
