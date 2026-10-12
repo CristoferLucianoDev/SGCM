@@ -70,6 +70,105 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         reloaded.Tokens.Single(token => token.TokenHash == "hash-2").IsValidAt(later).ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task DeleteExpiredPendingRegistrationsAsync_borra_el_pendiente_vencido_y_sus_tokens()
+    {
+        var email = Email.Create("vencido@correo.com").Value;
+        await SaveAsync(UserMother.Pending(email));
+        var now = UserMother.Now + UserMother.ConfirmationLifetime;
+
+        await using (var context = CreateContext())
+        {
+            var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
+            deleted.ShouldBe(1);
+        }
+
+        await using var verification = CreateContext();
+        (await verification.Users.AnyAsync(user => user.Email == email)).ShouldBeFalse();
+        (await verification.Set<UserToken>().CountAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task DeleteExpiredPendingRegistrationsAsync_conserva_el_pendiente_con_token_vigente()
+    {
+        var email = Email.Create("vigente@correo.com").Value;
+        await SaveAsync(UserMother.Pending(email));
+        var now = UserMother.Now.AddMinutes(1);
+
+        await using (var context = CreateContext())
+        {
+            var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
+            deleted.ShouldBe(0);
+        }
+
+        await using var verification = CreateContext();
+        (await verification.Users.AnyAsync(user => user.Email == email)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task DeleteExpiredPendingRegistrationsAsync_conserva_la_cuenta_confirmada()
+    {
+        var email = Email.Create("confirmada@correo.com").Value;
+        await SaveAsync(UserMother.Confirmed(email));
+        var now = UserMother.Now.AddDays(1);
+
+        await using (var context = CreateContext())
+        {
+            var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
+            deleted.ShouldBe(0);
+        }
+
+        await using var verification = CreateContext();
+        (await verification.Users.AnyAsync(user => user.Email == email)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task DeleteExpiredPendingRegistrationsAsync_conserva_el_pendiente_cuyo_ultimo_token_sigue_vigente()
+    {
+        var user = UserMother.Pending(Email.Create("reenviado@correo.com").Value);
+        user.IssueToken(UserTokenType.EmailConfirmation, "raw-2", "hash-2", UserMother.Now.AddMinutes(10), UserMother.ConfirmationLifetime);
+        await SaveAsync(user);
+        var now = UserMother.Now + UserMother.ConfirmationLifetime;
+
+        await using var context = CreateContext();
+        var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
+
+        deleted.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task DeleteExpiredPendingRegistrationsAsync_ignora_tokens_de_otro_tipo()
+    {
+        var user = UserMother.Pending(Email.Create("restablecer@correo.com").Value);
+        user.IssueToken(UserTokenType.PasswordReset, "raw-reset", "hash-reset", UserMother.Now.AddMinutes(10), TimeSpan.FromMinutes(30));
+        await SaveAsync(user);
+        var now = UserMother.Now + UserMother.ConfirmationLifetime;
+
+        await using var context = CreateContext();
+        var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
+
+        deleted.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task DeleteExpiredPendingRegistrationsAsync_devuelve_solo_la_cantidad_borrada()
+    {
+        var confirmedEmail = Email.Create("confirmada@correo.com").Value;
+        await SaveAsync(UserMother.Pending(Email.Create("pendiente-1@correo.com").Value));
+        await SaveAsync(UserMother.Pending(Email.Create("pendiente-2@correo.com").Value));
+        await SaveAsync(UserMother.Confirmed(confirmedEmail));
+        var now = UserMother.Now + UserMother.ConfirmationLifetime;
+
+        await using (var context = CreateContext())
+        {
+            var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
+            deleted.ShouldBe(2);
+        }
+
+        await using var verification = CreateContext();
+        (await verification.Users.AnyAsync(user => user.Email == confirmedEmail)).ShouldBeTrue();
+    }
+
     private async Task SaveAsync(User user)
     {
         await using var context = CreateContext();
