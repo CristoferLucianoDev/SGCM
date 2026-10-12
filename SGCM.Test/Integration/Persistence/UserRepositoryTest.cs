@@ -49,6 +49,48 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
     }
 
     [Fact]
+    public async Task GetByTokenHashAsync_devuelve_el_usuario_con_todos_sus_tokens_aunque_el_token_este_invalidado()
+    {
+        var pending = UserMother.Pending();
+        pending.IssueToken(UserTokenType.EmailConfirmation, "raw-2", "hash-2", UserMother.Now.AddMinutes(5), UserMother.ConfirmationLifetime);
+        await SaveAsync(pending);
+
+        await using var context = CreateContext();
+        var user = await new UserRepository(context)
+            .GetByTokenHashAsync(UserTokenType.EmailConfirmation, UserMother.DefaultTokenHash, CancellationToken.None);
+
+        // El repositorio solo encuentra; si el token sirve lo decide el dominio.
+        user.ShouldNotBeNull();
+        user.Tokens.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task GetByTokenHashAsync_devuelve_null_si_el_hash_es_de_otro_tipo()
+    {
+        var pending = UserMother.Pending();
+        pending.IssueToken(UserTokenType.PasswordReset, "raw-reset", "hash-reset", UserMother.Now.AddMinutes(10), TimeSpan.FromMinutes(30));
+        await SaveAsync(pending);
+
+        await using var context = CreateContext();
+        var user = await new UserRepository(context)
+            .GetByTokenHashAsync(UserTokenType.EmailConfirmation, "hash-reset", CancellationToken.None);
+
+        user.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetByTokenHashAsync_devuelve_null_si_el_hash_no_existe()
+    {
+        await SaveAsync(UserMother.Pending());
+
+        await using var context = CreateContext();
+        var user = await new UserRepository(context)
+            .GetByTokenHashAsync(UserTokenType.EmailConfirmation, "hash-inexistente", CancellationToken.None);
+
+        user.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Persiste_el_reemplazo_de_un_registro_pendiente()
     {
         await SaveAsync(UserMother.Pending());

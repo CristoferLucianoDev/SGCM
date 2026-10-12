@@ -3,6 +3,7 @@ using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Test.Common.Database;
+using SGCM.Test.Common.Fakes;
 
 namespace SGCM.Test.Common.Web;
 
@@ -17,6 +18,11 @@ public abstract class ApiIntegrationTestBase(PostgresFixture database) : Integra
         _factory ?? throw new InvalidOperationException("La app de pruebas no se inicializó.");
 
     protected HttpClient Client { get; private set; } = null!;
+
+    /// <summary>
+    /// Reloj de la app, que la prueba adelanta para simular el paso del tiempo.
+    /// </summary>
+    protected FakeDateTimeProvider Clock => Factory.Clock;
 
     public override async Task InitializeAsync()
     {
