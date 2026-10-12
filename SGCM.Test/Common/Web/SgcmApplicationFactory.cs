@@ -36,7 +36,9 @@ public sealed class SgcmApplicationFactory(string connectionString) : WebApplica
             {
                 ["ConnectionStrings:SgcmDatabase"] = connectionString,
                 ["Jwt:SigningKey"] = new string('k', JwtOptions.MinimumSigningKeyBytes),
-                ["Accounts:EmailConfirmationUrl"] = ConfirmationUrl
+                ["Accounts:EmailConfirmationUrl"] = ConfirmationUrl,
+                // Apagados para que no alteren los datos que prepara cada prueba.
+                ["Worker:Enabled"] = "false"
             }));
 
         builder.ConfigureTestServices(services =>
