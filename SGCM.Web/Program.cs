@@ -2,6 +2,7 @@ using Serilog;
 using SGCM.Data.Infrastructure;
 using SGCM.Web.Hosting;
 using SGCM.Data.Application;
+using SGCM.Web.Jobs;
 
 namespace SGCM.Web;
 
@@ -15,6 +16,7 @@ public class Program
         builder.Services.AddSgcmOptions(builder.Configuration);
         builder.Services.AddApplication();
         builder.Services.AddInfrastructure();
+        builder.Services.AddSgcmJobs();
         builder.Services.AddSgcmApiDocumentation();
 
         builder.Services.AddControllersWithViews(options =>
