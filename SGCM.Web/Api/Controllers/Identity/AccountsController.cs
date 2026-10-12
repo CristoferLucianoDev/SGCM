@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Identity.Commands.ConfirmEmail;
 using SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
+using SGCM.Data.Application.Identity.Commands.ResendConfirmationEmail;
 using SGCM.Data.Domain.Common;
 using SGCM.Web.Api.Infrastructure;
 using SGCM.Web.Contracts.Identity;
@@ -52,5 +53,32 @@ public sealed class AccountsController : ApiControllerBase
         var result = await handler.HandleAsync(request.ToCommand(), cancellationToken);
 
         return result.IsSuccess ? NoContent() : ErrorResult(result.Error);
+    }
+
+    /// <summary>
+    /// Reenvía el correo de confirmación de un registro pendiente con un enlace nuevo,
+    /// que invalida el anterior.
+    /// </summary>
+    /// <remarks>
+    /// Respuestas de error:
+    /// 400 si el correo no es válido, o si el registro venció o no existe; en ambos casos
+    /// el usuario debe registrarse de nuevo.
+    /// 403 si la cuenta está inactiva.
+    /// 409 si la cuenta ya está confirmada, o si no pasó la espera mínima desde el último envío.
+    /// </remarks>
+    [HttpPost("resend-confirmation")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ResendConfirmationEmail(
+        ResendConfirmationEmailRequest request,
+        [FromServices] ICommandHandler<ResendConfirmationEmailCommand, Unit> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToCommand(), cancellationToken);
+
+        return result.IsSuccess ? Accepted() : ErrorResult(result.Error);
     }
 }
