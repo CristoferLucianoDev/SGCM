@@ -8,9 +8,28 @@ public interface IUserRepository : IRepository<User>
     // Trae el usuario con sus tokens, porque el agregado los necesita para emitir o consumir uno.
     Task<User?> GetByEmailAsync(Email email, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Igual que <see cref="GetByEmailAsync"/>, pero antes bloquea la fila del usuario hasta
+    /// el fin de la transacción, para que la limpieza de registros vencidos y otros reenvíos
+    /// no la modifiquen mientras se usa.
+    /// </summary>
+    /// <param name="email">Correo del usuario.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
+    /// <returns>El usuario con sus tokens, o <c>null</c> si no existe.</returns>
+    /// <exception cref="InvalidOperationException">Si no hay una transacción activa.</exception>
+    Task<User?> GetByEmailForUpdateAsync(Email email, CancellationToken cancellationToken);
+
     // Busca, con sus tokens, el usuario que tiene un token de ese tipo con ese hash; devuelve null si no existe.
     Task<User?> GetByTokenHashAsync(UserTokenType type, string tokenHash, CancellationToken cancellationToken);
 
-    // Borra en una sola sentencia las cuentas sin confirmar que no tienen ningún token de confirmación vigente en now, y devuelve cuántas borró.
+    /// <summary>
+    /// Borra las cuentas sin confirmar que no tienen ningún token de confirmación vigente
+    /// en <paramref name="now"/>. Salta los usuarios cuya fila está bloqueada por otra
+    /// transacción; la siguiente pasada los vuelve a evaluar.
+    /// </summary>
+    /// <param name="now">Momento contra el que se evalúa la vigencia de los tokens.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
+    /// <returns>La cantidad de cuentas borradas.</returns>
+    /// <exception cref="InvalidOperationException">Si no hay una transacción activa.</exception>
     Task<int> DeleteExpiredPendingRegistrationsAsync(DateTimeOffset now, CancellationToken cancellationToken);
 }

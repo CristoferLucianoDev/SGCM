@@ -13,6 +13,9 @@ namespace SGCM.Test.Integration.Persistence;
 [Trait("Category", "Integration")]
 public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase(database)
 {
+    // Tiempo máximo que la limpieza puede tardar mientras otra transacción tiene una fila bloqueada.
+    private static readonly TimeSpan LockWaitTimeout = TimeSpan.FromSeconds(10);
+
     [Fact]
     public async Task Guarda_y_recupera_un_registro_pendiente_con_su_token()
     {
@@ -119,11 +122,7 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         await SaveAsync(UserMother.Pending(email));
         var now = UserMother.Now + UserMother.ConfirmationLifetime;
 
-        await using (var context = CreateContext())
-        {
-            var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
-            deleted.ShouldBe(1);
-        }
+        (await PurgeAsync(now)).ShouldBe(1);
 
         await using var verification = CreateContext();
         (await verification.Users.AnyAsync(user => user.Email == email)).ShouldBeFalse();
@@ -137,11 +136,7 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         await SaveAsync(UserMother.Pending(email));
         var now = UserMother.Now.AddMinutes(1);
 
-        await using (var context = CreateContext())
-        {
-            var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
-            deleted.ShouldBe(0);
-        }
+        (await PurgeAsync(now)).ShouldBe(0);
 
         await using var verification = CreateContext();
         (await verification.Users.AnyAsync(user => user.Email == email)).ShouldBeTrue();
@@ -154,11 +149,7 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         await SaveAsync(UserMother.Confirmed(email));
         var now = UserMother.Now.AddDays(1);
 
-        await using (var context = CreateContext())
-        {
-            var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
-            deleted.ShouldBe(0);
-        }
+        (await PurgeAsync(now)).ShouldBe(0);
 
         await using var verification = CreateContext();
         (await verification.Users.AnyAsync(user => user.Email == email)).ShouldBeTrue();
@@ -172,10 +163,7 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         await SaveAsync(user);
         var now = UserMother.Now + UserMother.ConfirmationLifetime;
 
-        await using var context = CreateContext();
-        var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
-
-        deleted.ShouldBe(0);
+        (await PurgeAsync(now)).ShouldBe(0);
     }
 
     [Fact]
@@ -186,10 +174,7 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         await SaveAsync(user);
         var now = UserMother.Now + UserMother.ConfirmationLifetime;
 
-        await using var context = CreateContext();
-        var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
-
-        deleted.ShouldBe(1);
+        (await PurgeAsync(now)).ShouldBe(1);
     }
 
     [Fact]
@@ -201,14 +186,86 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         await SaveAsync(UserMother.Confirmed(confirmedEmail));
         var now = UserMother.Now + UserMother.ConfirmationLifetime;
 
-        await using (var context = CreateContext())
-        {
-            var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
-            deleted.ShouldBe(2);
-        }
+        (await PurgeAsync(now)).ShouldBe(2);
 
         await using var verification = CreateContext();
         (await verification.Users.AnyAsync(user => user.Email == confirmedEmail)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetByEmailForUpdateAsync_devuelve_el_usuario_con_sus_tokens()
+    {
+        await SaveAsync(UserMother.Pending());
+
+        await using var context = CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var user = await new UserRepository(context).GetByEmailForUpdateAsync(UserMother.DefaultEmail, CancellationToken.None);
+
+        user.ShouldNotBeNull();
+        user.Email.ShouldBe(UserMother.DefaultEmail);
+        user.Tokens.ShouldHaveSingleItem().TokenHash.ShouldBe(UserMother.DefaultTokenHash);
+    }
+
+    [Fact]
+    public async Task GetByEmailForUpdateAsync_devuelve_null_si_el_correo_no_existe()
+    {
+        await using var context = CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+
+        var user = await new UserRepository(context)
+            .GetByEmailForUpdateAsync(Email.Create("nadie@correo.com").Value, CancellationToken.None);
+
+        user.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetByEmailForUpdateAsync_sin_transaccion_lanza_excepcion()
+    {
+        await using var context = CreateContext();
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            new UserRepository(context).GetByEmailForUpdateAsync(UserMother.DefaultEmail, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteExpiredPendingRegistrationsAsync_sin_transaccion_lanza_excepcion()
+    {
+        await using var context = CreateContext();
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(UserMother.Now, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteExpiredPendingRegistrationsAsync_salta_el_usuario_bloqueado_por_otra_transaccion()
+    {
+        // Este es el caso de un reenvío en curso durante la limpieza.
+        var lockedEmail = Email.Create("bloqueado@correo.com").Value;
+        var freeEmail = Email.Create("libre@correo.com").Value;
+        await SaveAsync(UserMother.Pending(lockedEmail));
+        await SaveAsync(UserMother.Pending(freeEmail));
+        var now = UserMother.Now + UserMother.ConfirmationLifetime;
+
+        await using (var resendContext = CreateContext())
+        {
+            await using var resendTransaction = await resendContext.Database.BeginTransactionAsync();
+            (await new UserRepository(resendContext).GetByEmailForUpdateAsync(lockedEmail, CancellationToken.None)).ShouldNotBeNull();
+
+            (await PurgeWithTimeoutAsync(now)).ShouldBe(1);
+
+            await using (var verification = CreateContext())
+            {
+                (await verification.Users.AnyAsync(user => user.Email == freeEmail)).ShouldBeFalse();
+                (await verification.Users.AnyAsync(user => user.Email == lockedEmail)).ShouldBeTrue();
+            }
+
+            await resendTransaction.RollbackAsync();
+        }
+
+        (await PurgeAsync(now)).ShouldBe(1);
+
+        await using var finalVerification = CreateContext();
+        (await finalVerification.Users.AnyAsync(user => user.Email == lockedEmail)).ShouldBeFalse();
     }
 
     private async Task SaveAsync(User user)
@@ -216,6 +273,27 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         await using var context = CreateContext();
         new UserRepository(context).Add(user);
         await context.SaveChangesAsync();
+    }
+
+    private async Task<int> PurgeAsync(DateTimeOffset now)
+    {
+        await using var context = CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, CancellationToken.None);
+        await transaction.CommitAsync();
+        return deleted;
+    }
+
+    // Si la limpieza esperara el bloqueo en vez de saltarlo, la prueba colgaría: el límite
+    // la hace fallar por cancelación.
+    private async Task<int> PurgeWithTimeoutAsync(DateTimeOffset now)
+    {
+        using var timeout = new CancellationTokenSource(LockWaitTimeout);
+        await using var context = CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync(timeout.Token);
+        var deleted = await new UserRepository(context).DeleteExpiredPendingRegistrationsAsync(now, timeout.Token);
+        await transaction.CommitAsync(timeout.Token);
+        return deleted;
     }
 
     private AppDbContext CreateContext() =>
