@@ -128,6 +128,57 @@ public sealed class User : ActivatableAggregateRoot
     }
 
     /// <summary>
+    /// Reenvía el correo de confirmación de un registro pendiente: emite un token de
+    /// confirmación nuevo, lo que invalida el anterior, siempre que haya pasado la espera
+    /// mínima desde el último enlace enviado. El vencimiento del registro se revisa antes
+    /// que la espera porque, si el registro venció, esperar no sirve: hay que registrarse de nuevo.
+    /// </summary>
+    /// <param name="rawToken">Nuevo token de confirmación en claro.</param>
+    /// <param name="tokenHash">Hash del nuevo token de confirmación.</param>
+    /// <param name="now">Momento del reenvío.</param>
+    /// <param name="confirmationLifetime">Tiempo de vigencia del nuevo token.</param>
+    /// <param name="resendCooldown">Espera mínima entre el último enlace enviado y un reenvío.</param>
+    /// <returns>
+    /// Éxito; <see cref="UserErrors.EmailAlreadyConfirmed"/> si la cuenta ya fue confirmada;
+    /// <see cref="UserErrors.AccountInactive"/> si la cuenta está desactivada;
+    /// <see cref="UserErrors.RegistrationExpired"/> si el registro pendiente venció;
+    /// o <see cref="UserErrors.ResendTooSoon"/> si no pasó la espera mínima.
+    /// En todos los casos de error el usuario no se modifica.
+    /// </returns>
+    /// <exception cref="DomainException">Si falta algún dato obligatorio o la vigencia no es positiva.</exception>
+    public Result ResendEmailConfirmation(
+        string rawToken,
+        string tokenHash,
+        DateTimeOffset now,
+        TimeSpan confirmationLifetime,
+        TimeSpan resendCooldown)
+    {
+        if (IsEmailConfirmed)
+        {
+            return UserErrors.EmailAlreadyConfirmed;
+        }
+
+        if (!IsActive)
+        {
+            return UserErrors.AccountInactive;
+        }
+
+        if (IsPendingRegistrationExpiredAt(now))
+        {
+            return UserErrors.RegistrationExpired;
+        }
+
+        if (now < LastEmailConfirmationIssuedAt() + resendCooldown)
+        {
+            return UserErrors.ResendTooSoon;
+        }
+
+        IssueToken(UserTokenType.EmailConfirmation, rawToken, tokenHash, now, confirmationLifetime);
+
+        return Result.Success();
+    }
+
+    /// <summary>
     /// Emite un token del tipo indicado. Antes invalida los tokens vigentes del mismo
     /// tipo, de modo que solo el último enlace enviado funcione. Los tokens de otros
     /// tipos no se tocan.
@@ -232,6 +283,12 @@ public sealed class User : ActivatableAggregateRoot
 
         return Result.Success();
     }
+
+    // La espera se mide desde el último enlace enviado, sea por registro, reemplazo o reenvío.
+    private DateTimeOffset LastEmailConfirmationIssuedAt() =>
+        _tokens
+            .Where(token => token.Type == UserTokenType.EmailConfirmation)
+            .Max(token => token.IssuedAt);
 
     private static void EnsurePasswordHash(string passwordHash)
     {
