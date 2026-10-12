@@ -63,4 +63,21 @@ public static class UserErrors
         code: "User.RegistrationExpired",
         description: "El enlace venció. Debes registrarte de nuevo."
     );
+
+    /// <summary>
+    /// Se pidió un reenvío del correo de confirmación para una cuenta que ya confirmó su correo.
+    /// </summary>
+    public static readonly Error EmailAlreadyConfirmed = Error.Conflict(
+        code: "User.EmailAlreadyConfirmed",
+        description: "Tu correo ya está confirmado. Inicia sesión."
+    );
+
+    /// <summary>
+    /// Se pidió un reenvío del correo de confirmación antes de que pase la espera
+    /// mínima desde el último enlace enviado.
+    /// </summary>
+    public static readonly Error ResendTooSoon = Error.Conflict(
+        code: "User.ResendTooSoon",
+        description: "Debes esperar antes de pedir otro correo."
+    );
 }
