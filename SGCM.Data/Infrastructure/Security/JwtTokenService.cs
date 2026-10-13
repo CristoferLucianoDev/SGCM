@@ -31,7 +31,7 @@ internal sealed class JwtTokenService : ITokenService
         _signingCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
     }
 
-    public AccessToken CreateAccessToken(int userId, UserRole role, int sessionId)
+    public AccessToken CreateAccessToken(int userId, UserRole role, int sessionId, PendingStep? pendingStep)
     {
         var now = _dateTimeProvider.UtcNow;
         var expiresAt = now.AddMinutes(_options.AccessTokenMinutes);
@@ -44,15 +44,27 @@ internal sealed class JwtTokenService : ITokenService
             NotBefore = now.UtcDateTime,
             Expires = expiresAt.UtcDateTime,
             SigningCredentials = _signingCredentials,
-            Claims = new Dictionary<string, object>
-            {
-                [AppClaims.UserId] = userId.ToString(CultureInfo.InvariantCulture),
-                [AppClaims.Role] = role.ToString(),
-                [AppClaims.SessionId] = sessionId.ToString(CultureInfo.InvariantCulture),
-                [AppClaims.TokenId] = Guid.NewGuid().ToString(),
-            },
+            Claims = CreateClaims(userId, role, sessionId, pendingStep),
         });
 
         return new AccessToken(token, expiresAt);
+    }
+
+    private static Dictionary<string, object> CreateClaims(int userId, UserRole role, int sessionId, PendingStep? pendingStep)
+    {
+        var claims = new Dictionary<string, object>
+        {
+            [AppClaims.UserId] = userId.ToString(CultureInfo.InvariantCulture),
+            [AppClaims.Role] = role.ToString(),
+            [AppClaims.SessionId] = sessionId.ToString(CultureInfo.InvariantCulture),
+            [AppClaims.TokenId] = Guid.NewGuid().ToString(),
+        };
+
+        if (pendingStep is { } step)
+        {
+            claims[AppClaims.PendingStep] = PendingStepClaimValues.From(step);
+        }
+
+        return claims;
     }
 }

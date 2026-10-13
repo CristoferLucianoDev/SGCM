@@ -1,4 +1,6 @@
-﻿namespace SGCM.Data.Application.Abstractions.Security;
+﻿using SGCM.Data.Domain.Identity.Users;
+
+namespace SGCM.Data.Application.Abstractions.Security;
 
 /// <summary>
 /// Par de tokens que recibe el cliente al abrir una sesión. El refresh token va en claro
@@ -7,4 +9,12 @@
 /// <param name="AccessToken">Access token JWT firmado y su vencimiento.</param>
 /// <param name="RefreshToken">Refresh token en claro.</param>
 /// <param name="RefreshTokenExpiresAt">Momento en que vence el refresh token, que es el vencimiento de la sesión.</param>
-public sealed record SessionTokens(AccessToken AccessToken, string RefreshToken, DateTimeOffset RefreshTokenExpiresAt);
+/// <param name="PendingStep">
+/// Paso que el usuario debe completar, o <c>null</c> si no tiene ninguno. Le dice al cliente
+/// a qué pantalla llevar al usuario después de iniciar sesión.
+/// </param>
+public sealed record SessionTokens(
+    AccessToken AccessToken,
+    string RefreshToken,
+    DateTimeOffset RefreshTokenExpiresAt,
+    PendingStep? PendingStep);

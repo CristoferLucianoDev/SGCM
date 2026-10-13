@@ -42,6 +42,18 @@ public sealed class SessionServiceTests(PostgresFixture database) : ApiIntegrati
         (await CountRowsContainingAsync(scope, tokens.RefreshToken)).ShouldBe(0);
     }
 
+    [Fact]
+    public async Task StartAsync_de_un_paciente_sin_perfil_lleva_el_claim_del_paso()
+    {
+        await SaveAsync(UserMother.Confirmed());
+
+        var tokens = await StartSessionAsync();
+
+        var accessToken = new JsonWebTokenHandler().ReadJsonWebToken(tokens.AccessToken.Value);
+        accessToken.GetClaim(AppClaims.PendingStep).Value.ShouldBe("patient_profile");
+        tokens.PendingStep.ShouldBe(PendingStep.PatientProfile);
+    }
+
     private async Task<SessionTokens> StartSessionAsync()
     {
         using var scope = Factory.Services.CreateScope();

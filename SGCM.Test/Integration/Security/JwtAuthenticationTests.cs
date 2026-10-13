@@ -62,7 +62,7 @@ public sealed class JwtAuthenticationTests(PostgresFixture database) : ApiIntegr
     public async Task Un_token_emitido_por_la_app_es_valido()
     {
         Clock.UtcNow = DateTimeOffset.UtcNow;
-        var accessToken = TokenService.CreateAccessToken(UserId, UserRole.Patient, SessionId);
+        var accessToken = TokenService.CreateAccessToken(UserId, UserRole.Patient, SessionId, null);
 
         var result = await ValidateAsync(accessToken.Value);
 
@@ -77,7 +77,7 @@ public sealed class JwtAuthenticationTests(PostgresFixture database) : ApiIntegr
     public async Task Un_token_vencido_se_rechaza()
     {
         Clock.UtcNow = DateTimeOffset.UtcNow - ExpiredIssueOffset;
-        var accessToken = TokenService.CreateAccessToken(UserId, UserRole.Patient, SessionId);
+        var accessToken = TokenService.CreateAccessToken(UserId, UserRole.Patient, SessionId, null);
 
         var result = await ValidateAsync(accessToken.Value);
 

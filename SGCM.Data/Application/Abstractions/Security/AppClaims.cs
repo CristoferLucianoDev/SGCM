@@ -17,4 +17,10 @@ public static class AppClaims
 
     /// <summary>Identificador único del token.</summary>
     public const string TokenId = "jti";
+
+    /// <summary>
+    /// Paso que el usuario debe completar antes de usar el resto del sistema. Si no tiene
+    /// ninguno, el claim no va en el token.
+    /// </summary>
+    public const string PendingStep = "pending_step";
 }
