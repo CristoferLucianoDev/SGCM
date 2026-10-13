@@ -8,9 +8,14 @@ internal sealed class SecureTokenGenerator : ISecureTokenGenerator
 {
     private const int TokenSizeInBytes = 32;
 
-    public SecureToken Generate()
+    public SecureToken Generate() => Generate(TokenSizeInBytes);
+
+    public SecureToken Generate(int byteCount)
     {
-        var bytes = RandomNumberGenerator.GetBytes(TokenSizeInBytes);
+        // Por debajo de 32 bytes el token sería adivinable.
+        ArgumentOutOfRangeException.ThrowIfLessThan(byteCount, TokenSizeInBytes);
+
+        var bytes = RandomNumberGenerator.GetBytes(byteCount);
 
         // Base64Url: el token viaja en un enlace, así que no puede llevar '+', '/' ni '='.
         var value = Convert.ToBase64String(bytes)

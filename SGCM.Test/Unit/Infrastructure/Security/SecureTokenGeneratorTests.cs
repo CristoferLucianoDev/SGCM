@@ -1,4 +1,5 @@
-﻿using Shouldly;
+﻿using Microsoft.AspNetCore.WebUtilities;
+using Shouldly;
 using SGCM.Data.Infrastructure.Security;
 
 namespace SGCM.Test.Unit.Infrastructure.Security;
@@ -43,6 +44,24 @@ public sealed class SecureTokenGeneratorTests
         var token = _generator.Generate();
 
         _generator.Hash(token.Value).ShouldBe(token.Hash);
+    }
+
+    [Fact]
+    public void Generate_WithByteCount_ValueDecodesToThatManyBytes()
+    {
+        const int byteCount = 64;
+
+        var token = _generator.Generate(byteCount);
+
+        WebEncoders.Base64UrlDecode(token.Value).Length.ShouldBe(byteCount);
+    }
+
+    [Fact]
+    public void Generate_WithFewerThan32Bytes_Throws()
+    {
+        const int byteCount = 16;
+
+        Should.Throw<ArgumentOutOfRangeException>(() => _generator.Generate(byteCount));
     }
 
     [Fact]

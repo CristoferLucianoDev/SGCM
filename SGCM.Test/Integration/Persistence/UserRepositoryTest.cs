@@ -16,6 +16,16 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
     // Tiempo máximo que la limpieza puede tardar mientras otra transacción tiene una fila bloqueada.
     private static readonly TimeSpan LockWaitTimeout = TimeSpan.FromSeconds(10);
 
+    private static readonly DateTimeOffset Now = UserMother.Now;
+
+    // Vigencia de la sesión y máximo de sesiones activas que fija la arquitectura.
+    private static readonly TimeSpan SessionLifetime = TimeSpan.FromDays(7);
+    private const int MaxSessions = 5;
+
+    private const string SessionHash = "hash-sesion";
+    private const string DeviceName = "Chrome en Windows";
+    private const string IpAddress = "203.0.113.10";
+
     [Fact]
     public async Task Guarda_y_recupera_un_registro_pendiente_con_su_token()
     {
@@ -267,6 +277,86 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         await using var finalVerification = CreateContext();
         (await finalVerification.Users.AnyAsync(user => user.Email == lockedEmail)).ShouldBeFalse();
     }
+
+    [Fact]
+    public async Task Persiste_una_sesion_con_sus_datos()
+    {
+        var confirmed = UserMother.Confirmed();
+        StartSession(confirmed, SessionHash, Now);
+        await SaveAsync(confirmed);
+
+        await using var context = CreateContext();
+        var user = await new UserRepository(context).GetByEmailAsync(UserMother.DefaultEmail, CancellationToken.None);
+
+        var session = user!.Sessions.ShouldHaveSingleItem();
+        session.Id.ShouldBeGreaterThan(0);
+        session.RefreshTokenHash.ShouldBe(SessionHash);
+        session.DeviceName.ShouldBe(DeviceName);
+        session.IpAddress.ShouldBe(IpAddress);
+        session.ExpiresAt.ShouldBe(Now + SessionLifetime);
+        session.LastUsedAt.ShouldBe(Now);
+        session.RevokedAt.ShouldBeNull();
+        session.RevocationReason.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Persiste_la_revocacion_por_limite_de_sesiones()
+    {
+        var confirmed = UserMother.Confirmed();
+        for (var index = 0; index <= MaxSessions; index++)
+        {
+            StartSession(confirmed, $"hash-{index}", Now.AddMinutes(index));
+        }
+
+        await SaveAsync(confirmed);
+        var limitAt = Now.AddMinutes(MaxSessions);
+
+        await using var context = CreateContext();
+        var user = await new UserRepository(context).GetByEmailAsync(UserMother.DefaultEmail, CancellationToken.None);
+
+        var first = user!.Sessions.Single(session => session.RefreshTokenHash == "hash-0");
+        first.RevocationReason.ShouldBe(SessionRevocationReason.SessionLimit);
+        first.RevokedAt.ShouldBe(limitAt);
+        user.Sessions.Count(session => session.IsActiveAt(limitAt)).ShouldBe(MaxSessions);
+
+        var storedReason = await context.Database
+            .SqlQuery<string>($"SELECT revocation_reason AS \"Value\" FROM app.user_session WHERE id = {first.Id}")
+            .SingleAsync();
+        storedReason.ShouldBe("session_limit");
+    }
+
+    [Fact]
+    public async Task GetByTokenHashAsync_carga_tambien_las_sesiones()
+    {
+        var confirmed = UserMother.Confirmed();
+        StartSession(confirmed, SessionHash, Now);
+        await SaveAsync(confirmed);
+
+        await using var context = CreateContext();
+        var user = await new UserRepository(context)
+            .GetByTokenHashAsync(UserTokenType.EmailConfirmation, UserMother.DefaultTokenHash, CancellationToken.None);
+
+        user.ShouldNotBeNull();
+        user.Sessions.ShouldHaveSingleItem().RefreshTokenHash.ShouldBe(SessionHash);
+    }
+
+    [Fact]
+    public async Task GetByEmailForUpdateAsync_carga_tambien_las_sesiones()
+    {
+        var confirmed = UserMother.Confirmed();
+        StartSession(confirmed, SessionHash, Now);
+        await SaveAsync(confirmed);
+
+        await using var context = CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var user = await new UserRepository(context).GetByEmailForUpdateAsync(UserMother.DefaultEmail, CancellationToken.None);
+
+        user.ShouldNotBeNull();
+        user.Sessions.ShouldHaveSingleItem().RefreshTokenHash.ShouldBe(SessionHash);
+    }
+
+    private static void StartSession(User user, string refreshTokenHash, DateTimeOffset at) =>
+        user.StartSession(refreshTokenHash, DeviceName, IpAddress, at, SessionLifetime, MaxSessions).IsSuccess.ShouldBeTrue();
 
     private async Task SaveAsync(User user)
     {

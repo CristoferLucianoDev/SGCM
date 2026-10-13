@@ -8,13 +8,11 @@ namespace SGCM.Data.Infrastructure.Persistence.Repositories.Identity;
 internal sealed class UserRepository(AppDbContext context) : IUserRepository
 {
     public Task<User?> GetByEmailAsync(Email email, CancellationToken cancellationToken) =>
-        context.Users
-            .Include(user => user.Tokens)
+        UsersWithChildren()
             .SingleOrDefaultAsync(user => user.Email == email, cancellationToken);
 
     public Task<User?> GetByTokenHashAsync(UserTokenType type, string tokenHash, CancellationToken cancellationToken) =>
-        context.Users
-            .Include(user => user.Tokens)
+        UsersWithChildren()
             .SingleOrDefaultAsync(
                 user => user.Tokens.Any(token => token.Type == type && token.TokenHash == tokenHash),
                 cancellationToken);
@@ -63,6 +61,16 @@ internal sealed class UserRepository(AppDbContext context) : IUserRepository
     }
 
     public void Add(User user) => context.Users.Add(user);
+
+    // El agregado se carga completo porque sus reglas (límite de sesiones, invalidar tokens)
+    // necesitan ver todos sus hijos. AsSplitQuery evita el producto cartesiano de dos
+    // colecciones en un mismo JOIN. El volumen de sesiones queda acotado porque un proceso
+    // periódico borra las vencidas o revocadas con más de 30 días (modelo de datos, sección 8).
+    private IQueryable<User> UsersWithChildren() =>
+        context.Users
+            .Include(user => user.Tokens)
+            .Include(user => user.Sessions)
+            .AsSplitQuery();
 
     private Task<List<int>> LockSkippingLockedAsync(int[] candidateIds, CancellationToken cancellationToken) =>
         context.Database

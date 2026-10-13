@@ -31,6 +31,13 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
 
         builder.Navigation(user => user.Tokens).UsePropertyAccessMode(PropertyAccessMode.Field);
 
+        builder.HasMany(user => user.Sessions)
+            .WithOne()
+            .HasForeignKey("UserId")
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Navigation(user => user.Sessions).UsePropertyAccessMode(PropertyAccessMode.Field);
+
         builder.Ignore(user => user.DomainEvents);
     }
 }
