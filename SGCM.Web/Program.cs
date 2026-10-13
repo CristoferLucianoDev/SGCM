@@ -14,6 +14,7 @@ public class Program
 
         builder.Services.AddSgcmLogging(builder.Configuration);
         builder.Services.AddSgcmOptions(builder.Configuration);
+        builder.Services.AddSgcmAuthentication();
         builder.Services.AddApplication();
         builder.Services.AddInfrastructure();
         builder.Services.AddSgcmJobs();
@@ -40,6 +41,7 @@ public class Program
 
         app.UseRouting();
 
+        app.UseAuthentication();
         app.UseAuthorization();
 
         app.MapControllerRoute(
