@@ -62,6 +62,10 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<INotificationService>());
         services.AddSingleton<IDateTimeProvider>(new FakeDateTimeProvider());
         services.AddSingleton(Options.Create(new AccountsOptions { EmailConfirmationTokenMinutes = 15 }));
+        services.AddSingleton(Substitute.For<IAttemptLimiter>());
+        services.AddSingleton(Substitute.For<ITwoFactorStatusReader>());
+        services.AddSingleton(Substitute.For<ISessionService>());
+        services.AddSingleton(Options.Create(new LoginLimitsOptions()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
     }

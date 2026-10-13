@@ -12,4 +12,12 @@ public static class CommonErrors
         code: "Common.InvalidEmail",
         description: "El correo no tiene un formato válido o supera 256 caracteres."
     );
+
+    /// <summary>
+    /// Se superó el máximo de peticiones permitidas desde el mismo origen en la ventana configurada.
+    /// </summary>
+    public static readonly Error TooManyRequests = Error.TooManyRequests(
+        code: "Common.TooManyRequests",
+        description: "Demasiadas solicitudes. Intenta de nuevo más tarde."
+    );
 }

@@ -48,6 +48,9 @@ public sealed class SgcmApplicationFactory(string connectionString) : WebApplica
                 ["ConnectionStrings:SgcmDatabase"] = connectionString,
                 ["Jwt:SigningKey"] = new string('k', JwtOptions.MinimumSigningKeyBytes),
                 ["Accounts:EmailConfirmationUrl"] = ConfirmationUrl,
+                // En el servidor de pruebas todas las peticiones llegan sin IP y comparten la
+                // partición del límite por IP; las pruebas de ese límite lo bajan explícitamente.
+                ["LoginLimits:MaxRequestsPerIp"] = "1000",
                 // Apagados para que no alteren los datos que prepara cada prueba.
                 ["Worker:Enabled"] = "false"
             }));
