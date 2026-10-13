@@ -27,13 +27,19 @@ public sealed class SessionServiceTests
     private readonly ISecureTokenGenerator _tokenGenerator = Substitute.For<ISecureTokenGenerator>();
     private readonly ITokenService _tokenService = Substitute.For<ITokenService>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
+    private readonly IUserProfileReader _profileReader = Substitute.For<IUserProfileReader>();
     private readonly FakeDateTimeProvider _clock = new();
     private readonly SessionService _service;
 
     public SessionServiceTests()
     {
         _tokenGenerator.Generate(RefreshTokenSizeInBytes).Returns(RefreshToken);
-        _tokenService.CreateAccessToken(Arg.Any<int>(), Arg.Any<UserRole>(), Arg.Any<int>()).Returns(IssuedAccessToken);
+        _tokenService
+            .CreateAccessToken(Arg.Any<int>(), Arg.Any<UserRole>(), Arg.Any<int>(), Arg.Any<PendingStep?>())
+            .Returns(IssuedAccessToken);
+        _profileReader
+            .HasProfileAsync(Arg.Any<int>(), Arg.Any<UserRole>(), Arg.Any<CancellationToken>())
+            .Returns(true);
 
         var options = Options.Create(new JwtOptions
         {
@@ -41,7 +47,7 @@ public sealed class SessionServiceTests
             MaxActiveSessionsPerUser = MaxActiveSessions
         });
 
-        _service = new SessionService(_tokenGenerator, _tokenService, _unitOfWork, _clock, options);
+        _service = new SessionService(_tokenGenerator, _tokenService, _unitOfWork, _profileReader, _clock, options);
     }
 
     public static TheoryData<string?, string?> DeviceNames => new()
@@ -76,7 +82,7 @@ public sealed class SessionServiceTests
         Received.InOrder(() =>
         {
             _unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>());
-            _tokenService.CreateAccessToken(Arg.Is(user.Id), user.Role, Arg.Any<int>());
+            _tokenService.CreateAccessToken(Arg.Is(user.Id), Arg.Is(user.Role), Arg.Any<int>(), Arg.Any<PendingStep?>());
         });
     }
 
@@ -98,7 +104,8 @@ public sealed class SessionServiceTests
 
         result.Error.ShouldBe(UserErrors.AccountInactive);
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
-        _tokenService.DidNotReceive().CreateAccessToken(Arg.Any<int>(), Arg.Any<UserRole>(), Arg.Any<int>());
+        _tokenService.DidNotReceive()
+            .CreateAccessToken(Arg.Any<int>(), Arg.Any<UserRole>(), Arg.Any<int>(), Arg.Any<PendingStep?>());
     }
 
     [Theory]
@@ -124,6 +131,41 @@ public sealed class SessionServiceTests
         await _service.StartAsync(user, DeviceName, ipAddress, CancellationToken.None);
 
         user.Sessions.ShouldHaveSingleItem().IpAddress.ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task StartAsync_con_perfil_no_lleva_paso_pendiente()
+    {
+        var result = await _service.StartAsync(ConfirmedUser(), DeviceName, IpAddress, CancellationToken.None);
+
+        result.Value.PendingStep.ShouldBeNull();
+        _tokenService.Received(1).CreateAccessToken(
+            Arg.Any<int>(), Arg.Any<UserRole>(), Arg.Any<int>(), Arg.Is<PendingStep?>(step => step == null));
+    }
+
+    [Fact]
+    public async Task StartAsync_de_un_paciente_sin_perfil_lleva_su_perfil_como_paso()
+    {
+        _profileReader
+            .HasProfileAsync(Arg.Any<int>(), Arg.Any<UserRole>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var result = await _service.StartAsync(ConfirmedUser(), DeviceName, IpAddress, CancellationToken.None);
+
+        result.Value.PendingStep.ShouldBe(PendingStep.PatientProfile);
+        _tokenService.Received(1).CreateAccessToken(
+            Arg.Any<int>(), Arg.Any<UserRole>(), Arg.Any<int>(), Arg.Is<PendingStep?>(PendingStep.PatientProfile));
+    }
+
+    [Fact]
+    public async Task StartAsync_consulta_el_perfil_del_usuario_y_su_rol()
+    {
+        var user = ConfirmedUser();
+
+        await _service.StartAsync(user, DeviceName, IpAddress, CancellationToken.None);
+
+        await _profileReader.Received(1)
+            .HasProfileAsync(Arg.Is(user.Id), Arg.Is(user.Role), Arg.Any<CancellationToken>());
     }
 
     private static User ConfirmedUser()

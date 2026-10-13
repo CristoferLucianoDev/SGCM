@@ -45,7 +45,7 @@ public sealed class JwtTokenServiceTests
     [Fact]
     public void CreateAccessToken_lleva_los_claims_de_la_sesion()
     {
-        var token = Read(_service.CreateAccessToken(UserId, UserRole.Patient, SessionId));
+        var token = Read(_service.CreateAccessToken(UserId, UserRole.Patient, SessionId, null));
 
         token.GetClaim(AppClaims.UserId).Value.ShouldBe("7");
         token.GetClaim(AppClaims.Role).Value.ShouldBe("Patient");
@@ -59,9 +59,28 @@ public sealed class JwtTokenServiceTests
     [InlineData(UserRole.Administrator)]
     public void CreateAccessToken_lleva_el_nombre_del_rol(UserRole role)
     {
-        var token = Read(_service.CreateAccessToken(UserId, role, SessionId));
+        var token = Read(_service.CreateAccessToken(UserId, role, SessionId, null));
 
         token.GetClaim(AppClaims.Role).Value.ShouldBe(role.ToString());
+    }
+
+    [Theory]
+    [InlineData(PendingStep.ChangeTemporaryPassword, "change_password")]
+    [InlineData(PendingStep.DoctorProfile, "doctor_profile")]
+    [InlineData(PendingStep.PatientProfile, "patient_profile")]
+    public void CreateAccessToken_lleva_el_paso_pendiente(PendingStep step, string expected)
+    {
+        var token = Read(_service.CreateAccessToken(UserId, UserRole.Patient, SessionId, step));
+
+        token.GetClaim(AppClaims.PendingStep).Value.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void CreateAccessToken_sin_paso_pendiente_no_lleva_el_claim()
+    {
+        var token = Read(_service.CreateAccessToken(UserId, UserRole.Patient, SessionId, null));
+
+        token.TryGetClaim(AppClaims.PendingStep, out _).ShouldBeFalse();
     }
 
     [Fact]
@@ -69,7 +88,7 @@ public sealed class JwtTokenServiceTests
     {
         var expectedExpiration = _clock.UtcNow.AddMinutes(AccessTokenMinutes);
 
-        var accessToken = _service.CreateAccessToken(UserId, UserRole.Patient, SessionId);
+        var accessToken = _service.CreateAccessToken(UserId, UserRole.Patient, SessionId, null);
         var token = Read(accessToken);
 
         accessToken.ExpiresAt.ShouldBe(expectedExpiration);
@@ -80,7 +99,7 @@ public sealed class JwtTokenServiceTests
     [Fact]
     public void CreateAccessToken_lleva_emisor_y_audiencia()
     {
-        var token = Read(_service.CreateAccessToken(UserId, UserRole.Patient, SessionId));
+        var token = Read(_service.CreateAccessToken(UserId, UserRole.Patient, SessionId, null));
 
         token.Issuer.ShouldBe(Issuer);
         token.Audiences.ShouldBe([Audience]);
@@ -89,7 +108,7 @@ public sealed class JwtTokenServiceTests
     [Fact]
     public async Task CreateAccessToken_firma_con_HS256_y_la_llave_configurada()
     {
-        var accessToken = _service.CreateAccessToken(UserId, UserRole.Patient, SessionId);
+        var accessToken = _service.CreateAccessToken(UserId, UserRole.Patient, SessionId, null);
 
         var result = await _handler.ValidateTokenAsync(accessToken.Value, ValidationParameters(SigningKey));
 
@@ -100,7 +119,7 @@ public sealed class JwtTokenServiceTests
     [Fact]
     public async Task CreateAccessToken_con_otra_llave_no_valida()
     {
-        var accessToken = _service.CreateAccessToken(UserId, UserRole.Patient, SessionId);
+        var accessToken = _service.CreateAccessToken(UserId, UserRole.Patient, SessionId, null);
 
         var result = await _handler.ValidateTokenAsync(accessToken.Value, ValidationParameters(OtherSigningKey));
 
@@ -110,8 +129,8 @@ public sealed class JwtTokenServiceTests
     [Fact]
     public void CreateAccessToken_emite_un_jti_distinto_en_cada_token()
     {
-        var first = Read(_service.CreateAccessToken(UserId, UserRole.Patient, SessionId));
-        var second = Read(_service.CreateAccessToken(UserId, UserRole.Patient, SessionId));
+        var first = Read(_service.CreateAccessToken(UserId, UserRole.Patient, SessionId, null));
+        var second = Read(_service.CreateAccessToken(UserId, UserRole.Patient, SessionId, null));
 
         first.GetClaim(AppClaims.TokenId).Value.ShouldNotBe(second.GetClaim(AppClaims.TokenId).Value);
     }

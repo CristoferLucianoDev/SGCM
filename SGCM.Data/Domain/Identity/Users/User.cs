@@ -338,6 +338,38 @@ public sealed class User : ActivatableAggregateRoot
         return session;
     }
 
+    /// <summary>
+    /// Indica el paso que el usuario debe completar antes de usar el resto del sistema.
+    /// La contraseña temporal va primero, porque el médico la cambia antes de completar su
+    /// perfil. El administrador no tiene paso de perfil.
+    /// </summary>
+    /// <param name="hasProfile">
+    /// Si el usuario ya tiene su perfil de médico o de paciente. El perfil está en otro
+    /// agregado, así que lo resuelve quien llama.
+    /// </param>
+    /// <returns>El paso pendiente, o <c>null</c> si no tiene ninguno.</returns>
+    /// <exception cref="DomainException">Si el rol del usuario no tiene definido su paso de perfil.</exception>
+    public PendingStep? GetPendingStep(bool hasProfile)
+    {
+        if (MustChangePassword)
+        {
+            return PendingStep.ChangeTemporaryPassword;
+        }
+
+        if (hasProfile)
+        {
+            return null;
+        }
+
+        return Role switch
+        {
+            UserRole.Doctor => PendingStep.DoctorProfile,
+            UserRole.Patient => PendingStep.PatientProfile,
+            UserRole.Administrator => null,
+            _ => throw new DomainException($"El rol {Role} no tiene definido su paso de perfil.")
+        };
+    }
+
     // Bucle y no un solo if: si se baja el máximo en la configuración, un usuario puede
     // tener más de una sesión de sobra.
     private void RevokeSessionsOverLimit(DateTimeOffset now, int maxActiveSessions)

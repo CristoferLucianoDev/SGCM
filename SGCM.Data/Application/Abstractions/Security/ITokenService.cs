@@ -16,6 +16,10 @@ public interface ITokenService
     /// <param name="sessionId">
     /// Id de la sesión ya guardada; va en el claim <c>sid</c> para poder revocarla.
     /// </param>
+    /// <param name="pendingStep">
+    /// Paso que el usuario debe completar antes de usar el resto del sistema; va en el claim
+    /// <c>pending_step</c>. Si es <c>null</c>, el claim no se agrega.
+    /// </param>
     /// <returns>El token firmado y su vencimiento.</returns>
-    AccessToken CreateAccessToken(int userId, UserRole role, int sessionId);
+    AccessToken CreateAccessToken(int userId, UserRole role, int sessionId, PendingStep? pendingStep);
 }

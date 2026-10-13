@@ -43,4 +43,17 @@ public static class UserMother
         typeof(User).GetProperty(nameof(User.IsEmailConfirmed))!.SetValue(user, true);
         return user;
     }
+
+    /// <summary>
+    /// Usuario confirmado con el rol y la contraseña temporal indicados. Usa reflexión porque
+    /// el agregado todavía no expone cómo crear médicos ni administradores; cuando exista,
+    /// debe reemplazarse por esa operación.
+    /// </summary>
+    public static User WithRole(UserRole role, bool mustChangePassword = false)
+    {
+        var user = Confirmed();
+        typeof(User).GetProperty(nameof(User.Role))!.SetValue(user, role);
+        typeof(User).GetProperty(nameof(User.MustChangePassword))!.SetValue(user, mustChangePassword);
+        return user;
+    }
 }

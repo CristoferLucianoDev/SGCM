@@ -16,6 +16,7 @@ internal sealed class SessionService(
     ISecureTokenGenerator tokenGenerator,
     ITokenService tokenService,
     IUnitOfWork unitOfWork,
+    IUserProfileReader profileReader,
     IDateTimeProvider dateTimeProvider,
     IOptions<JwtOptions> options) : ISessionService
 {
@@ -53,9 +54,21 @@ internal sealed class SessionService(
         // transacción del comando.
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        var accessToken = tokenService.CreateAccessToken(user.Id, user.Role, session.Id);
+        return await IssueTokensAsync(user, session, refreshToken.Value, cancellationToken);
+    }
 
-        return new SessionTokens(accessToken, refreshToken.Value, session.ExpiresAt);
+    private async Task<SessionTokens> IssueTokensAsync(
+        User user,
+        UserSession session,
+        string refreshToken,
+        CancellationToken cancellationToken)
+    {
+        var hasProfile = await profileReader.HasProfileAsync(user.Id, user.Role, cancellationToken);
+        var pendingStep = user.GetPendingStep(hasProfile);
+
+        var accessToken = tokenService.CreateAccessToken(user.Id, user.Role, session.Id, pendingStep);
+
+        return new SessionTokens(accessToken, refreshToken, session.ExpiresAt, pendingStep);
     }
 
     // Viene del cliente (por ejemplo, el User-Agent) y puede ser más largo que la columna.
