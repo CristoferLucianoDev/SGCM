@@ -19,7 +19,13 @@ public enum ErrorType
     Forbidden,
 
     /// <summary>Fallo genérico que no encaja en las demás categorías.</summary>
-    Failure
+    Failure,
+
+    /// <summary>Las credenciales recibidas no son válidas.</summary>
+    Unauthorized,
+
+    /// <summary>Se superó el límite de intentos permitidos.</summary>
+    TooManyRequests
 }
 
 /// <summary>
@@ -72,4 +78,10 @@ public sealed record Error
 
     /// <summary>Crea un error de tipo <see cref="ErrorType.Failure"/>.</summary>
     public static Error Failure(string code, string description) => new(code, description, ErrorType.Failure);
+
+    /// <summary>Crea un error de tipo <see cref="ErrorType.Unauthorized"/>.</summary>
+    public static Error Unauthorized(string code, string description) => new(code, description, ErrorType.Unauthorized);
+
+    /// <summary>Crea un error de tipo <see cref="ErrorType.TooManyRequests"/>.</summary>
+    public static Error TooManyRequests(string code, string description) => new(code, description, ErrorType.TooManyRequests);
 }

@@ -88,4 +88,22 @@ public static class UserErrors
         code: "User.EmailNotConfirmed",
         description: "Debes confirmar tu correo antes de iniciar sesión."
     );
+
+    /// <summary>
+    /// El correo o la contraseña no son correctos. Es la misma respuesta para correo
+    /// inexistente, contraseña incorrecta, cuenta pendiente o inactiva, para no revelar
+    /// qué cuentas existen.
+    /// </summary>
+    public static readonly Error InvalidCredentials = Error.Unauthorized(
+        code: "User.InvalidCredentials",
+        description: "Correo o contraseña incorrectos."
+    );
+
+    /// <summary>
+    /// Se superó el límite de intentos de inicio de sesión.
+    /// </summary>
+    public static readonly Error TooManyLoginAttempts = Error.TooManyRequests(
+        code: "User.TooManyLoginAttempts",
+        description: "Demasiados intentos. Intenta de nuevo más tarde."
+    );
 }

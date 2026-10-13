@@ -56,6 +56,7 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUserProfileReader, UserProfileReader>();
+        services.AddScoped<ITwoFactorStatusReader, TwoFactorStatusReader>();
 
         return services;
     }
@@ -66,6 +67,7 @@ public static class DependencyInjection
         services.AddSingleton<ISecureTokenGenerator, SecureTokenGenerator>();
         services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddScoped<ISessionService, SessionService>();
+        services.AddSingleton<IAttemptLimiter, MemoryAttemptLimiter>();
 
         return services;
     }
