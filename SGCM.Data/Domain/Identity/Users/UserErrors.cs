@@ -80,4 +80,12 @@ public static class UserErrors
         code: "User.ResendTooSoon",
         description: "Debes esperar antes de pedir otro correo."
     );
+
+    /// <summary>
+    /// Se intentó abrir una sesión para una cuenta que no confirmó su correo.
+    /// </summary>
+    public static readonly Error EmailNotConfirmed = Error.Forbidden(
+        code: "User.EmailNotConfirmed",
+        description: "Debes confirmar tu correo antes de iniciar sesión."
+    );
 }

@@ -11,6 +11,15 @@ public interface ISecureTokenGenerator
     SecureToken Generate();
 
     /// <summary>
+    /// Genera un token de <paramref name="byteCount"/> bytes aleatorios junto con el hash
+    /// que se persiste. Los refresh tokens usan 64.
+    /// </summary>
+    /// <param name="byteCount">Cantidad de bytes aleatorios del token.</param>
+    /// <returns>El token en claro y su hash.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si <paramref name="byteCount"/> es menor que 32.</exception>
+    SecureToken Generate(int byteCount);
+
+    /// <summary>
     /// Calcula el hash del token en claro recibido en un enlace, con el mismo algoritmo
     /// que <see cref="Generate"/>, para poder buscarlo en la base.
     /// </summary>

@@ -12,6 +12,7 @@ namespace SGCM.Data.Domain.Identity.Users;
 public sealed class User : ActivatableAggregateRoot
 {
     private readonly List<UserToken> _tokens = [];
+    private readonly List<UserSession> _sessions = [];
 
     /// <summary>
     /// Correo con el que el usuario inicia sesión.
@@ -42,6 +43,11 @@ public sealed class User : ActivatableAggregateRoot
     /// Historial de tokens emitidos, vigentes o no.
     /// </summary>
     public IReadOnlyCollection<UserToken> Tokens => _tokens.AsReadOnly();
+
+    /// <summary>
+    /// Historial de sesiones abiertas, activas o no.
+    /// </summary>
+    public IReadOnlyCollection<UserSession> Sessions => _sessions.AsReadOnly();
 
     /// <inheritdoc />
     protected override string EntityName => nameof(User);
@@ -284,6 +290,68 @@ public sealed class User : ActivatableAggregateRoot
         return Result.Success();
     }
 
+    /// <summary>
+    /// Abre una sesión nueva en un dispositivo. Si el usuario ya tiene el máximo de sesiones
+    /// activas, revoca con <see cref="SessionRevocationReason.SessionLimit"/> las usadas hace
+    /// más tiempo hasta dejar lugar para la nueva.
+    /// </summary>
+    /// <param name="refreshTokenHash">Hash del refresh token de la sesión, que es lo que se persiste.</param>
+    /// <param name="deviceName">Nombre del dispositivo, si se conoce.</param>
+    /// <param name="ipAddress">Dirección IP desde la que se inicia la sesión, si se conoce.</param>
+    /// <param name="now">Momento del inicio de sesión.</param>
+    /// <param name="lifetime">Tiempo de vigencia de la sesión.</param>
+    /// <param name="maxActiveSessions">Máximo de sesiones activas por usuario, contando la nueva.</param>
+    /// <returns>
+    /// La sesión creada; <see cref="UserErrors.AccountInactive"/> si la cuenta está desactivada;
+    /// o <see cref="UserErrors.EmailNotConfirmed"/> si la cuenta no confirmó su correo.
+    /// En ambos casos de error el usuario no se modifica.
+    /// </returns>
+    /// <exception cref="DomainException">
+    /// Si falta el hash, el dispositivo o la IP superan su longitud máxima, la vigencia no es
+    /// positiva o el máximo de sesiones es menor que uno.
+    /// </exception>
+    public Result<UserSession> StartSession(
+        string refreshTokenHash,
+        string? deviceName,
+        string? ipAddress,
+        DateTimeOffset now,
+        TimeSpan lifetime,
+        int maxActiveSessions)
+    {
+        EnsureSessionData(refreshTokenHash, deviceName, ipAddress, lifetime, maxActiveSessions);
+
+        if (!IsActive)
+        {
+            return UserErrors.AccountInactive;
+        }
+
+        if (!IsEmailConfirmed)
+        {
+            return UserErrors.EmailNotConfirmed;
+        }
+
+        RevokeSessionsOverLimit(now, maxActiveSessions);
+
+        var session = UserSession.Start(refreshTokenHash, deviceName, ipAddress, now, lifetime);
+        _sessions.Add(session);
+
+        return session;
+    }
+
+    // Bucle y no un solo if: si se baja el máximo en la configuración, un usuario puede
+    // tener más de una sesión de sobra.
+    private void RevokeSessionsOverLimit(DateTimeOffset now, int maxActiveSessions)
+    {
+        var active = _sessions.Where(session => session.IsActiveAt(now)).ToList();
+
+        while (active.Count >= maxActiveSessions)
+        {
+            var leastRecentlyUsed = active.MinBy(session => session.LastUsedAt)!;
+            leastRecentlyUsed.Revoke(SessionRevocationReason.SessionLimit, now);
+            active.Remove(leastRecentlyUsed);
+        }
+    }
+
     // La espera se mide desde el último enlace enviado, sea por registro, reemplazo o reenvío.
     private DateTimeOffset LastEmailConfirmationIssuedAt() =>
         _tokens
@@ -295,6 +363,39 @@ public sealed class User : ActivatableAggregateRoot
         if (string.IsNullOrWhiteSpace(passwordHash))
         {
             throw new DomainException("El hash de la contraseña es obligatorio.");
+        }
+    }
+
+    private static void EnsureSessionData(
+        string refreshTokenHash,
+        string? deviceName,
+        string? ipAddress,
+        TimeSpan lifetime,
+        int maxActiveSessions)
+    {
+        if (string.IsNullOrWhiteSpace(refreshTokenHash))
+        {
+            throw new DomainException("El hash del refresh token es obligatorio.");
+        }
+
+        if (deviceName?.Length > UserSession.MaxDeviceNameLength)
+        {
+            throw new DomainException($"El nombre del dispositivo no puede superar {UserSession.MaxDeviceNameLength} caracteres.");
+        }
+
+        if (ipAddress?.Length > UserSession.MaxIpAddressLength)
+        {
+            throw new DomainException($"La dirección IP no puede superar {UserSession.MaxIpAddressLength} caracteres.");
+        }
+
+        if (lifetime <= TimeSpan.Zero)
+        {
+            throw new DomainException("La vigencia de la sesión debe ser positiva.");
+        }
+
+        if (maxActiveSessions < 1)
+        {
+            throw new DomainException("El máximo de sesiones activas debe ser al menos uno.");
         }
     }
 
