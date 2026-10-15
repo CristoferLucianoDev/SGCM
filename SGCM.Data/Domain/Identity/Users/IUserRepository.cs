@@ -23,6 +23,18 @@ public interface IUserRepository : IRepository<User>
     Task<User?> GetByTokenHashAsync(UserTokenType type, string tokenHash, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Igual que <see cref="GetByTokenHashAsync"/>, pero antes bloquea la fila del usuario hasta
+    /// el fin de la transacción, para que dos usos simultáneos del mismo token no lo consuman
+    /// los dos.
+    /// </summary>
+    /// <param name="type">Propósito del token.</param>
+    /// <param name="tokenHash">Hash del token recibido.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
+    /// <returns>El usuario con sus tokens y sesiones, o <c>null</c> si ningún token coincide.</returns>
+    /// <exception cref="InvalidOperationException">Si no hay una transacción activa.</exception>
+    Task<User?> GetByTokenHashForUpdateAsync(UserTokenType type, string tokenHash, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Borra las cuentas sin confirmar que no tienen ningún token de confirmación vigente
     /// en <paramref name="now"/>. Salta los usuarios cuya fila está bloqueada por otra
     /// transacción; la siguiente pasada los vuelve a evaluar.

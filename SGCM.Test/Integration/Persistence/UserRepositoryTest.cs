@@ -16,6 +16,9 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
     // Tiempo máximo que la limpieza puede tardar mientras otra transacción tiene una fila bloqueada.
     private static readonly TimeSpan LockWaitTimeout = TimeSpan.FromSeconds(10);
 
+    // Cada cuánto se revisa si la segunda transacción ya está esperando el bloqueo.
+    private static readonly TimeSpan LockPollInterval = TimeSpan.FromMilliseconds(50);
+
     private static readonly DateTimeOffset Now = UserMother.Now;
 
     // Vigencia de la sesión y máximo de sesiones activas que fija la arquitectura.
@@ -341,6 +344,81 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
     }
 
     [Fact]
+    public async Task GetByTokenHashForUpdateAsync_devuelve_el_usuario_del_token_de_recuperacion()
+    {
+        var confirmed = UserMother.Confirmed();
+        confirmed.IssueToken(UserTokenType.PasswordReset, "raw-reset", "hash-reset", Now, TimeSpan.FromMinutes(10));
+        StartSession(confirmed, SessionHash, Now);
+        await SaveAsync(confirmed);
+
+        await using var context = CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var user = await new UserRepository(context)
+            .GetByTokenHashForUpdateAsync(UserTokenType.PasswordReset, "hash-reset", CancellationToken.None);
+
+        user.ShouldNotBeNull();
+        user.Email.ShouldBe(UserMother.DefaultEmail);
+        user.Tokens.Count.ShouldBe(2);
+        user.Sessions.ShouldHaveSingleItem().RefreshTokenHash.ShouldBe(SessionHash);
+    }
+
+    [Fact]
+    public async Task GetByTokenHashForUpdateAsync_devuelve_null_si_el_hash_no_existe()
+    {
+        await SaveAsync(UserMother.Confirmed());
+
+        await using var context = CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var user = await new UserRepository(context)
+            .GetByTokenHashForUpdateAsync(UserTokenType.PasswordReset, "hash-inexistente", CancellationToken.None);
+
+        user.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetByTokenHashForUpdateAsync_espera_el_bloqueo_y_ve_el_token_ya_usado()
+    {
+        var confirmed = UserMother.Confirmed();
+        confirmed.IssueToken(UserTokenType.PasswordReset, "raw-reset", "hash-reset", Now, TimeSpan.FromMinutes(10));
+        await SaveAsync(confirmed);
+        var resetAt = Now.AddMinutes(1);
+        using var timeout = new CancellationTokenSource(LockWaitTimeout);
+
+        await using var firstContext = CreateContext();
+        await using var firstTransaction = await firstContext.Database.BeginTransactionAsync(timeout.Token);
+        var first = await new UserRepository(firstContext)
+            .GetByTokenHashForUpdateAsync(UserTokenType.PasswordReset, "hash-reset", timeout.Token);
+        first!.ResetPassword("hash-reset", "hash-nueva", resetAt).IsSuccess.ShouldBeTrue();
+        await firstContext.SaveChangesAsync(timeout.Token);
+
+        await using var secondContext = CreateContext();
+        await using var secondTransaction = await secondContext.Database.BeginTransactionAsync(timeout.Token);
+        var secondPid = await BackendPidAsync(secondContext, timeout.Token);
+        var secondLoad = new UserRepository(secondContext)
+            .GetByTokenHashForUpdateAsync(UserTokenType.PasswordReset, "hash-reset", timeout.Token);
+
+        // El commit va recién cuando la segunda transacción está esperando el bloqueo: así la
+        // prueba demuestra que la recarga posterior al bloqueo ve el token ya consumido.
+        await WaitUntilWaitingForLockAsync(secondPid, timeout.Token);
+        await firstTransaction.CommitAsync(timeout.Token);
+
+        var second = await secondLoad;
+
+        second.ShouldNotBeNull();
+        second.CanResetPassword("hash-reset", resetAt).Error.ShouldBe(UserErrors.TokenInvalid);
+    }
+
+    [Fact]
+    public async Task GetByTokenHashForUpdateAsync_sin_transaccion_lanza_excepcion()
+    {
+        await using var context = CreateContext();
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            new UserRepository(context).GetByTokenHashForUpdateAsync(
+                UserTokenType.PasswordReset, "hash-reset", CancellationToken.None));
+    }
+
+    [Fact]
     public async Task GetByEmailForUpdateAsync_carga_tambien_las_sesiones()
     {
         var confirmed = UserMother.Confirmed();
@@ -385,6 +463,29 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         await transaction.CommitAsync(timeout.Token);
         return deleted;
     }
+
+    // Consulta pg_locks hasta que la conexión indicada espera un bloqueo; se filtra por su pid
+    // para no confundirla con otras sesiones del servidor. El límite de la prueba la hace
+    // fallar por cancelación si nunca llega a esperar.
+    private async Task WaitUntilWaitingForLockAsync(int pid, CancellationToken cancellationToken)
+    {
+        await using var context = CreateContext();
+
+        while (await CountWaitingLocksAsync(context, pid, cancellationToken) == 0)
+        {
+            await Task.Delay(LockPollInterval, cancellationToken);
+        }
+    }
+
+    private static Task<int> CountWaitingLocksAsync(AppDbContext context, int pid, CancellationToken cancellationToken) =>
+        context.Database
+            .SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM pg_locks WHERE pid = {pid} AND NOT granted")
+            .SingleAsync(cancellationToken);
+
+    private static Task<int> BackendPidAsync(AppDbContext context, CancellationToken cancellationToken) =>
+        context.Database
+            .SqlQuery<int>($"SELECT pg_backend_pid() AS \"Value\"")
+            .SingleAsync(cancellationToken);
 
     private AppDbContext CreateContext() =>
         new(new DbContextOptionsBuilder<AppDbContext>()

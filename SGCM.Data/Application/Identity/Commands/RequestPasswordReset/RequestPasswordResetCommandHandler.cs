@@ -27,8 +27,6 @@ internal sealed class RequestPasswordResetCommandHandler(
     IOptions<AccountsOptions> accountsOptions,
     IOptions<PasswordResetLimitsOptions> limitsOptions) : ICommandHandler<RequestPasswordResetCommand, Unit>
 {
-    private const string AttemptKeyPrefix = "password-reset:";
-
     public async Task<Result<Unit>> HandleAsync(RequestPasswordResetCommand command, CancellationToken cancellationToken)
     {
         var emailResult = Email.Create(command.Email);
@@ -67,7 +65,7 @@ internal sealed class RequestPasswordResetCommandHandler(
         var limits = limitsOptions.Value;
 
         return attemptLimiter.TryRegisterAttempt(
-            AttemptKeyPrefix + email.Value,
+            AttemptKeys.PasswordReset(email),
             limits.MaxRequestsPerEmail,
             TimeSpan.FromMinutes(limits.EmailWindowMinutes));
     }

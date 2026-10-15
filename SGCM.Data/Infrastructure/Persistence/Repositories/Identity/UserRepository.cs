@@ -13,9 +13,34 @@ internal sealed class UserRepository(AppDbContext context) : IUserRepository
 
     public Task<User?> GetByTokenHashAsync(UserTokenType type, string tokenHash, CancellationToken cancellationToken) =>
         UsersWithChildren()
-            .SingleOrDefaultAsync(
-                user => user.Tokens.Any(token => token.Type == type && token.TokenHash == tokenHash),
-                cancellationToken);
+            .SingleOrDefaultAsync(HasToken(type, tokenHash), cancellationToken);
+
+    public async Task<User?> GetByTokenHashForUpdateAsync(
+        UserTokenType type,
+        string tokenHash,
+        CancellationToken cancellationToken)
+    {
+        EnsureTransaction();
+
+        var userId = await context.Users
+            .Where(HasToken(type, tokenHash))
+            .Select(user => (int?)user.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (userId is null)
+        {
+            return null;
+        }
+
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM app.\"user\" WHERE id = {userId.Value} FOR UPDATE",
+            cancellationToken);
+
+        // Se recarga en una sentencia nueva: en READ COMMITTED ve el token ya usado si otra
+        // transacción lo consumió mientras esta esperaba el bloqueo.
+        return await UsersWithChildren()
+            .SingleOrDefaultAsync(user => user.Id == userId.Value, cancellationToken);
+    }
 
     public async Task<User?> GetByEmailForUpdateAsync(Email email, CancellationToken cancellationToken)
     {
@@ -76,6 +101,9 @@ internal sealed class UserRepository(AppDbContext context) : IUserRepository
         context.Database
             .SqlQuery<int>($"SELECT id AS \"Value\" FROM app.\"user\" WHERE id = ANY({candidateIds}) FOR UPDATE SKIP LOCKED")
             .ToListAsync(cancellationToken);
+
+    private static Expression<Func<User, bool>> HasToken(UserTokenType type, string tokenHash) =>
+        user => user.Tokens.Any(token => token.Type == type && token.TokenHash == tokenHash);
 
     private static Expression<Func<User, bool>> IsExpiredPendingRegistration(DateTimeOffset now) =>
         user => !user.IsEmailConfirmed

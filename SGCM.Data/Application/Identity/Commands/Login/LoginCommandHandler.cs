@@ -22,8 +22,6 @@ internal sealed class LoginCommandHandler(
     ISessionService sessionService,
     IOptions<LoginLimitsOptions> loginLimitsOptions) : ICommandHandler<LoginCommand, LoginResult>
 {
-    private const string AttemptKeyPrefix = "login:";
-
     public async Task<Result<LoginResult>> HandleAsync(LoginCommand command, CancellationToken cancellationToken)
     {
         var emailResult = Email.Create(command.Email);
@@ -32,7 +30,7 @@ internal sealed class LoginCommandHandler(
             return emailResult.Error;
         }
 
-        var attemptKey = AttemptKeyPrefix + emailResult.Value.Value;
+        var attemptKey = AttemptKeys.Login(emailResult.Value);
         if (!TryRegisterAttempt(attemptKey))
         {
             return UserErrors.TooManyLoginAttempts;
