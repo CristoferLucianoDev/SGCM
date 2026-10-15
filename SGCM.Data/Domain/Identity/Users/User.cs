@@ -222,20 +222,14 @@ public sealed class User : ActivatableAggregateRoot
     /// </returns>
     public Result ConsumeToken(UserTokenType type, string tokenHash, DateTimeOffset now)
     {
-        // El hash viene de fuera: si es nulo o vacío simplemente no coincide con ninguno.
-        var token = _tokens.FirstOrDefault(token => token.Type == type && token.TokenHash == tokenHash);
+        var found = FindUsableToken(type, tokenHash, now);
 
-        if (token is null || token.UsedAt is not null || token.InvalidatedAt is not null)
+        if (found.IsFailure)
         {
-            return UserErrors.TokenInvalid;
+            return found.Error;
         }
 
-        if (token.ExpiresAt <= now)
-        {
-            return UserErrors.TokenExpired;
-        }
-
-        token.MarkUsed(now);
+        found.Value.MarkUsed(now);
 
         return Result.Success();
     }
@@ -286,6 +280,78 @@ public sealed class User : ActivatableAggregateRoot
         }
 
         IsEmailConfirmed = true;
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Indica si el token de recuperación permite restablecer la contraseña, con las mismas
+    /// reglas y en el mismo orden que <see cref="ResetPassword"/>. No modifica al usuario: sirve
+    /// para descartar un enlace inválido antes de calcular el hash de la contraseña nueva.
+    /// </summary>
+    /// <param name="tokenHash">Hash del token de recuperación recibido en el enlace.</param>
+    /// <param name="now">Momento de la consulta.</param>
+    /// <returns>
+    /// Éxito; <see cref="UserErrors.AccountInactive"/> si la cuenta está desactivada;
+    /// <see cref="UserErrors.TokenInvalid"/> si la cuenta no confirmó su correo o si el token
+    /// no existe, ya se usó o fue reemplazado; o <see cref="UserErrors.TokenExpired"/> si venció.
+    /// </returns>
+    public Result CanResetPassword(string tokenHash, DateTimeOffset now)
+    {
+        if (!IsActive)
+        {
+            return UserErrors.AccountInactive;
+        }
+
+        // El enlace solo se emite a cuentas confirmadas; si llega uno de otra, no se acepta.
+        if (!IsEmailConfirmed)
+        {
+            return UserErrors.TokenInvalid;
+        }
+
+        var found = FindUsableToken(UserTokenType.PasswordReset, tokenHash, now);
+
+        return found.IsFailure ? found.Error : Result.Success();
+    }
+
+    /// <summary>
+    /// Restablece la contraseña consumiendo el token de recuperación recibido en el enlace, y
+    /// revoca con <see cref="SessionRevocationReason.PasswordReset"/> todas las sesiones activas.
+    /// </summary>
+    /// <param name="tokenHash">Hash del token de recuperación recibido en el enlace.</param>
+    /// <param name="newPasswordHash">Hash de la contraseña nueva, ya validada.</param>
+    /// <param name="now">Momento del restablecimiento.</param>
+    /// <returns>
+    /// El mismo error que <see cref="CanResetPassword"/>, que se evalúa antes de modificar nada.
+    /// En todos los casos de error el usuario no se modifica.
+    /// </returns>
+    /// <exception cref="DomainException">Si falta el hash de la contraseña nueva.</exception>
+    public Result ResetPassword(string tokenHash, string newPasswordHash, DateTimeOffset now)
+    {
+        EnsurePasswordHash(newPasswordHash);
+
+        var allowed = CanResetPassword(tokenHash, now);
+
+        if (allowed.IsFailure)
+        {
+            return allowed;
+        }
+
+        var consumed = ConsumeToken(UserTokenType.PasswordReset, tokenHash, now);
+
+        // CanResetPassword ya validó el mismo token; se revisa igual para que la contraseña
+        // nunca cambie sin consumir el enlace si las dos validaciones llegaran a divergir.
+        if (consumed.IsFailure)
+        {
+            return consumed;
+        }
+
+        PasswordHash = newPasswordHash;
+
+        // El usuario eligió su propia contraseña, así que el paso de contraseña temporal queda cumplido.
+        MustChangePassword = false;
+
+        RevokeActiveSessions(SessionRevocationReason.PasswordReset, now);
 
         return Result.Success();
     }
@@ -381,6 +447,34 @@ public sealed class User : ActivatableAggregateRoot
             var leastRecentlyUsed = active.MinBy(session => session.LastUsedAt)!;
             leastRecentlyUsed.Revoke(SessionRevocationReason.SessionLimit, now);
             active.Remove(leastRecentlyUsed);
+        }
+    }
+
+    // Busca el token y valida que se pueda usar, sin modificarlo.
+    private Result<UserToken> FindUsableToken(UserTokenType type, string tokenHash, DateTimeOffset now)
+    {
+        // El hash viene de fuera: si es nulo o vacío simplemente no coincide con ninguno.
+        var token = _tokens.FirstOrDefault(token => token.Type == type && token.TokenHash == tokenHash);
+
+        if (token is null || token.UsedAt is not null || token.InvalidatedAt is not null)
+        {
+            return UserErrors.TokenInvalid;
+        }
+
+        if (token.ExpiresAt <= now)
+        {
+            return UserErrors.TokenExpired;
+        }
+
+        return token;
+    }
+
+    // Las sesiones ya revocadas conservan su fecha y motivo originales.
+    private void RevokeActiveSessions(SessionRevocationReason reason, DateTimeOffset now)
+    {
+        foreach (var session in _sessions.Where(session => session.IsActiveAt(now)))
+        {
+            session.Revoke(reason, now);
         }
     }
 
