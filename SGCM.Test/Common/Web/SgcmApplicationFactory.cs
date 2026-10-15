@@ -35,6 +35,7 @@ public sealed class SgcmApplicationFactory(
     IReadOnlyDictionary<string, string?>? configurationOverrides = null) : WebApplicationFactory<Program>
 {
     public const string ConfirmationUrl = "https://sgcm.test/cuenta/confirmar";
+    public const string PasswordResetUrl = "https://sgcm.test/cuenta/restablecer";
 
     public FakeNotificationService Notifications { get; } = new();
 
@@ -55,6 +56,7 @@ public sealed class SgcmApplicationFactory(
                 ["ConnectionStrings:SgcmDatabase"] = connectionString,
                 ["Jwt:SigningKey"] = new string('k', JwtOptions.MinimumSigningKeyBytes),
                 ["Accounts:EmailConfirmationUrl"] = ConfirmationUrl,
+                ["Accounts:PasswordResetUrl"] = PasswordResetUrl,
                 // En el servidor de pruebas todas las peticiones llegan sin IP y comparten la
                 // partición del límite por IP; las pruebas de ese límite lo bajan explícitamente.
                 ["LoginLimits:MaxRequestsPerIp"] = "1000",

@@ -106,4 +106,12 @@ public static class UserErrors
         code: "User.TooManyLoginAttempts",
         description: "Demasiados intentos. Intenta de nuevo más tarde."
     );
+
+    /// <summary>
+    /// Se superó el límite de solicitudes de recuperación de contraseña para un correo.
+    /// </summary>
+    public static readonly Error TooManyPasswordResetRequests = Error.TooManyRequests(
+        code: "User.TooManyPasswordResetRequests",
+        description: "Demasiadas solicitudes de recuperación. Intenta de nuevo más tarde."
+    );
 }

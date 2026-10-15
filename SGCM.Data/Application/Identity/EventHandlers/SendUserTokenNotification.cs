@@ -8,8 +8,8 @@ using SGCM.Data.Domain.Identity.Users.Events;
 namespace SGCM.Data.Application.Identity.EventHandlers;
 
 /// <summary>
-/// Envía el correo con el enlace del token emitido. Se ejecuta después del commit,
-/// así que si el registro se revierte no se envía nada.
+/// Envía el correo con el enlace del token emitido, según su tipo. Se ejecuta después del
+/// commit, así que si la operación se revierte no se envía nada.
 /// </summary>
 internal sealed class SendUserTokenNotification(
     INotificationService notificationService,
@@ -17,19 +17,33 @@ internal sealed class SendUserTokenNotification(
 {
     public async Task HandleAsync(UserTokenIssuedEvent domainEvent, CancellationToken cancellationToken)
     {
-        // Los demás tipos de token se envían desde sus propios PBIs.
-        if (domainEvent.Type != UserTokenType.EmailConfirmation)
+        var notification = BuildNotification(domainEvent, accountsOptions.Value);
+
+        // Los tipos de token que todavía no tienen correo se envían desde sus propios PBIs.
+        if (notification is null)
         {
             return;
         }
 
-        var options = accountsOptions.Value;
-        var notification = new AccountConfirmationNotification(
-            new Recipient(domainEvent.Email, domainEvent.Email),
-            BuildLink(options.EmailConfirmationUrl, domainEvent.RawToken),
-            options.EmailConfirmationTokenMinutes);
-
         await notificationService.SendAsync(notification, cancellationToken);
+    }
+
+    private static Notification? BuildNotification(UserTokenIssuedEvent domainEvent, AccountsOptions options)
+    {
+        var recipient = new Recipient(domainEvent.Email, domainEvent.Email);
+
+        return domainEvent.Type switch
+        {
+            UserTokenType.EmailConfirmation => new AccountConfirmationNotification(
+                recipient,
+                BuildLink(options.EmailConfirmationUrl, domainEvent.RawToken),
+                options.EmailConfirmationTokenMinutes),
+            UserTokenType.PasswordReset => new PasswordResetNotification(
+                recipient,
+                BuildLink(options.PasswordResetUrl, domainEvent.RawToken),
+                options.PasswordResetTokenMinutes),
+            _ => null
+        };
     }
 
     private static string BuildLink(string baseUrl, string rawToken) =>

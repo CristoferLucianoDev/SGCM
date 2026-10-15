@@ -14,8 +14,10 @@ namespace SGCM.Test.Unit.Application.Identity;
 public sealed class SendUserTokenNotificationTests
 {
     private const string ConfirmationUrl = "https://sgcm.test/cuenta/confirmar";
+    private const string PasswordResetUrl = "https://sgcm.test/cuenta/restablecer";
     private const string Email = "paciente@correo.com";
     private const int ConfirmationMinutes = 15;
+    private const int PasswordResetMinutes = 10;
 
     private readonly INotificationService _notificationService = Substitute.For<INotificationService>();
     private readonly SendUserTokenNotification _handler;
@@ -25,7 +27,9 @@ public sealed class SendUserTokenNotificationTests
         var options = Options.Create(new AccountsOptions
         {
             EmailConfirmationUrl = ConfirmationUrl,
-            EmailConfirmationTokenMinutes = ConfirmationMinutes
+            EmailConfirmationTokenMinutes = ConfirmationMinutes,
+            PasswordResetUrl = PasswordResetUrl,
+            PasswordResetTokenMinutes = PasswordResetMinutes
         });
 
         _handler = new SendUserTokenNotification(_notificationService, options);
@@ -59,9 +63,26 @@ public sealed class SendUserTokenNotificationTests
     }
 
     [Fact]
-    public async Task Handle_OtherTokenType_DoesNotSend()
+    public async Task Handle_PasswordResetToken_SendsPasswordResetWithEscapedLink()
     {
-        await _handler.HandleAsync(new UserTokenIssuedEvent(Email, UserTokenType.PasswordReset, "raw-token"), CancellationToken.None);
+        PasswordResetNotification? sent = null;
+        _notificationService.SendAsync(Arg.Do<Notification>(n => sent = n as PasswordResetNotification), Arg.Any<CancellationToken>())
+            .Returns(Result.Success());
+
+        await _handler.HandleAsync(new UserTokenIssuedEvent(Email, UserTokenType.PasswordReset, "a+b/c"), CancellationToken.None);
+
+        sent.ShouldNotBeNull();
+        sent.Recipient.Email.ShouldBe(Email);
+        sent.ResetUrl.ShouldBe($"{PasswordResetUrl}?token=a%2Bb%2Fc");
+        sent.ExpirationMinutes.ShouldBe(PasswordResetMinutes);
+    }
+
+    [Fact]
+    public async Task Handle_UnsupportedTokenType_DoesNotSend()
+    {
+        const UserTokenType unsupportedType = (UserTokenType)99;
+
+        await _handler.HandleAsync(new UserTokenIssuedEvent(Email, unsupportedType, "raw-token"), CancellationToken.None);
 
         await _notificationService.DidNotReceive().SendAsync(Arg.Any<Notification>(), Arg.Any<CancellationToken>());
     }
