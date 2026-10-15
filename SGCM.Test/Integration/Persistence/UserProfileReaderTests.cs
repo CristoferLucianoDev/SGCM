@@ -12,8 +12,6 @@ namespace SGCM.Test.Integration.Persistence;
 [Trait("Category", "Integration")]
 public class UserProfileReaderTests(PostgresFixture database) : IntegrationTestBase(database)
 {
-    private static readonly DateOnly BirthDate = new(1990, 5, 20);
-
     [Theory]
     [InlineData(UserRole.Patient)]
     [InlineData(UserRole.Doctor)]
@@ -47,17 +45,12 @@ public class UserProfileReaderTests(PostgresFixture database) : IntegrationTestB
         return await new UserProfileReader(context).HasProfileAsync(userId, role, CancellationToken.None);
     }
 
-    // Solo las columnas obligatorias; el trigger de rol exige que la cuenta sea de paciente.
     private async Task<int> SavePatientWithProfileAsync()
     {
         var userId = await SaveAsync(UserMother.Confirmed());
 
         await using var context = CreateContext();
-        await context.Database.ExecuteSqlInterpolatedAsync(
-            $"""
-            INSERT INTO people.patient (user_id, first_name, last_name, birth_date, phone_number)
-            VALUES ({userId}, 'Ana', 'Pérez', {BirthDate}, '8095550100')
-            """);
+        await TestDataSeeder.InsertPatientProfileAsync(context, userId);
 
         return userId;
     }

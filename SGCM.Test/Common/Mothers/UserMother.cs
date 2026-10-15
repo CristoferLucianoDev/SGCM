@@ -30,16 +30,26 @@ public static class UserMother
     /// <summary>
     /// Paciente recién registrado, con la cuenta pendiente de confirmar.
     /// </summary>
-    public static User Pending(Email? email = null) =>
-        User.RegisterPending(email ?? DefaultEmail, DefaultPasswordHash, DefaultRawToken, DefaultTokenHash, Now, ConfirmationLifetime);
+    /// <param name="email">Correo del usuario; si es <c>null</c>, <see cref="DefaultEmail"/>.</param>
+    /// <param name="passwordHash">Hash de la contraseña; si es <c>null</c>, <see cref="DefaultPasswordHash"/>.</param>
+    public static User Pending(Email? email = null, string? passwordHash = null) =>
+        User.RegisterPending(
+            email ?? DefaultEmail,
+            passwordHash ?? DefaultPasswordHash,
+            DefaultRawToken,
+            DefaultTokenHash,
+            Now,
+            ConfirmationLifetime);
 
     /// <summary>
     /// Paciente con el correo ya confirmado. Usa reflexión porque el agregado todavía
     /// no expone la operación de confirmar; cuando exista, debe reemplazarse por ella.
     /// </summary>
-    public static User Confirmed(Email? email = null)
+    /// <param name="email">Correo del usuario; si es <c>null</c>, <see cref="DefaultEmail"/>.</param>
+    /// <param name="passwordHash">Hash de la contraseña; si es <c>null</c>, <see cref="DefaultPasswordHash"/>.</param>
+    public static User Confirmed(Email? email = null, string? passwordHash = null)
     {
-        var user = Pending(email);
+        var user = Pending(email, passwordHash);
         typeof(User).GetProperty(nameof(User.IsEmailConfirmed))!.SetValue(user, true);
         return user;
     }
@@ -49,9 +59,20 @@ public static class UserMother
     /// el agregado todavía no expone cómo crear médicos ni administradores; cuando exista,
     /// debe reemplazarse por esa operación.
     /// </summary>
-    public static User WithRole(UserRole role, bool mustChangePassword = false)
+    /// <param name="role">Rol del usuario.</param>
+    /// <param name="mustChangePassword">Indica si la contraseña es temporal.</param>
+    /// <param name="email">Correo del usuario; si es <c>null</c>, <see cref="DefaultEmail"/>.</param>
+    /// <param name="passwordHash">
+    /// Hash de la contraseña; si es <c>null</c>, <see cref="DefaultPasswordHash"/>, con el que
+    /// el usuario no puede iniciar sesión.
+    /// </param>
+    public static User WithRole(
+        UserRole role,
+        bool mustChangePassword = false,
+        Email? email = null,
+        string? passwordHash = null)
     {
-        var user = Confirmed();
+        var user = Confirmed(email, passwordHash);
         typeof(User).GetProperty(nameof(User.Role))!.SetValue(user, role);
         typeof(User).GetProperty(nameof(User.MustChangePassword))!.SetValue(user, mustChangePassword);
         return user;

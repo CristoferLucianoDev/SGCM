@@ -14,6 +14,7 @@ using SGCM.Data.Application.Identity.Notifications;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Infrastructure.Security;
+using SGCM.Test.Common.Database;
 using SGCM.Test.Common.Fakes;
 using SGCM.Test.Common.Mothers;
 using SGCM.Web;
@@ -25,7 +26,13 @@ namespace SGCM.Test.Common.Web;
 /// Levanta la app completa en memoria contra la base de Testcontainers, con el envío
 /// de notificaciones reemplazado por <see cref="FakeNotificationService"/>.
 /// </summary>
-public sealed class SgcmApplicationFactory(string connectionString) : WebApplicationFactory<Program>
+/// <param name="connectionString">Cadena de conexión de la base de pruebas.</param>
+/// <param name="configurationOverrides">
+/// Valores de configuración que pisan los de prueba, o <c>null</c> para usar solo esos.
+/// </param>
+public sealed class SgcmApplicationFactory(
+    string connectionString,
+    IReadOnlyDictionary<string, string?>? configurationOverrides = null) : WebApplicationFactory<Program>
 {
     public const string ConfirmationUrl = "https://sgcm.test/cuenta/confirmar";
 
@@ -54,6 +61,14 @@ public sealed class SgcmApplicationFactory(string connectionString) : WebApplica
                 // Apagados para que no alteren los datos que prepara cada prueba.
                 ["Worker:Enabled"] = "false"
             }));
+
+        // Para pruebas que necesitan otra configuración, como un límite por IP bajo. Va después
+        // de los valores de prueba porque la última fuente agregada es la que gana.
+        if (configurationOverrides is not null)
+        {
+            builder.ConfigureAppConfiguration((_, configuration) =>
+                configuration.AddInMemoryCollection(configurationOverrides));
+        }
 
         builder.ConfigureTestServices(services =>
         {
@@ -108,4 +123,58 @@ public sealed class SgcmApplicationFactory(string connectionString) : WebApplica
         scope.ServiceProvider.GetRequiredService<IUserRepository>().Add(user);
         await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().SaveChangesAsync(CancellationToken.None);
     }
+
+    /// <summary>
+    /// Carga el usuario, le aplica el cambio y lo guarda, sin disparar sus eventos.
+    /// </summary>
+    /// <param name="email">Correo del usuario.</param>
+    /// <param name="change">Cambio que se aplica al agregado cargado.</param>
+    /// <exception cref="InvalidOperationException">Si no hay un usuario con ese correo.</exception>
+    public async Task UpdateUserAsync(string email, Action<User> change)
+    {
+        using var scope = Services.CreateScope();
+        var user = await FindUserAsync(scope, email);
+
+        change(user);
+        user.ClearDomainEvents();
+        await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().SaveChangesAsync(CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Calcula el hash de la contraseña con el <see cref="IPasswordHasher"/> de la app, para
+    /// crear usuarios que puedan iniciar sesión.
+    /// </summary>
+    /// <param name="password">Contraseña en claro; debe cumplir la política de longitud.</param>
+    /// <returns>El hash, listo para guardarlo en el usuario.</returns>
+    public string HashPassword(string password) =>
+        Services.GetRequiredService<IPasswordHasher>().Hash(Password.Create(password).Value);
+
+    /// <summary>
+    /// Crea el perfil de paciente del usuario con ese correo, con <see cref="TestDataSeeder"/>.
+    /// </summary>
+    /// <param name="email">Correo de un usuario con el rol de paciente.</param>
+    /// <exception cref="InvalidOperationException">Si no hay un usuario con ese correo.</exception>
+    public Task InsertPatientProfileAsync(string email) =>
+        SeedAsync(email, TestDataSeeder.InsertPatientProfileAsync);
+
+    /// <summary>
+    /// Activa el segundo factor del usuario con ese correo, con <see cref="TestDataSeeder"/>.
+    /// </summary>
+    /// <param name="email">Correo del usuario.</param>
+    /// <exception cref="InvalidOperationException">Si no hay un usuario con ese correo.</exception>
+    public Task EnableTwoFactorAsync(string email) =>
+        SeedAsync(email, (context, userId) => TestDataSeeder.EnableTwoFactorAsync(context, userId));
+
+    private async Task SeedAsync(string email, Func<AppDbContext, int, Task> seed)
+    {
+        using var scope = Services.CreateScope();
+        var user = await FindUserAsync(scope, email);
+
+        await seed(scope.ServiceProvider.GetRequiredService<AppDbContext>(), user.Id);
+    }
+
+    private static async Task<User> FindUserAsync(IServiceScope scope, string email) =>
+        await scope.ServiceProvider.GetRequiredService<IUserRepository>()
+            .GetByEmailAsync(Email.Create(email).Value, CancellationToken.None)
+        ?? throw new InvalidOperationException($"No hay un usuario con el correo {email}.");
 }
