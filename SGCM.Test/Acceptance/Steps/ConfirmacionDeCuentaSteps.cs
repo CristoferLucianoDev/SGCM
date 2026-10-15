@@ -15,6 +15,7 @@ public sealed class ConfirmacionDeCuentaSteps(ApiScenario scenario)
     private const string ConfirmUrl = "/api/accounts/confirm-email";
 
     [Given("pasan {int} minutos")]
+    [When("pasan {int} minutos")]
     public void PasanMinutos(int minutes) =>
         scenario.Factory.Clock.UtcNow += TimeSpan.FromMinutes(minutes);
 

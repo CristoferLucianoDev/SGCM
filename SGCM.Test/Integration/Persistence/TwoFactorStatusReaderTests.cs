@@ -42,17 +42,12 @@ public class TwoFactorStatusReaderTests(PostgresFixture database) : IntegrationT
         return await new TwoFactorStatusReader(context).IsEnabledAsync(userId, CancellationToken.None);
     }
 
-    // Solo las columnas obligatorias; el secreto no se lee, así que basta un valor de relleno.
     private async Task<int> SaveWithTwoFactorAsync(bool isEnabled)
     {
         var userId = await SaveAsync(UserMother.Confirmed());
 
         await using var context = CreateContext();
-        await context.Database.ExecuteSqlInterpolatedAsync(
-            $"""
-            INSERT INTO app.user_two_factor (user_id, secret_key, is_enabled)
-            VALUES ({userId}, 'secreto-cifrado', {isEnabled})
-            """);
+        await TestDataSeeder.EnableTwoFactorAsync(context, userId, isEnabled);
 
         return userId;
     }
