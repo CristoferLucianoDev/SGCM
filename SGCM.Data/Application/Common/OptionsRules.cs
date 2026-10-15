@@ -44,6 +44,21 @@ public static class OptionsRules
         }
     }
 
+    /// <summary>
+    /// Agrega un error si <paramref name="value"/> supera <paramref name="max"/>.
+    /// </summary>
+    /// <param name="errors">Lista donde se acumulan los errores de validación.</param>
+    /// <param name="key">Clave de configuración, que se nombra en el mensaje.</param>
+    /// <param name="value">Valor configurado.</param>
+    /// <param name="max">Valor máximo admitido, incluido.</param>
+    public static void AtMost(ICollection<string> errors, string key, int value, int max)
+    {
+        if (value > max)
+        {
+            errors.Add($"{Describe(key)} no puede superar {max} (valor actual: {value}).");
+        }
+    }
+
     public static string Describe(string key) =>
         $"{key} (variable de entorno {key.Replace(":", "__")})";
 

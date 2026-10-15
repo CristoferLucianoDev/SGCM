@@ -66,6 +66,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<ITwoFactorStatusReader>());
         services.AddSingleton(Substitute.For<ISessionService>());
         services.AddSingleton(Options.Create(new LoginLimitsOptions()));
+        services.AddSingleton(Options.Create(new PasswordResetLimitsOptions()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
     }

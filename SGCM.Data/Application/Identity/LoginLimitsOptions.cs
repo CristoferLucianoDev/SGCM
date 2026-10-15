@@ -28,17 +28,9 @@ public sealed class LoginLimitsOptionsValidator : IValidateOptions<LoginLimitsOp
         OptionsRules.Positive(errors, "LoginLimits:EmailWindowMinutes", options.EmailWindowMinutes);
         OptionsRules.Positive(errors, "LoginLimits:MaxRequestsPerIp", options.MaxRequestsPerIp);
         OptionsRules.Positive(errors, "LoginLimits:IpWindowSeconds", options.IpWindowSeconds);
-        AtMost(errors, "LoginLimits:EmailWindowMinutes", options.EmailWindowMinutes, MaxEmailWindowMinutes);
-        AtMost(errors, "LoginLimits:IpWindowSeconds", options.IpWindowSeconds, MaxIpWindowSeconds);
+        OptionsRules.AtMost(errors, "LoginLimits:EmailWindowMinutes", options.EmailWindowMinutes, MaxEmailWindowMinutes);
+        OptionsRules.AtMost(errors, "LoginLimits:IpWindowSeconds", options.IpWindowSeconds, MaxIpWindowSeconds);
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
-    }
-
-    private static void AtMost(ICollection<string> errors, string key, int value, int max)
-    {
-        if (value > max)
-        {
-            errors.Add($"{OptionsRules.Describe(key)} no puede superar {max} (valor actual: {value}).");
-        }
     }
 }
