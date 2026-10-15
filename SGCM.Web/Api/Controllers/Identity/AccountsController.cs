@@ -1,12 +1,16 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Identity.Commands.ConfirmEmail;
 using SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
+using SGCM.Data.Application.Identity.Commands.RequestPasswordReset;
 using SGCM.Data.Application.Identity.Commands.ResendConfirmationEmail;
+using SGCM.Data.Application.Identity.Commands.ResetPassword;
 using SGCM.Data.Domain.Common;
 using SGCM.Web.Api.Infrastructure;
 using SGCM.Web.Contracts.Identity;
+using SGCM.Web.Hosting;
 using SGCM.Web.Mappers.Identity;
 
 namespace SGCM.Web.Api.Controllers.Identity;
@@ -80,5 +84,58 @@ public sealed class AccountsController : ApiControllerBase
         var result = await handler.HandleAsync(request.ToCommand(), cancellationToken);
 
         return result.IsSuccess ? Accepted() : ErrorResult(result.Error);
+    }
+
+    /// <summary>
+    /// Solicita el enlace para restablecer la contraseña.
+    /// </summary>
+    /// <remarks>
+    /// Responde 202 exista o no la cuenta, para no revelar qué correos están registrados; el
+    /// enlace solo se envía si la cuenta existe, está confirmada y está activa.
+    /// Respuestas de error:
+    /// 400 si el correo no es válido.
+    /// 429 por demasiadas solicitudes con el mismo correo o desde la misma IP.
+    /// </remarks>
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.PasswordReset)]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> ForgotPassword(
+        ForgotPasswordRequest request,
+        [FromServices] ICommandHandler<RequestPasswordResetCommand, Unit> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToCommand(), cancellationToken);
+
+        return result.IsSuccess ? Accepted() : ErrorResult(result.Error);
+    }
+
+    /// <summary>
+    /// Establece una contraseña nueva con el token del enlace de recuperación y cierra todas
+    /// las sesiones abiertas de la cuenta.
+    /// </summary>
+    /// <remarks>
+    /// Es POST y no GET para que los escáneres de enlaces de los servicios de correo
+    /// no consuman el token al revisar el mensaje.
+    /// Respuestas de error:
+    /// 400 si el enlace no es válido, venció, ya se usó o fue reemplazado, o si la contraseña
+    /// nueva no cumple la política.
+    /// 403 si la cuenta está inactiva.
+    /// </remarks>
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ResetPassword(
+        ResetPasswordRequest request,
+        [FromServices] ICommandHandler<ResetPasswordCommand, Unit> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToCommand(), cancellationToken);
+
+        return result.IsSuccess ? NoContent() : ErrorResult(result.Error);
     }
 }

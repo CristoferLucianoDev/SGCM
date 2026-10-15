@@ -17,14 +17,19 @@ public static class RateLimitPolicies
     /// Nombre de la política del endpoint de inicio de sesión.
     /// </summary>
     public const string Login = "login";
+
+    /// <summary>
+    /// Nombre de la política del endpoint de solicitud de recuperación de contraseña.
+    /// </summary>
+    public const string PasswordReset = "password-reset";
 }
 
 /// <summary>
 /// Registra el rate limiting por IP de la API con el limitador integrado de ASP.NET Core.
 /// </summary>
 /// <remarks>
-/// El límite por IP corta antes de llegar al comando; el límite por correo lo aplica el
-/// comando con <c>IAttemptLimiter</c>.
+/// El límite por IP corta antes de llegar al comando; el límite por correo lo aplican los
+/// comandos con <c>IAttemptLimiter</c>.
 /// </remarks>
 public static class RateLimitingRegistration
 {
@@ -34,8 +39,10 @@ public static class RateLimitingRegistration
     private const string ProblemJsonContentType = "application/problem+json";
 
     /// <summary>
-    /// Agrega la política <see cref="RateLimitPolicies.Login"/>, con una ventana fija por IP
-    /// configurada en <see cref="LoginLimitsOptions"/>, y la respuesta 429 con ProblemDetails.
+    /// Agrega las políticas <see cref="RateLimitPolicies.Login"/> y
+    /// <see cref="RateLimitPolicies.PasswordReset"/>, con una ventana fija por IP configurada en
+    /// <see cref="LoginLimitsOptions"/> y <see cref="PasswordResetLimitsOptions"/>, y la
+    /// respuesta 429 con ProblemDetails.
     /// </summary>
     /// <param name="services">Colección de servicios de la app.</param>
     /// <returns>La misma colección, para encadenar llamadas.</returns>
@@ -44,6 +51,7 @@ public static class RateLimitingRegistration
         services.AddRateLimiter(options =>
         {
             options.AddPolicy(RateLimitPolicies.Login, CreateLoginPartition);
+            options.AddPolicy(RateLimitPolicies.PasswordReset, CreatePasswordResetPartition);
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.OnRejected = WriteRejectionAsync;
         });
@@ -51,17 +59,30 @@ public static class RateLimitingRegistration
         return services;
     }
 
-    // Detrás de un proxy, RemoteIpAddress es la del proxy hasta configurar los forwarded
-    // headers; queda para el PBI de despliegue.
     private static RateLimitPartition<string> CreateLoginPartition(HttpContext httpContext)
     {
         var limits = httpContext.RequestServices.GetRequiredService<IOptions<LoginLimitsOptions>>().Value;
+
+        return CreateIpPartition(httpContext, limits.MaxRequestsPerIp, limits.IpWindowSeconds);
+    }
+
+    private static RateLimitPartition<string> CreatePasswordResetPartition(HttpContext httpContext)
+    {
+        var limits = httpContext.RequestServices.GetRequiredService<IOptions<PasswordResetLimitsOptions>>().Value;
+
+        return CreateIpPartition(httpContext, limits.MaxRequestsPerIp, limits.IpWindowSeconds);
+    }
+
+    // Detrás de un proxy, RemoteIpAddress es la del proxy hasta configurar los forwarded
+    // headers; queda para el PBI de despliegue.
+    private static RateLimitPartition<string> CreateIpPartition(HttpContext httpContext, int permitLimit, int windowSeconds)
+    {
         var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? UnknownIpPartition;
 
         return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = limits.MaxRequestsPerIp,
-            Window = TimeSpan.FromSeconds(limits.IpWindowSeconds),
+            PermitLimit = permitLimit,
+            Window = TimeSpan.FromSeconds(windowSeconds),
             QueueLimit = 0
         });
     }

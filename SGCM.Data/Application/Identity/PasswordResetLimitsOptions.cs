@@ -18,14 +18,14 @@ public sealed class PasswordResetLimitsOptions
     public int EmailWindowMinutes { get; set; }
 
     /// <summary>
-    /// Máximo de peticiones por IP dentro de la ventana. Lo aplica el rate limiting del
-    /// endpoint, no el comando.
+    /// Máximo de peticiones por IP dentro de la ventana. Lo aplica la política de rate limiting
+    /// <c>password-reset</c> del endpoint de solicitud, antes de llegar al comando.
     /// </summary>
     public int MaxRequestsPerIp { get; set; }
 
     /// <summary>
-    /// Duración de la ventana del límite por IP, en segundos. Lo aplica el rate limiting del
-    /// endpoint, no el comando.
+    /// Duración de la ventana del límite por IP, en segundos. Lo aplica la política de rate
+    /// limiting <c>password-reset</c> del endpoint de solicitud, antes de llegar al comando.
     /// </summary>
     public int IpWindowSeconds { get; set; }
 }
