@@ -10,8 +10,11 @@ namespace SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
 
 /// <summary>
 /// Crea la cuenta pendiente del paciente, o reemplaza un registro que nunca se confirmó.
-/// No guarda ni envía el correo: el decorador de transacción guarda, y el evento
-/// UserTokenIssuedEvent dispara el envío después del commit.
+/// Carga al usuario existente con la fila bloqueada, para que dos registros simultáneos del
+/// mismo correo pendiente no emitan dos enlaces, que el índice único de tokens rechazaría, y
+/// para que la limpieza no borre la fila mientras se reemplaza. No guarda ni envía el correo:
+/// el decorador de transacción guarda, y el evento UserTokenIssuedEvent dispara el envío
+/// después del commit.
 /// </summary>
 internal sealed class RegisterPatientAccountCommandHandler(
     IUserRepository userRepository,
@@ -34,7 +37,7 @@ internal sealed class RegisterPatientAccountCommandHandler(
             return passwordResult.Error;
         }
 
-        var existingUser = await userRepository.GetByEmailAsync(emailResult.Value, cancellationToken);
+        var existingUser = await userRepository.GetByEmailForUpdateAsync(emailResult.Value, cancellationToken);
         if (existingUser is { IsEmailConfirmed: true })
         {
             return UserErrors.EmailAlreadyInUse;

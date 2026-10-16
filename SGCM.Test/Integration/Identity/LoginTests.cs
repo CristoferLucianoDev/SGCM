@@ -11,27 +11,21 @@ using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Infrastructure.Persistence;
 using SGCM.Test.Common.Database;
-using SGCM.Test.Common.Mothers;
 using SGCM.Test.Common.Web;
 using SGCM.Web.Contracts.Identity;
 using DomainPassword = SGCM.Data.Domain.Identity.Users.Password;
-using EmailAddress = SGCM.Data.Domain.Common.ValueObjects.Email;
 
 namespace SGCM.Test.Integration.Identity;
 
 [Trait("Category", "Integration")]
 public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBase(database)
 {
-    private const string LoginUrl = "/api/auth/login";
-    private const string RegisterUrl = "/api/accounts/register";
-    private const string ConfirmUrl = "/api/accounts/confirm-email";
     private const string Email = "paciente@correo.com";
     private const string DoctorEmail = "medico@correo.com";
     private const string AdministratorEmail = "admin@correo.com";
     private const string UnknownEmail = "desconocido@correo.com";
     private const string Password = "Secreta123";
     private const string WrongPassword = "Incorrecta123";
-    private const string UserAgent = "PruebasSGCM/1.0";
     private const string InvalidEmailFormat = "no-es-un-correo";
     private const int LowIpLimit = 3;
 
@@ -58,12 +52,12 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
     [Fact]
     public async Task Login_con_credenciales_validas_entrega_los_tokens_y_abre_la_sesion()
     {
-        await CreateConfirmedPatientAsync(Email);
+        await CreateConfirmedPatientAsync(Email, Password);
 
         var response = await LoginAsync(Email, Password);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var login = await ReadLoginAsync(response);
+        var login = await response.ReadLoginAsync();
         login.RequiresTwoFactor.ShouldBeFalse();
         login.AccessToken.ShouldNotBeNullOrEmpty();
         login.RefreshToken.ShouldNotBeNullOrEmpty();
@@ -101,13 +95,13 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
     [Fact]
     public async Task Login_con_2FA_activo_pide_el_segundo_factor_sin_emitir_tokens()
     {
-        await CreateConfirmedPatientAsync(Email);
+        await CreateConfirmedPatientAsync(Email, Password);
         await Factory.EnableTwoFactorAsync(Email);
 
         var response = await LoginAsync(Email, Password);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var login = await ReadLoginAsync(response);
+        var login = await response.ReadLoginAsync();
         login.RequiresTwoFactor.ShouldBeTrue();
         login.AccessToken.ShouldBeNull();
         login.AccessTokenExpiresAt.ShouldBeNull();
@@ -120,9 +114,9 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
     [Fact]
     public async Task Login_de_un_paciente_sin_perfil_indica_completarlo()
     {
-        await CreateConfirmedPatientAsync(Email);
+        await CreateConfirmedPatientAsync(Email, Password);
 
-        var login = await LoginSuccessfullyAsync(Email);
+        var login = await LoginSuccessfullyAsync(Email, Password);
 
         login.PendingStep.ShouldBe(PendingStepClaimValues.PatientProfile);
         ReadAccessToken(login).GetClaim(AppClaims.PendingStep).Value.ShouldBe(PendingStepClaimValues.PatientProfile);
@@ -131,10 +125,10 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
     [Fact]
     public async Task Login_de_un_paciente_con_perfil_no_tiene_paso_pendiente()
     {
-        await CreateConfirmedPatientAsync(Email);
+        await CreateConfirmedPatientAsync(Email, Password);
         await Factory.InsertPatientProfileAsync(Email);
 
-        var login = await LoginSuccessfullyAsync(Email);
+        var login = await LoginSuccessfullyAsync(Email, Password);
 
         login.PendingStep.ShouldBeNull();
         ReadAccessToken(login).TryGetClaim(AppClaims.PendingStep, out _).ShouldBeFalse();
@@ -143,9 +137,9 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
     [Fact]
     public async Task Login_de_un_medico_con_contrasena_temporal_indica_cambiarla()
     {
-        await SaveUserAsync(UserRole.Doctor, DoctorEmail, mustChangePassword: true);
+        await SaveUserAsync(UserRole.Doctor, DoctorEmail, Password, mustChangePassword: true);
 
-        var login = await LoginSuccessfullyAsync(DoctorEmail);
+        var login = await LoginSuccessfullyAsync(DoctorEmail, Password);
 
         login.PendingStep.ShouldBe(PendingStepClaimValues.ChangeTemporaryPassword);
         ReadAccessToken(login).GetClaim(AppClaims.Role).Value.ShouldBe(nameof(UserRole.Doctor));
@@ -154,9 +148,9 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
     [Fact]
     public async Task Login_de_un_medico_sin_perfil_indica_completarlo()
     {
-        await SaveUserAsync(UserRole.Doctor, DoctorEmail, mustChangePassword: false);
+        await SaveUserAsync(UserRole.Doctor, DoctorEmail, Password, mustChangePassword: false);
 
-        var login = await LoginSuccessfullyAsync(DoctorEmail);
+        var login = await LoginSuccessfullyAsync(DoctorEmail, Password);
 
         login.PendingStep.ShouldBe(PendingStepClaimValues.DoctorProfile);
     }
@@ -164,9 +158,9 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
     [Fact]
     public async Task Login_de_un_administrador_no_tiene_paso_pendiente()
     {
-        await SaveUserAsync(UserRole.Administrator, AdministratorEmail, mustChangePassword: false);
+        await SaveUserAsync(UserRole.Administrator, AdministratorEmail, Password, mustChangePassword: false);
 
-        var login = await LoginSuccessfullyAsync(AdministratorEmail);
+        var login = await LoginSuccessfullyAsync(AdministratorEmail, Password);
 
         login.PendingStep.ShouldBeNull();
     }
@@ -174,7 +168,7 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
     [Fact]
     public async Task Login_al_superar_el_limite_por_correo_se_rechaza_aunque_la_contrasena_sea_correcta()
     {
-        await CreateConfirmedPatientAsync(Email);
+        await CreateConfirmedPatientAsync(Email, Password);
         await FailLoginAsync(Email, MaxFailedAttemptsPerEmail);
 
         var response = await LoginAsync(Email, Password);
@@ -186,9 +180,9 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
     [Fact]
     public async Task El_limite_por_correo_se_libera_al_terminar_la_ventana()
     {
-        await CreateConfirmedPatientAsync(Email);
+        await CreateConfirmedPatientAsync(Email, Password);
         await FailLoginAsync(Email, MaxFailedAttemptsPerEmail);
-        (await LoginAsync(Email, Password)).StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        await (await LoginAsync(Email, Password)).ShouldHaveStatusAsync(HttpStatusCode.TooManyRequests);
         Clock.UtcNow += EmailWindow;
 
         var response = await LoginAsync(Email, Password);
@@ -199,9 +193,9 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
     [Fact]
     public async Task Un_login_correcto_reinicia_el_contador_de_intentos()
     {
-        await CreateConfirmedPatientAsync(Email);
+        await CreateConfirmedPatientAsync(Email, Password);
         await FailLoginAsync(Email, MaxFailedAttemptsPerEmail - 1);
-        await LoginSuccessfullyAsync(Email);
+        await LoginSuccessfullyAsync(Email, Password);
         await FailLoginAsync(Email, MaxFailedAttemptsPerEmail - 1);
 
         var response = await LoginAsync(Email, Password);
@@ -212,10 +206,10 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
     [Fact]
     public async Task Un_login_con_2FA_activo_tambien_reinicia_el_contador()
     {
-        await CreateConfirmedPatientAsync(Email);
+        await CreateConfirmedPatientAsync(Email, Password);
         await Factory.EnableTwoFactorAsync(Email);
         await FailLoginAsync(Email, MaxFailedAttemptsPerEmail - 1);
-        (await LoginSuccessfullyAsync(Email)).RequiresTwoFactor.ShouldBeTrue();
+        (await LoginSuccessfullyAsync(Email, Password)).RequiresTwoFactor.ShouldBeTrue();
         await FailLoginAsync(Email, MaxFailedAttemptsPerEmail - 1);
 
         var response = await LoginAsync(Email, Password);
@@ -249,7 +243,7 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
 
         for (var attempt = 0; attempt < LowIpLimit; attempt++)
         {
-            (await LoginAsync(UnknownEmail, Password, client)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+            await (await LoginAsync(UnknownEmail, Password, client)).ShouldHaveStatusAsync(HttpStatusCode.Unauthorized);
         }
 
         var response = await LoginAsync(UnknownEmail, Password, client);
@@ -269,18 +263,6 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
         (await response.ReadErrorCodeAsync()).ShouldBe(expectedCode);
     }
 
-    private async Task CreateConfirmedPatientAsync(string email)
-    {
-        var register = await Client.PostAsJsonAsync(RegisterUrl, new { email, password = Password });
-        register.StatusCode.ShouldBe(HttpStatusCode.Accepted);
-
-        var confirm = await Client.PostAsJsonAsync(ConfirmUrl, new { token = Factory.ConfirmationTokensFor(email)[^1] });
-        confirm.StatusCode.ShouldBe(HttpStatusCode.NoContent);
-    }
-
-    private Task SaveUserAsync(UserRole role, string email, bool mustChangePassword) =>
-        SaveAsync(UserMother.WithRole(role, mustChangePassword, EmailAddress.Create(email).Value, Factory.HashPassword(Password)));
-
     private async Task<(string Email, string Password)> PrepareRejectedLoginAsync(string caso)
     {
         switch (caso)
@@ -288,14 +270,13 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
             case UnknownEmailCase:
                 return (UnknownEmail, Password);
             case WrongPasswordCase:
-                await CreateConfirmedPatientAsync(Email);
+                await CreateConfirmedPatientAsync(Email, Password);
                 return (Email, WrongPassword);
             case PendingAccountCase:
-                (await Client.PostAsJsonAsync(RegisterUrl, new { email = Email, password = Password }))
-                    .StatusCode.ShouldBe(HttpStatusCode.Accepted);
+                await RegisterPatientAsync(Email, Password);
                 return (Email, Password);
             case InactiveAccountCase:
-                await CreateConfirmedPatientAsync(Email);
+                await CreateConfirmedPatientAsync(Email, Password);
                 await Factory.UpdateUserAsync(Email, user => user.Deactivate().IsSuccess.ShouldBeTrue());
                 return (Email, Password);
             default:
@@ -307,31 +288,9 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
     {
         for (var attempt = 0; attempt < attempts; attempt++)
         {
-            (await LoginAsync(email, WrongPassword)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+            await (await LoginAsync(email, WrongPassword)).ShouldHaveStatusAsync(HttpStatusCode.Unauthorized);
         }
     }
-
-    private async Task<LoginResponse> LoginSuccessfullyAsync(string email)
-    {
-        var response = await LoginAsync(email, Password);
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        return await ReadLoginAsync(response);
-    }
-
-    private async Task<HttpResponseMessage> LoginAsync(string email, string password, HttpClient? client = null)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Post, LoginUrl)
-        {
-            Content = JsonContent.Create(new { email, password })
-        };
-        request.Headers.UserAgent.ParseAdd(UserAgent);
-
-        return await (client ?? Client).SendAsync(request);
-    }
-
-    private static async Task<LoginResponse> ReadLoginAsync(HttpResponseMessage response) =>
-        (await response.Content.ReadFromJsonAsync<LoginResponse>())
-        ?? throw new InvalidOperationException("La respuesta del inicio de sesión vino vacía.");
 
     private static JsonWebToken ReadAccessToken(LoginResponse login) =>
         new JsonWebTokenHandler().ReadJsonWebToken(

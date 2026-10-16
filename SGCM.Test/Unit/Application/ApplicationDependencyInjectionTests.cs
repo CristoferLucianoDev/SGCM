@@ -47,7 +47,7 @@ public sealed class ApplicationDependencyInjectionTests
 
         result.Error.Code.ShouldBe(CommonErrors.InvalidEmail.Code);
         await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
-        await _userRepository.DidNotReceive().GetByEmailAsync(Arg.Any<Email>(), Arg.Any<CancellationToken>());
+        await _userRepository.DidNotReceive().GetByEmailForUpdateAsync(Arg.Any<Email>(), Arg.Any<CancellationToken>());
     }
 
     private ServiceProvider BuildProvider()

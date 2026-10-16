@@ -185,9 +185,11 @@ public sealed class User : ActivatableAggregateRoot
     }
 
     /// <summary>
-    /// Emite un token del tipo indicado. Antes invalida los tokens vigentes del mismo
-    /// tipo, de modo que solo el último enlace enviado funcione. Los tokens de otros
-    /// tipos no se tocan.
+    /// Emite un token del tipo indicado. Antes invalida los tokens pendientes (no usados ni
+    /// invalidados) del mismo tipo, aunque ya hayan vencido, de modo que solo el último enlace
+    /// enviado funcione. Incluye los vencidos porque así lo exige el índice único
+    /// <c>uq_user_token_user_id_token_type_id_active</c>, que admite un solo token pendiente
+    /// por usuario y tipo sin mirar el vencimiento. Los tokens de otros tipos no se tocan.
     /// </summary>
     /// <param name="type">Propósito del token.</param>
     /// <param name="rawToken">Token en claro, que viaja en el evento para enviarse por correo.</param>
@@ -199,7 +201,7 @@ public sealed class User : ActivatableAggregateRoot
     {
         EnsureTokenData(rawToken, tokenHash, lifetime);
 
-        foreach (var token in _tokens.Where(token => token.Type == type && token.IsValidAt(now)))
+        foreach (var token in _tokens.Where(token => token.Type == type && token.IsPending))
         {
             token.Invalidate(now);
         }
@@ -456,7 +458,7 @@ public sealed class User : ActivatableAggregateRoot
         // El hash viene de fuera: si es nulo o vacío simplemente no coincide con ninguno.
         var token = _tokens.FirstOrDefault(token => token.Type == type && token.TokenHash == tokenHash);
 
-        if (token is null || token.UsedAt is not null || token.InvalidatedAt is not null)
+        if (token is null || !token.IsPending)
         {
             return UserErrors.TokenInvalid;
         }

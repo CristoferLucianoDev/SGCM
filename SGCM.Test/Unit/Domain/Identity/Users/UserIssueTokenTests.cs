@@ -14,6 +14,9 @@ public class UserIssueTokenTests
 {
     private static readonly DateTimeOffset Now = UserMother.Now;
 
+    // Vigencia del enlace de recuperación que fija el PBI.
+    private static readonly TimeSpan PasswordResetLifetime = TimeSpan.FromMinutes(10);
+
     [Fact]
     public void IssueToken_no_invalida_tokens_de_otro_tipo()
     {
@@ -23,6 +26,32 @@ public class UserIssueTokenTests
         user.IssueToken(UserTokenType.PasswordReset, "raw-reset", "hash-reset", later, TimeSpan.FromMinutes(30));
 
         user.Tokens.Count(token => token.IsValidAt(later)).ShouldBe(2);
+    }
+
+    [Fact]
+    public void IssueToken_invalida_el_token_pendiente_del_mismo_tipo_aunque_haya_vencido()
+    {
+        var user = UserMother.Pending();
+        var afterExpiry = Now + UserMother.ConfirmationLifetime;
+
+        user.IssueToken(UserTokenType.EmailConfirmation, "raw-2", "hash-2", afterExpiry, UserMother.ConfirmationLifetime);
+
+        user.Tokens.Single(token => token.TokenHash == UserMother.DefaultTokenHash).InvalidatedAt.ShouldBe(afterExpiry);
+        user.Tokens
+            .Where(token => token.Type == UserTokenType.EmailConfirmation && token.IsPending)
+            .ShouldHaveSingleItem()
+            .TokenHash.ShouldBe("hash-2");
+    }
+
+    [Fact]
+    public void IssueToken_no_invalida_el_token_pendiente_vencido_de_otro_tipo()
+    {
+        var user = UserMother.Pending();
+        var afterExpiry = Now + UserMother.ConfirmationLifetime;
+
+        user.IssueToken(UserTokenType.PasswordReset, "raw-reset", "hash-reset", afterExpiry, PasswordResetLifetime);
+
+        user.Tokens.Single(token => token.TokenHash == UserMother.DefaultTokenHash).InvalidatedAt.ShouldBeNull();
     }
 
     [Fact]
@@ -87,6 +116,35 @@ public class UserIssueTokenTests
 
         token.IsValidAt(token.ExpiresAt.AddTicks(-1)).ShouldBeTrue();
         token.IsValidAt(token.ExpiresAt).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Un_token_nuevo_esta_pendiente_y_lo_sigue_estando_al_vencer_sin_usarse()
+    {
+        var token = UserMother.Pending().Tokens.Single();
+
+        token.IsPending.ShouldBeTrue();
+        token.IsValidAt(token.ExpiresAt).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Un_token_usado_deja_de_estar_pendiente()
+    {
+        var user = UserMother.Pending();
+
+        user.ConfirmEmail(UserMother.DefaultTokenHash, Now.AddMinutes(1)).IsSuccess.ShouldBeTrue();
+
+        user.Tokens.Single().IsPending.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Un_token_invalidado_deja_de_estar_pendiente()
+    {
+        var user = UserMother.Pending();
+
+        user.IssueToken(UserTokenType.EmailConfirmation, "raw-2", "hash-2", Now.AddMinutes(1), UserMother.ConfirmationLifetime);
+
+        user.Tokens.Single(token => token.TokenHash == UserMother.DefaultTokenHash).IsPending.ShouldBeFalse();
     }
 
     [Fact]

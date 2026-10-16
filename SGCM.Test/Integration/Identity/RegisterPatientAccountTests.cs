@@ -18,6 +18,7 @@ namespace SGCM.Test.Integration.Identity;
 public sealed class RegisterPatientAccountTests(PostgresFixture database) : ApiIntegrationTestBase(database)
 {
     private const string RegisterUrl = "/api/accounts/register";
+    private const string ConfirmUrl = "/api/accounts/confirm-email";
     private const string Email = "paciente@correo.com";
     private const string Password = "Secreta123";
 
@@ -74,6 +75,21 @@ public sealed class RegisterPatientAccountTests(PostgresFixture database) : ApiI
         var notifications = Factory.Notifications.Sent.OfType<AccountConfirmationNotification>().ToList();
         notifications.Count.ShouldBe(2);
         notifications[0].ConfirmationUrl.ShouldNotBe(notifications[1].ConfirmationUrl);
+    }
+
+    [Fact]
+    public async Task Registro_con_correo_pendiente_cuyo_enlace_vencio_responde_202()
+    {
+        await RegisterPatientAsync(Email, Password);
+
+        // Sin ejecutar la limpieza, la fila pendiente sigue en la base con su token vencido sin usar.
+        Clock.UtcNow += UserMother.ConfirmationLifetime;
+
+        var response = await Client.PostAsJsonAsync(RegisterUrl, new { email = Email, password = Password });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var confirm = await Client.PostAsJsonAsync(ConfirmUrl, new { token = Factory.ConfirmationTokensFor(Email)[^1] });
+        confirm.StatusCode.ShouldBe(HttpStatusCode.NoContent);
     }
 
     [Theory]
