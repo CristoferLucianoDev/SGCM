@@ -18,4 +18,9 @@ public sealed class FakeNotificationService : INotificationService
         _sent.Enqueue(notification);
         return Task.FromResult(Result.Success());
     }
+
+    /// <summary>
+    /// Descarta las notificaciones guardadas.
+    /// </summary>
+    public void Clear() => _sent.Clear();
 }

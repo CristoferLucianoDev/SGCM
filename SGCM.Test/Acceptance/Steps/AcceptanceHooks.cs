@@ -1,22 +1,21 @@
 ﻿using Reqnroll;
-using SGCM.Test.Common.Database;
+using SGCM.Test.Common.Web;
 
 namespace SGCM.Test.Acceptance.Steps;
 
 /// <summary>
-/// Un contenedor PostgreSQL para todos los escenarios; cada escenario empieza con la base limpia.
+/// Inicia la base y la app compartidas con las pruebas de integración; cada escenario empieza con la
+/// base limpia y la app compartida reiniciada.
 /// </summary>
 [Binding]
 public sealed class AcceptanceHooks
 {
-    public static PostgresFixture Database { get; } = new();
-
+    // Crear la app también inicia la base compartida.
     [BeforeTestRun]
-    public static Task StartDatabaseAsync() => Database.InitializeAsync();
+    public static async Task StartSharedAppAsync() => await SharedApp.GetAsync();
 
-    [AfterTestRun]
-    public static Task StopDatabaseAsync() => Database.DisposeAsync();
-
-    [BeforeScenario]
-    public static Task ResetDatabaseAsync() => Database.ResetAsync();
+    // Solo para @Integration: esos escenarios no corren en paralelo con nada. Un escenario sin la
+    // etiqueta podría correr junto a DatabaseCollection y limpiarle la base a mitad de una prueba.
+    [BeforeScenario("Integration")]
+    public static Task ResetStateAsync() => SharedApp.ResetAsync();
 }

@@ -9,4 +9,9 @@ namespace SGCM.Test.Common.Fakes;
 public sealed class FakeDateTimeProvider : IDateTimeProvider
 {
     public DateTimeOffset UtcNow { get; set; } = UserMother.Now;
+
+    /// <summary>
+    /// Vuelve el reloj a <see cref="UserMother.Now"/>.
+    /// </summary>
+    public void Reset() => UtcNow = UserMother.Now;
 }

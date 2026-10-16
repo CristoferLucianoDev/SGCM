@@ -1,48 +1,38 @@
-﻿using Npgsql;
-using Testcontainers.PostgreSql;
+﻿namespace SGCM.Test.Common.Database;
 
-namespace SGCM.Test.Common.Database;
-
-// Un contenedor para toda la corrida de pruebas; cada prueba limpia los datos con reset.sql.
+/// <summary>
+/// Fixture de <see cref="DatabaseCollection"/>. xUnit v2 crea su propia instancia y no deja que una
+/// fixture reciba otra por constructor, así que delega en <see cref="SharedDatabase"/> para usar el
+/// mismo contenedor que los escenarios BDD; cada prueba limpia los datos con reset.sql.
+/// </summary>
 public sealed class PostgresFixture : IAsyncLifetime
 {
-    private const string OwnerPassword = "owner-test";
-    private const string AppPassword = "app-test";
-    private const string ReportingPassword = "reporting-test";
+    private SharedDatabase? _database;
 
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17").Build();
+    /// <summary>
+    /// Cadena de conexión con el usuario de la aplicación.
+    /// </summary>
+    public string ConnectionString => Database.ConnectionString;
 
-    public string ConnectionString => new NpgsqlConnectionStringBuilder(_container.GetConnectionString())
-    {
-        Username = "sgcm_app",
-        Password = AppPassword
-    }.ConnectionString;
+    private SharedDatabase Database =>
+        _database ?? throw new InvalidOperationException("La base compartida no se inició.");
 
-    public async Task InitializeAsync()
-    {
-        await _container.StartAsync();
-        await _container.CopyAsync(new DirectoryInfo(RepositoryPaths.Database), "/database");
-        await _container.CopyAsync(new DirectoryInfo(RepositoryPaths.TestDatabase), "/test-database");
+    /// <summary>
+    /// Inicia la base compartida si nadie lo hizo antes y la deja lista para la colección.
+    /// </summary>
+    /// <returns>Una tarea que termina cuando la base está desplegada.</returns>
+    public async Task InitializeAsync() => _database = await SharedDatabase.GetAsync();
 
-        await RunScriptAsync(
-            "/database/deploy.sql",
-            "-v", $"owner_password={OwnerPassword}",
-            "-v", $"app_password={AppPassword}",
-            "-v", $"reporting_password={ReportingPassword}");
-    }
+    /// <summary>
+    /// Borra los datos para que la siguiente prueba empiece con la base limpia.
+    /// </summary>
+    /// <returns>Una tarea que termina cuando la base quedó limpia.</returns>
+    public Task ResetAsync() => Database.ResetAsync();
 
-    public Task ResetAsync() => RunScriptAsync("/test-database/reset.sql");
-
-    public Task DisposeAsync() => _container.DisposeAsync().AsTask();
-
-    private async Task RunScriptAsync(string path, params string[] variables)
-    {
-        string[] command = ["psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres", .. variables, "-f", path];
-
-        var result = await _container.ExecAsync(command);
-        if (result.ExitCode != 0)
-        {
-            throw new InvalidOperationException($"{path} falló: {result.Stderr}");
-        }
-    }
+    /// <summary>
+    /// No libera nada: el contenedor dura toda la ejecución y lo libera <see cref="SharedDatabase"/>
+    /// al terminar el proceso.
+    /// </summary>
+    /// <returns>Una tarea ya completada.</returns>
+    public Task DisposeAsync() => Task.CompletedTask;
 }
