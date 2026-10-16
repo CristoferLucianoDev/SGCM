@@ -21,6 +21,9 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
 
     private static readonly DateTimeOffset Now = UserMother.Now;
 
+    // Vigencia del enlace de recuperación que fija el PBI.
+    private static readonly TimeSpan PasswordResetLifetime = TimeSpan.FromMinutes(10);
+
     // Vigencia de la sesión y máximo de sesiones activas que fija la arquitectura.
     private static readonly TimeSpan SessionLifetime = TimeSpan.FromDays(7);
     private const int MaxSessions = 5;
@@ -126,6 +129,30 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         reloaded.Tokens.Count.ShouldBe(2);
         reloaded.Tokens.Single(token => token.TokenHash == UserMother.DefaultTokenHash).InvalidatedAt.ShouldBe(later);
         reloaded.Tokens.Single(token => token.TokenHash == "hash-2").IsValidAt(later).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Persiste_un_token_nuevo_aunque_el_anterior_del_mismo_tipo_haya_vencido_sin_usarse()
+    {
+        var user = UserMother.Confirmed();
+        user.IssueToken(UserTokenType.PasswordReset, "raw-reset-1", "hash-reset-1", Now, PasswordResetLifetime);
+        await SaveAsync(user);
+        var afterExpiry = Now + PasswordResetLifetime;
+
+        // El índice único parcial uq_user_token_user_id_token_type_id_active rechazaría la
+        // inserción si el token vencido siguiera pendiente.
+        await using (var context = CreateContext())
+        {
+            var loaded = await new UserRepository(context).GetByEmailAsync(UserMother.DefaultEmail, CancellationToken.None);
+            loaded!.IssueToken(UserTokenType.PasswordReset, "raw-reset-2", "hash-reset-2", afterExpiry, PasswordResetLifetime);
+            await Should.NotThrowAsync(() => context.SaveChangesAsync());
+        }
+
+        await using var verification = CreateContext();
+        var reloaded = await new UserRepository(verification).GetByEmailAsync(UserMother.DefaultEmail, CancellationToken.None);
+
+        reloaded!.Tokens.Single(token => token.TokenHash == "hash-reset-1").InvalidatedAt.ShouldBe(afterExpiry);
+        reloaded.Tokens.Single(token => token.TokenHash == "hash-reset-2").IsValidAt(afterExpiry).ShouldBeTrue();
     }
 
     [Fact]

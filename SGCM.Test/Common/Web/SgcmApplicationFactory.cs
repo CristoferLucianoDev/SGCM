@@ -98,6 +98,19 @@ public sealed class SgcmApplicationFactory(
             .ToList();
 
     /// <summary>
+    /// Tokens en claro de los correos de recuperación de contraseña enviados a
+    /// <paramref name="email"/>, en orden de envío: es lo que el usuario recibe en el enlace del correo.
+    /// </summary>
+    /// <param name="email">Correo del destinatario.</param>
+    /// <returns>Los tokens, del primero al último enviado; vacía si no se envió ninguno.</returns>
+    public IReadOnlyList<string> PasswordResetTokensFor(string email) =>
+        Notifications.Sent
+            .OfType<PasswordResetNotification>()
+            .Where(notification => notification.Recipient.Email == email)
+            .Select(notification => QueryHelpers.ParseQuery(new Uri(notification.ResetUrl).Query)["token"].ToString())
+            .ToList();
+
+    /// <summary>
     /// Devuelve la instancia del proceso automático que registró la app, para ejecutarlo
     /// a mano con todo su cableado real: scope, decoradores, handler y repositorio.
     /// </summary>

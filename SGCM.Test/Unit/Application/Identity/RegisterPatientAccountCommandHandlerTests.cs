@@ -67,8 +67,9 @@ public sealed class RegisterPatientAccountCommandHandlerTests
 
         await _handler.HandleAsync(command, CancellationToken.None);
 
-        await _userRepository.Received(1).GetByEmailAsync(
+        await _userRepository.Received(1).GetByEmailForUpdateAsync(
             Email.Create("paciente@correo.com").Value, Arg.Any<CancellationToken>());
+        await _userRepository.DidNotReceive().GetByEmailAsync(Arg.Any<Email>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -76,7 +77,7 @@ public sealed class RegisterPatientAccountCommandHandlerTests
     {
         var pending = UserMother.Pending();
         var previousToken = pending.Tokens.Single();
-        _userRepository.GetByEmailAsync(Arg.Any<Email>(), Arg.Any<CancellationToken>()).Returns(pending);
+        _userRepository.GetByEmailForUpdateAsync(Arg.Any<Email>(), Arg.Any<CancellationToken>()).Returns(pending);
 
         var result = await _handler.HandleAsync(Command, CancellationToken.None);
 
@@ -90,7 +91,7 @@ public sealed class RegisterPatientAccountCommandHandlerTests
     [Fact]
     public async Task Handle_ConfirmedEmail_FailsWithEmailAlreadyInUse()
     {
-        _userRepository.GetByEmailAsync(Arg.Any<Email>(), Arg.Any<CancellationToken>()).Returns(UserMother.Confirmed());
+        _userRepository.GetByEmailForUpdateAsync(Arg.Any<Email>(), Arg.Any<CancellationToken>()).Returns(UserMother.Confirmed());
 
         var result = await _handler.HandleAsync(Command, CancellationToken.None);
 
@@ -105,6 +106,6 @@ public sealed class RegisterPatientAccountCommandHandlerTests
         var result = await _handler.HandleAsync(Command with { Email = "no-es-un-correo" }, CancellationToken.None);
 
         result.IsFailure.ShouldBeTrue();
-        await _userRepository.DidNotReceive().GetByEmailAsync(Arg.Any<Email>(), Arg.Any<CancellationToken>());
+        await _userRepository.DidNotReceive().GetByEmailForUpdateAsync(Arg.Any<Email>(), Arg.Any<CancellationToken>());
     }
 }

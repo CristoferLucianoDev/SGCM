@@ -57,11 +57,18 @@ public sealed class UserToken : Entity
         };
 
     /// <summary>
+    /// Indica si el token está pendiente: no fue usado ni invalidado, aunque ya haya vencido.
+    /// Es la misma condición del índice único parcial <c>uq_user_token_user_id_token_type_id_active</c>,
+    /// así que solo puede haber un token pendiente por usuario y tipo.
+    /// </summary>
+    public bool IsPending => UsedAt is null && InvalidatedAt is null;
+
+    /// <summary>
     /// Indica si el token puede usarse en el momento indicado: no fue usado,
     /// no fue invalidado y todavía no venció.
     /// </summary>
     public bool IsValidAt(DateTimeOffset now) =>
-        UsedAt is null && InvalidatedAt is null && ExpiresAt > now;
+        IsPending && ExpiresAt > now;
 
     /// <summary>
     /// Invalida el token. Si ya estaba invalidado, conserva la fecha original.
