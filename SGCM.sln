@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.0.31903.59
+# Visual Studio Version 18
+VisualStudioVersion = 18.11.12306.390 stable
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SGCM.Data", "SGCM.Data\SGCM.Data.csproj", "{DA60D5DC-9B34-47F7-860D-D13DACADC756}"
 EndProject
@@ -9,13 +9,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SGCM.Web", "SGCM.Web\SGCM.W
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SGCM.Test", "SGCM.Test\SGCM.Test.csproj", "{B6754172-BB06-4B49-B850-F123F9CF015A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SGCM.Provisioning", "SGCM.Provisioning\SGCM.Provisioning.csproj", "{64CAFE3B-31D8-48BE-8885-9C952F190184}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
-	EndGlobalSection
-	GlobalSection(SolutionProperties) = preSolution
-		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{DA60D5DC-9B34-47F7-860D-D13DACADC756}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -30,5 +29,12 @@ Global
 		{B6754172-BB06-4B49-B850-F123F9CF015A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B6754172-BB06-4B49-B850-F123F9CF015A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B6754172-BB06-4B49-B850-F123F9CF015A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{64CAFE3B-31D8-48BE-8885-9C952F190184}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{64CAFE3B-31D8-48BE-8885-9C952F190184}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{64CAFE3B-31D8-48BE-8885-9C952F190184}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{64CAFE3B-31D8-48BE-8885-9C952F190184}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
 	EndGlobalSection
 EndGlobal

@@ -68,6 +68,7 @@ public static class DependencyInjection
         services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddScoped<ISessionService, SessionService>();
         services.AddSingleton<IAttemptLimiter, MemoryAttemptLimiter>();
+        services.AddSingleton<ITemporaryPasswordGenerator, TemporaryPasswordGenerator>();
 
         return services;
     }

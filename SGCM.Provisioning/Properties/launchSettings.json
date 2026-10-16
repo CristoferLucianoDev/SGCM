@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "SGCM.Provisioning": {
+      "commandName": "Project",
+      "commandLineArgs": "crear-medico medico1@correo.com"
+    }
+  }
+}

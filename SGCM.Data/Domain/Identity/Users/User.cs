@@ -92,6 +92,30 @@ public sealed class User : ActivatableAggregateRoot
     }
 
     /// <summary>
+    /// Crea la cuenta de un médico lista para su primer acceso: el correo ya está confirmado
+    /// y la contraseña es temporal, así que el médico debe cambiarla al iniciar sesión y
+    /// después completar su perfil. La genera la herramienta de alta, no el registro público.
+    /// </summary>
+    /// <param name="email">Correo del médico.</param>
+    /// <param name="passwordHash">Hash de la contraseña temporal.</param>
+    /// <returns>El usuario médico, activo, confirmado y con cambio obligatorio de contraseña.</returns>
+    /// <exception cref="DomainException">Si falta el hash de la contraseña.</exception>
+    public static User CreateDoctor(Email email, string passwordHash)
+    {
+        ArgumentNullException.ThrowIfNull(email);
+        EnsurePasswordHash(passwordHash);
+
+        return new User
+        {
+            Email = email,
+            PasswordHash = passwordHash,
+            Role = UserRole.Doctor,
+            IsEmailConfirmed = true,
+            MustChangePassword = true
+        };
+    }
+
+    /// <summary>
     /// Reemplaza un registro que nunca se confirmó cuando alguien vuelve a registrarse
     /// con el mismo correo: actualiza la contraseña e invalida el token de confirmación
     /// anterior al emitir uno nuevo.
