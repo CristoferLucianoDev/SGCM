@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.WebUtilities;
@@ -9,6 +10,7 @@ using Microsoft.Extensions.Hosting;
 using SGCM.Data.Infrastructure.Persistence;
 using SGCM.Data.Application.Abstractions.Notifications;
 using SGCM.Data.Application.Abstractions.Persistence;
+using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.Abstractions.Services;
 using SGCM.Data.Application.Identity.Notifications;
 using SGCM.Data.Domain.Common.ValueObjects;
@@ -19,6 +21,7 @@ using SGCM.Test.Common.Fakes;
 using SGCM.Test.Common.Mothers;
 using SGCM.Web;
 using System;
+using ILogger = Serilog.ILogger;
 
 namespace SGCM.Test.Common.Web;
 
@@ -36,6 +39,8 @@ public sealed class SgcmApplicationFactory(
 {
     public const string ConfirmationUrl = "https://sgcm.test/cuenta/confirmar";
     public const string PasswordResetUrl = "https://sgcm.test/cuenta/restablecer";
+
+    private const int TestHashIterations = 1000;
 
     public FakeNotificationService Notifications { get; } = new();
 
@@ -58,11 +63,12 @@ public sealed class SgcmApplicationFactory(
                 ["Accounts:EmailConfirmationUrl"] = ConfirmationUrl,
                 ["Accounts:PasswordResetUrl"] = PasswordResetUrl,
                 // En el servidor de pruebas todas las peticiones llegan sin IP y comparten la
-                // partición del límite por IP; las pruebas de ese límite lo bajan explícitamente.
-                ["LoginLimits:MaxRequestsPerIp"] = "1000",
-                // En el servidor de pruebas todas las peticiones llegan sin IP y comparten la
-                // partición del límite por IP; las pruebas de ese límite lo bajan explícitamente.
-                ["PasswordResetLimits:MaxRequestsPerIp"] = "1000",
+                // partición del límite por IP. La app se comparte en toda la ejecución y el rate
+                // limiter de ASP.NET no se puede reiniciar, así que el límite alcanza para todas
+                // las pruebas juntas; las pruebas de ese límite lo bajan en una app propia.
+                ["LoginLimits:MaxRequestsPerIp"] = "100000",
+                // Mismo motivo que el límite por IP del inicio de sesión.
+                ["PasswordResetLimits:MaxRequestsPerIp"] = "100000",
                 // Apagados para que no alteren los datos que prepara cada prueba.
                 ["Worker:Enabled"] = "false"
             }));
@@ -81,7 +87,31 @@ public sealed class SgcmApplicationFactory(
             services.AddSingleton<INotificationService>(Notifications);
             services.RemoveAll<IDateTimeProvider>();
             services.AddSingleton<IDateTimeProvider>(Clock);
+            // Las pruebas no necesitan el costo de producción, y el formato del hash no cambia:
+            // V3 guarda las iteraciones dentro de cada hash.
+            services.Configure<PasswordHasherOptions>(options => options.IterationCount = TestHashIterations);
+            // Reemplazable para que ResetState vacíe los intentos sin tocar el limitador de producción.
+            services.RemoveAll<IAttemptLimiter>();
+            services.AddSingleton(provider => new ResettableAttemptLimiter(Clock, provider.GetRequiredService<ILogger>()));
+            services.AddSingleton<IAttemptLimiter>(provider => provider.GetRequiredService<ResettableAttemptLimiter>());
         });
+    }
+
+    /// <summary>
+    /// Deja la app como recién creada: el reloj en <see cref="UserMother.Now"/>, sin notificaciones
+    /// guardadas y sin intentos en el limitador. Se llama antes de cada prueba de integración y de
+    /// cada escenario BDD, junto con la limpieza de la base.
+    /// </summary>
+    /// <remarks>
+    /// Regla para el equipo: la app se comparte entre todas las pruebas (ver <see cref="SharedApp"/>),
+    /// así que quien registre un servicio con estado en memoria debe reiniciarlo aquí. El rate limiter
+    /// de ASP.NET no se puede reiniciar; por eso la configuración de prueba sube sus límites por IP.
+    /// </remarks>
+    public void ResetState()
+    {
+        Clock.Reset();
+        Notifications.Clear();
+        Services.GetRequiredService<ResettableAttemptLimiter>().Clear();
     }
 
     /// <summary>

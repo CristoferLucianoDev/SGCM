@@ -12,7 +12,7 @@ using SGCM.Web.Contracts.Identity;
 namespace SGCM.Test.Common.Web;
 
 /// <summary>
-/// Base de las pruebas de la API: base limpia y una app nueva por prueba.
+/// Base de las pruebas de la API: base limpia, la app compartida reiniciada y un cliente propio por prueba.
 /// </summary>
 public abstract class ApiIntegrationTestBase(PostgresFixture database) : IntegrationTestBase(database)
 {
@@ -39,21 +39,18 @@ public abstract class ApiIntegrationTestBase(PostgresFixture database) : Integra
     /// </summary>
     protected FakeDateTimeProvider Clock => Factory.Clock;
 
+    // No llama a base.InitializeAsync: SharedApp.ResetAsync ya limpia la base y es el único punto
+    // de reinicio entre pruebas.
     public override async Task InitializeAsync()
     {
-        await base.InitializeAsync();
-        _factory = new SgcmApplicationFactory(Database.ConnectionString);
+        _factory = await SharedApp.ResetAsync();
         Client = _factory.CreateClient();
     }
 
+    // La app es compartida con las demás pruebas: solo se desecha el cliente de esta.
     public override async Task DisposeAsync()
     {
         Client.Dispose();
-        if (_factory is not null)
-        {
-            await _factory.DisposeAsync();
-        }
-
         await base.DisposeAsync();
     }
 
