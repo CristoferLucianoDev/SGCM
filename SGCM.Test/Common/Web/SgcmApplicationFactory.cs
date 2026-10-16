@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.WebUtilities;
@@ -36,6 +37,8 @@ public sealed class SgcmApplicationFactory(
 {
     public const string ConfirmationUrl = "https://sgcm.test/cuenta/confirmar";
     public const string PasswordResetUrl = "https://sgcm.test/cuenta/restablecer";
+
+    private const int TestHashIterations = 1000;
 
     public FakeNotificationService Notifications { get; } = new();
 
@@ -81,6 +84,9 @@ public sealed class SgcmApplicationFactory(
             services.AddSingleton<INotificationService>(Notifications);
             services.RemoveAll<IDateTimeProvider>();
             services.AddSingleton<IDateTimeProvider>(Clock);
+            // Las pruebas no necesitan el costo de producción, y el formato del hash no cambia:
+            // V3 guarda las iteraciones dentro de cada hash.
+            services.Configure<PasswordHasherOptions>(options => options.IterationCount = TestHashIterations);
         });
     }
 
