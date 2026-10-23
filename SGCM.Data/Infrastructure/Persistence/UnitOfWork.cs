@@ -1,5 +1,8 @@
-﻿using Microsoft.EntityFrameworkCore.Storage;
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using Npgsql;
 using SGCM.Data.Application.Abstractions.Persistence;
+using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Infrastructure.Persistence.Interceptors;
 
 namespace SGCM.Data.Infrastructure.Persistence;
@@ -10,7 +13,23 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
     public async Task<ITransaction> BeginTransactionAsync(CancellationToken cancellationToken) =>
         new EfTransaction(await context.Database.BeginTransactionAsync(cancellationToken), queue, dispatcher);
 
-    public Task SaveChangesAsync(CancellationToken cancellationToken) => context.SaveChangesAsync(cancellationToken);
+    public async Task SaveChangesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: "uq_specialty_name",
+            SchemaName: "people",
+            TableName: "specialty"
+        })
+        {
+            throw new PersistenceConflictException(SpecialtyErrors.NameAlreadyInUse, exception);
+        }
+    }
 
     private sealed class EfTransaction(
         IDbContextTransaction transaction,

@@ -3,10 +3,15 @@ using SGCM.Data.Domain.Common;
 namespace SGCM.Data.Domain.People.Specialties;
 
 /// <summary>
-/// Errores de validación del agregado <see cref="Specialty"/>.
+/// Errores de negocio del agregado <see cref="Specialty"/>.
 /// </summary>
 public static class SpecialtyErrors
 {
+    public static readonly Error NameAlreadyInUse = Error.Conflict(
+        code: "Specialty.NameAlreadyInUse",
+        description: "El nombre de la especialidad ya está en uso."
+    );
+
     public static readonly Error NameRequired = Error.Validation(
         code: "Specialty.NameRequired",
         description: "El nombre de la especialidad es obligatorio."

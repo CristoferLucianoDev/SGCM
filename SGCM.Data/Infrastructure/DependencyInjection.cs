@@ -4,12 +4,14 @@ using Microsoft.Extensions.Options;
 using SGCM.Data.Application.Abstractions.Notifications;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Domain.Identity.Users;
+using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Infrastructure.Notifications;
 using SGCM.Data.Infrastructure.Notifications.Channels;
 using SGCM.Data.Infrastructure.Persistence;
 using SGCM.Data.Infrastructure.Persistence.Interceptors;
 using SGCM.Data.Infrastructure.Persistence.Readers;
 using SGCM.Data.Infrastructure.Persistence.Repositories.Identity;
+using SGCM.Data.Infrastructure.Persistence.Repositories.People;
 using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.Abstractions.Services;
 using SGCM.Data.Infrastructure.Security;
@@ -55,6 +57,7 @@ public static class DependencyInjection
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<ISpecialtyRepository, SpecialtyRepository>();
         services.AddScoped<IUserProfileReader, UserProfileReader>();
         services.AddScoped<ITwoFactorStatusReader, TwoFactorStatusReader>();
 
