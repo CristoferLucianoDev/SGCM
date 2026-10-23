@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -59,36 +60,38 @@ public class CreateSpecialtyTests(PostgresFixture database) : ApiIntegrationTest
     }
 
     [Theory]
-    [InlineData(null, Description, "Specialty.NameRequired")]
-    [InlineData("", Description, "Specialty.NameRequired")]
-    [InlineData("   ", Description, "Specialty.NameRequired")]
-    [InlineData("Cardiología", null, "Specialty.DescriptionRequired")]
-    [InlineData("Cardiología", "", "Specialty.DescriptionRequired")]
-    [InlineData("Cardiología", "   ", "Specialty.DescriptionRequired")]
+    [InlineData(null, Description, "Specialty.NameRequired", "El nombre de la especialidad es obligatorio.")]
+    [InlineData("", Description, "Specialty.NameRequired", "El nombre de la especialidad es obligatorio.")]
+    [InlineData("   ", Description, "Specialty.NameRequired", "El nombre de la especialidad es obligatorio.")]
+    [InlineData("Cardiología", null, "Specialty.DescriptionRequired", "La descripción de la especialidad es obligatoria.")]
+    [InlineData("Cardiología", "", "Specialty.DescriptionRequired", "La descripción de la especialidad es obligatoria.")]
+    [InlineData("Cardiología", "   ", "Specialty.DescriptionRequired", "La descripción de la especialidad es obligatoria.")]
     public async Task Datos_obligatorios_invalidos_responden_400_con_codigo_de_dominio(
-        string? name, string? description, string errorCode)
+        string? name, string? description, string errorCode, string title)
     {
         Authorize(UserRole.Administrator);
+        var idsBeforeRequest = await ReadIdsAsync();
 
         using var response = await PostAsync(name, description);
 
         await response.ShouldHaveStatusAsync(HttpStatusCode.BadRequest);
-        (await response.ReadErrorCodeAsync()).ShouldBe(errorCode);
+        await AssertValidationErrorAsync(response, errorCode, title, idsBeforeRequest);
         _createdIds.ShouldBeEmpty();
     }
 
     [Theory]
-    [InlineData(true, "Specialty.NameTooLong")]
-    [InlineData(false, "Specialty.DescriptionTooLong")]
-    public async Task Longitudes_excedidas_responden_400(bool longName, string errorCode)
+    [InlineData(true, "Specialty.NameTooLong", "El nombre de la especialidad no puede superar 100 caracteres.")]
+    [InlineData(false, "Specialty.DescriptionTooLong", "La descripción de la especialidad no puede superar 500 caracteres.")]
+    public async Task Longitudes_excedidas_responden_400(bool longName, string errorCode, string title)
     {
         Authorize(UserRole.Administrator);
+        var idsBeforeRequest = await ReadIdsAsync();
 
         using var response = await PostAsync(longName ? new string('a', 101) : "Cardiología",
             longName ? Description : new string('b', 501));
 
         await response.ShouldHaveStatusAsync(HttpStatusCode.BadRequest);
-        (await response.ReadErrorCodeAsync()).ShouldBe(errorCode);
+        await AssertValidationErrorAsync(response, errorCode, title, idsBeforeRequest);
         _createdIds.ShouldBeEmpty();
     }
 
@@ -205,6 +208,22 @@ public class CreateSpecialtyTests(PostgresFixture database) : ApiIntegrationTest
         {
             await base.DisposeAsync();
         }
+    }
+
+    private async Task AssertValidationErrorAsync(HttpResponseMessage response, string code, string title, int[] idsBeforeRequest)
+    {
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("status").GetInt32().ShouldBe(400);
+        body.GetProperty("code").GetString().ShouldBe(code);
+        body.GetProperty("title").GetString().ShouldBe(title);
+        (await ReadIdsAsync()).ShouldBe(idsBeforeRequest);
+    }
+
+    private async Task<int[]> ReadIdsAsync()
+    {
+        using var scope = Factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Specialties
+            .OrderBy(value => value.Id).Select(value => value.Id).ToArrayAsync();
     }
 
     private void Authorize(UserRole role, HttpClient? client = null)
