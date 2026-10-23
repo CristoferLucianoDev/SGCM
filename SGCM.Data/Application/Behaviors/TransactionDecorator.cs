@@ -17,14 +17,24 @@ internal sealed class TransactionDecorator<TCommand, TResponse>(
     {
         await using var transaction = await unitOfWork.BeginTransactionAsync(cancellationToken);
 
-        var result = await inner.HandleAsync(command, cancellationToken);
-        if (result.IsFailure)
+        Result<TResponse> result;
+        try
         {
-            await transaction.RollbackAsync(cancellationToken);
-            return result;
+            result = await inner.HandleAsync(command, cancellationToken);
+            if (result.IsFailure)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return result;
+            }
+
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (PersistenceConflictException exception)
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            return exception.Error;
         }
 
-        await unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return result;
