@@ -10,9 +10,11 @@ using SGCM.Data.Application.Abstractions.Services;
 using SGCM.Data.Application.Behaviors;
 using SGCM.Data.Application.Identity;
 using SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
+using SGCM.Data.Application.People.Commands.CreateSpecialty;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
+using SGCM.Data.Domain.People.Specialties;
 using SGCM.Test.Common.Fakes;
 using Shouldly;
 
@@ -24,6 +26,7 @@ public sealed class ApplicationDependencyInjectionTests
 {
     private readonly IUserRepository _userRepository = Substitute.For<IUserRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
+    private readonly ISpecialtyRepository _specialtyRepository = Substitute.For<ISpecialtyRepository>();
 
     [Fact]
     public void AddApplication_ResolvesCommandHandlerWrappedInValidation()
@@ -50,6 +53,54 @@ public sealed class ApplicationDependencyInjectionTests
         await _userRepository.DidNotReceive().GetByEmailForUpdateAsync(Arg.Any<Email>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public void AddApplication_ResolvesCreateSpecialtyWithValidation()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<CreateSpecialtyCommand, int>>();
+
+        handler.ShouldBeOfType<ValidationDecorator<CreateSpecialtyCommand, int>>();
+    }
+
+    [Theory]
+    [InlineData("", "Descripción válida.", "Specialty.NameRequired")]
+    [InlineData("Cardiología", "", "Specialty.DescriptionRequired")]
+    public async Task AddApplication_InvalidSpecialty_IsRejectedBeforeOpeningTransaction(
+        string name, string description, string errorCode)
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<CreateSpecialtyCommand, int>>();
+
+        var result = await handler.HandleAsync(new CreateSpecialtyCommand(name, description), CancellationToken.None);
+
+        result.Error.Code.ShouldBe(errorCode);
+        await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+        await _specialtyRepository.DidNotReceive().ExistsByNameAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+        _specialtyRepository.DidNotReceive().Add(Arg.Any<Specialty>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddApplication_CanceledSpecialty_IsRejectedBeforeOpeningTransaction()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<CreateSpecialtyCommand, int>>();
+
+        await Should.ThrowAsync<OperationCanceledException>(() => handler.HandleAsync(
+            new CreateSpecialtyCommand("Cardiología", "Descripción válida."), cancellation.Token));
+
+        await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+        await _specialtyRepository.DidNotReceive().ExistsByNameAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+        _specialtyRepository.DidNotReceive().Add(Arg.Any<Specialty>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
     private ServiceProvider BuildProvider()
     {
         var services = new ServiceCollection();
@@ -57,6 +108,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddApplication();
         services.AddSingleton(_userRepository);
         services.AddSingleton(_unitOfWork);
+        services.AddSingleton(_specialtyRepository);
         services.AddSingleton(Substitute.For<IPasswordHasher>());
         services.AddSingleton(Substitute.For<ISecureTokenGenerator>());
         services.AddSingleton(Substitute.For<INotificationService>());
