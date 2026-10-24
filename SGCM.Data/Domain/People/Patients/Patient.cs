@@ -19,8 +19,7 @@ public sealed class Patient : ActivatableAggregateRoot
     public string PhoneNumber { get; private set; } = null!;
     public string? Address { get; private set; }
 
-    public string? EmergencyContactName { get; private set; }
-    public string? EmergencyContactPhone { get; private set; }
+	public EmergencyContact? EmergencyContact { get; private set; }
 
     public int? InsuranceProviderId { get; private set; }
     public string? PolicyNumber { get; private set; }
@@ -91,15 +90,25 @@ public sealed class Patient : ActivatableAggregateRoot
         if (address?.Length > 250)
             return PatientErrors.AddressTooLong;
 
-        emergencyContactName = NormalizeOptional(emergencyContactName);
 
-        if (emergencyContactName?.Length > 150)
-            return PatientErrors.EmergencyContactNameTooLong;
+emergencyContactName = NormalizeOptional(emergencyContactName);
+emergencyContactPhone = NormalizeOptional(emergencyContactPhone);
 
-        emergencyContactPhone = NormalizeOptional(emergencyContactPhone);
+EmergencyContact? emergencyContact = null;
 
-        if (emergencyContactPhone?.Length > 20)
-            return PatientErrors.EmergencyContactPhoneTooLong;
+if (emergencyContactName is not null ||
+    emergencyContactPhone is not null)
+{
+    var contactResult = EmergencyContact.Create(
+        emergencyContactName,
+        emergencyContactPhone);
+
+    if (contactResult.IsFailure)
+        return contactResult.Error;
+
+    emergencyContact = contactResult.Value;
+}
+
 
         if (insuranceProviderId is <= 0)
             return PatientErrors.InvalidInsuranceProvider;
@@ -121,8 +130,7 @@ public sealed class Patient : ActivatableAggregateRoot
             BirthDate = birthDate,
             PhoneNumber = phoneNumber,
             Address = address,
-            EmergencyContactName = emergencyContactName,
-            EmergencyContactPhone = emergencyContactPhone,
+	EmergencyContact = emergencyContact,
             InsuranceProviderId = insuranceProviderId,
             PolicyNumber = policyNumber,
             CreatedAt = now,

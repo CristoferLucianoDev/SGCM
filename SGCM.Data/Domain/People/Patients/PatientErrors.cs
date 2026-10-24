@@ -17,6 +17,13 @@ public static class PatientErrors
         Error.Validation(
             "Patient.FirstNameRequired",
             "El nombre del paciente es obligatorio.");
+	
+	
+public static readonly Error IncompleteEmergencyContact =
+    	Error.Validation(
+        "Patient.IncompleteEmergencyContact",
+        "El contacto de emergencia debe incluir nombre y teléfono.");
+
 
     public static readonly Error FirstNameTooLong =
         Error.Validation(

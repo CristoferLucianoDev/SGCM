@@ -150,20 +150,22 @@ public class PatientCreateTests
     [Fact]
     public void Create_con_contacto_de_emergencia_demasiado_largo_falla()
     {
-        var result = CreatePatient(
-            emergencyContactName: new string('A', 151));
+	var result = CreatePatient(
+    		emergencyContactName: new string('A', 151),
+   		emergencyContactPhone: "8095551234");
 
         result.Error.ShouldBe(PatientErrors.EmergencyContactNameTooLong);
     }
 
-    [Fact]
-    public void Create_con_telefono_de_emergencia_demasiado_largo_falla()
-    {
-        var result = CreatePatient(
-            emergencyContactPhone: new string('1', 21));
+[Fact]
+public void Create_con_telefono_de_emergencia_demasiado_largo_falla()
+{
+    var result = CreatePatient(
+        emergencyContactName: "Luis",
+        emergencyContactPhone: new string('1', 21));
 
-        result.Error.ShouldBe(PatientErrors.EmergencyContactPhoneTooLong);
-    }
+    result.Error.ShouldBe(PatientErrors.EmergencyContactPhoneTooLong);
+}
 
     [Theory]
     [InlineData(0)]
@@ -221,8 +223,9 @@ public class PatientCreateTests
         result.Value.LastName.ShouldBe("Pérez");
         result.Value.PhoneNumber.ShouldBe("8095551234");
         result.Value.Address.ShouldBe("Santo Domingo");
-        result.Value.EmergencyContactName.ShouldBe("Luis");
-        result.Value.EmergencyContactPhone.ShouldBe("8095555678");
+result.Value.EmergencyContact.ShouldNotBeNull();
+result.Value.EmergencyContact.Name.ShouldBe("Luis");
+result.Value.EmergencyContact.PhoneNumber.ShouldBe("8095555678");
     }
 
     [Fact]
@@ -235,8 +238,7 @@ public class PatientCreateTests
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Address.ShouldBeNull();
-        result.Value.EmergencyContactName.ShouldBeNull();
-        result.Value.EmergencyContactPhone.ShouldBeNull();
+	result.Value.EmergencyContact.ShouldBeNull();
     }
 
     [Fact]
@@ -247,4 +249,49 @@ public class PatientCreateTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.DomainEvents.ShouldBeEmpty();
     }
+
+[Fact]
+public void Create_con_contacto_de_emergencia_completo_crea_el_contacto()
+{
+    var result = CreatePatient(
+        emergencyContactName: "Luis",
+        emergencyContactPhone: "8095555678");
+
+    result.IsSuccess.ShouldBeTrue();
+    result.Value.EmergencyContact.ShouldNotBeNull();
+    result.Value.EmergencyContact.Name.ShouldBe("Luis");
+    result.Value.EmergencyContact.PhoneNumber.ShouldBe("8095555678");
+}
+
+[Theory]
+[InlineData(null)]
+[InlineData("")]
+[InlineData("   ")]
+public void Create_con_nombre_de_emergencia_sin_telefono_falla(
+    string? phone)
+{
+    var result = CreatePatient(
+        emergencyContactName: "Luis",
+        emergencyContactPhone: phone);
+
+    result.IsFailure.ShouldBeTrue();
+    result.Error.ShouldBe(PatientErrors.IncompleteEmergencyContact);
+}
+
+[Theory]
+[InlineData(null)]
+[InlineData("")]
+[InlineData("   ")]
+public void Create_con_telefono_de_emergencia_sin_nombre_falla(
+    string? name)
+{
+    var result = CreatePatient(
+        emergencyContactName: name,
+        emergencyContactPhone: "8095555678");
+
+    result.IsFailure.ShouldBeTrue();
+    result.Error.ShouldBe(PatientErrors.IncompleteEmergencyContact);
+}
+
+
 }
