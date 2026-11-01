@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using SGCM.Data.Application.Abstractions.Notifications;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Domain.Identity.Users;
+using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Infrastructure.Notifications;
 using SGCM.Data.Infrastructure.Notifications.Channels;
@@ -58,6 +59,7 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<ISpecialtyRepository, SpecialtyRepository>();
+        services.AddScoped<IPatientRepository, PatientRepository>();
         services.AddScoped<IUserProfileReader, UserProfileReader>();
         services.AddScoped<ITwoFactorStatusReader, TwoFactorStatusReader>();
 

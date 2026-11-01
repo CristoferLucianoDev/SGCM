@@ -8,6 +8,11 @@ namespace SGCM.Data.Domain.People.Patients;
 /// </summary>
 public static class PatientErrors
 {
+    public static readonly Error ProfileAlreadyExists =
+        Error.Conflict(
+            "Patient.ProfileAlreadyExists",
+            "El usuario ya tiene un perfil de paciente.");
+
     public static readonly Error InvalidUserId =
         Error.Validation(
             "Patient.InvalidUserId",

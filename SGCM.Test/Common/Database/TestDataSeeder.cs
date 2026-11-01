@@ -28,6 +28,22 @@ internal static class TestDataSeeder
     }
 
     /// <summary>
+    /// Crea un proveedor de seguros activo, solo con las columnas obligatorias.
+    /// </summary>
+    /// <param name="context">Contexto con el que se ejecuta el SQL.</param>
+    /// <param name="name">Nombre del proveedor, que debe ser único.</param>
+    /// <returns>El id del proveedor creado.</returns>
+    public static async Task<int> InsertInsuranceProviderAsync(AppDbContext context, string name = "Seguros Universal")
+    {
+        return (await context.Database.SqlQuery<int>(
+            $"""
+            INSERT INTO people.insurance_provider (name, contact_phone, contact_email, address)
+            VALUES ({name}, '8095550200', 'contacto@seguros.com', 'Av. Winston Churchill 100')
+            RETURNING id AS "Value"
+            """).ToListAsync()).Single();
+    }
+
+    /// <summary>
     /// Configura el segundo factor del usuario, solo con las columnas obligatorias.
     /// </summary>
     /// <param name="context">Contexto con el que se ejecuta el SQL.</param>

@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Domain.Common;
+using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Infrastructure.Persistence;
 using SGCM.Data.Infrastructure.Persistence.Interceptors;
@@ -28,7 +29,27 @@ public class UnitOfWorkConflictTests
         conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);
     }
 
+    [Fact]
+    public async Task SaveChangesAsync_traduce_el_perfil_de_paciente_duplicado_y_conserva_la_causa()
+    {
+        var postgres = CreatePostgresException("23505", "uq_patient_user_id", "people", "patient");
+        var original = new DbUpdateException("Error de prueba.", postgres);
+
+        var conflict = await Should.ThrowAsync<PersistenceConflictException>(() => SaveThrowingAsync(original));
+
+        conflict.Error.ShouldBe(PatientErrors.ProfileAlreadyExists);
+        conflict.Error.Code.ShouldBe("Patient.ProfileAlreadyExists");
+        conflict.Error.Type.ShouldBe(ErrorType.Conflict);
+        conflict.InnerException.ShouldBeSameAs(original);
+        conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);
+    }
+
     [Theory]
+    [InlineData("23505", "uq_patient_user_id", "people", "specialty")]
+    [InlineData("23505", "uq_specialty_name", "people", "patient")]
+    [InlineData("23505", "uq_patient_user_id", "app", "patient")]
+    [InlineData("23514", "uq_patient_user_id", "people", "patient")]
+    [InlineData("23514", "ck_patient_policy_number", "people", "patient")]
     [InlineData("23505", "uq_user_email", "people", "specialty")]
     [InlineData("23505", "uq_specialty_name", "app", "specialty")]
     [InlineData("23505", "uq_specialty_name", "people", "user")]
