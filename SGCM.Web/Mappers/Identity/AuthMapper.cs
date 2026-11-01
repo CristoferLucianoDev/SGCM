@@ -36,4 +36,13 @@ public static class AuthMapper
             tokens?.RefreshTokenExpiresAt,
             tokens?.PendingStep is { } step ? PendingStepClaimValues.From(step) : null);
     }
+
+    /// <summary>
+    /// Convierte los tokens de una sesión recién abierta, por ejemplo al completar el perfil,
+    /// en la misma respuesta del inicio de sesión, para que el cliente los trate igual.
+    /// </summary>
+    /// <param name="tokens">Tokens de la sesión.</param>
+    /// <returns>La respuesta con los tokens; nunca pide segundo factor.</returns>
+    public static LoginResponse ToResponse(this SessionTokens tokens) =>
+        LoginResult.Authenticated(tokens).ToResponse();
 }

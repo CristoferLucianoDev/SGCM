@@ -19,6 +19,17 @@ public interface IUserRepository : IRepository<User>
     /// <exception cref="InvalidOperationException">Si no hay una transacción activa.</exception>
     Task<User?> GetByEmailForUpdateAsync(Email email, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Busca el usuario por su id, con sus tokens y sesiones, y antes bloquea su fila hasta el
+    /// fin de la transacción. Lo usan los comandos que parten del usuario autenticado y abren
+    /// una sesión nueva, por la misma razón que <see cref="GetByEmailForUpdateAsync"/>.
+    /// </summary>
+    /// <param name="userId">Id del usuario.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
+    /// <returns>El usuario con sus tokens y sesiones, o <c>null</c> si no existe.</returns>
+    /// <exception cref="InvalidOperationException">Si no hay una transacción activa.</exception>
+    Task<User?> GetByIdForUpdateAsync(int userId, CancellationToken cancellationToken);
+
     // Busca, con sus tokens, el usuario que tiene un token de ese tipo con ese hash; devuelve null si no existe.
     Task<User?> GetByTokenHashAsync(UserTokenType type, string tokenHash, CancellationToken cancellationToken);
 

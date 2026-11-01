@@ -10,14 +10,17 @@ using SGCM.Data.Application.Abstractions.Services;
 using SGCM.Data.Application.Behaviors;
 using SGCM.Data.Application.Identity;
 using SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
+using SGCM.Data.Application.People.Commands.CompletePatientProfile;
 using SGCM.Data.Application.People.Commands.CreateSpecialty;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
+using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Test.Common.Fakes;
+using SGCM.Test.Common.Mothers;
 using Shouldly;
 
 namespace SGCM.Test.Unit.Application;
@@ -30,6 +33,7 @@ public sealed class ApplicationDependencyInjectionTests
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
     private readonly ISpecialtyRepository _specialtyRepository = Substitute.For<ISpecialtyRepository>();
     private readonly ISpecialtyListReader _specialtyListReader = Substitute.For<ISpecialtyListReader>();
+    private readonly IPatientRepository _patientRepository = Substitute.For<IPatientRepository>();
 
     [Theory]
     [InlineData(1, true)]
@@ -129,6 +133,33 @@ public sealed class ApplicationDependencyInjectionTests
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public void AddApplication_ResolvesCompletePatientProfileWithValidation()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<CompletePatientProfileCommand, SessionTokens>>();
+
+        handler.ShouldBeOfType<ValidationDecorator<CompletePatientProfileCommand, SessionTokens>>();
+    }
+
+    [Fact]
+    public async Task AddApplication_InvalidPatientProfile_IsRejectedBeforeOpeningTransaction()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<CompletePatientProfileCommand, SessionTokens>>();
+        var command = CompletePatientProfileCommandMother.WithRequiredData() with { FirstName = "" };
+
+        var result = await handler.HandleAsync(command, CancellationToken.None);
+
+        result.Error.Code.ShouldBe(PatientErrors.FirstNameRequired.Code);
+        await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+        await _userRepository.DidNotReceive().GetByIdForUpdateAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        _patientRepository.DidNotReceive().Add(Arg.Any<Patient>());
+    }
+
     private ServiceProvider BuildProvider()
     {
         var services = new ServiceCollection();
@@ -150,6 +181,8 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Options.Create(new LoginLimitsOptions()));
         services.AddSingleton(Options.Create(new PasswordResetLimitsOptions()));
         services.AddSingleton(Substitute.For<ITemporaryPasswordGenerator>());
+        services.AddSingleton(_patientRepository);
+        services.AddSingleton(Substitute.For<IInsuranceProviderReader>());
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
     }

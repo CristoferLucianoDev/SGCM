@@ -268,6 +268,42 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
     }
 
     [Fact]
+    public async Task GetByIdForUpdateAsync_devuelve_el_usuario_con_sus_tokens()
+    {
+        var saved = UserMother.Confirmed();
+        await SaveAsync(saved);
+
+        await using var context = CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var user = await new UserRepository(context).GetByIdForUpdateAsync(saved.Id, CancellationToken.None);
+
+        user.ShouldNotBeNull();
+        user.Id.ShouldBe(saved.Id);
+        user.Email.ShouldBe(UserMother.DefaultEmail);
+        user.Tokens.ShouldHaveSingleItem().TokenHash.ShouldBe(UserMother.DefaultTokenHash);
+    }
+
+    [Fact]
+    public async Task GetByIdForUpdateAsync_devuelve_null_si_el_id_no_existe()
+    {
+        await using var context = CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+
+        var user = await new UserRepository(context).GetByIdForUpdateAsync(int.MaxValue, CancellationToken.None);
+
+        user.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetByIdForUpdateAsync_sin_transaccion_lanza_excepcion()
+    {
+        await using var context = CreateContext();
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            new UserRepository(context).GetByIdForUpdateAsync(1, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task DeleteExpiredPendingRegistrationsAsync_sin_transaccion_lanza_excepcion()
     {
         await using var context = CreateContext();
