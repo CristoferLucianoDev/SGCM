@@ -3,6 +3,8 @@ using SGCM.Data.Infrastructure;
 using SGCM.Web.Hosting;
 using SGCM.Data.Application;
 using SGCM.Web.Jobs;
+using SGCM.Data.Application.Abstractions.Security;
+using SGCM.Web.Api.Infrastructure;
 
 namespace SGCM.Web;
 
@@ -15,6 +17,8 @@ public class Program
         builder.Services.AddSgcmLogging(builder.Configuration);
         builder.Services.AddSgcmOptions(builder.Configuration);
         builder.Services.AddSgcmAuthentication();
+        builder.Services.AddHttpContextAccessor();
+        builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
         builder.Services.AddSgcmRateLimiting();
         builder.Services.AddApplication();
         builder.Services.AddInfrastructure();
