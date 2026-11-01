@@ -18,9 +18,25 @@ public static class DependencyInjection
     {
         services.AddValidatorsFromAssembly(ApplicationAssembly, includeInternalTypes: true);
         services.AddCommandHandlers();
+        services.AddQueryHandlers();
         services.AddDomainEventHandlers();
 
         return services;
+    }
+
+    private static void AddQueryHandlers(this IServiceCollection services)
+    {
+        var handlers = ApplicationAssembly.GetTypes()
+            .Where(type => type is { IsAbstract: false, IsGenericTypeDefinition: false })
+            .SelectMany(type => type.GetInterfaces()
+                .Where(contract => contract.IsGenericType
+                    && contract.GetGenericTypeDefinition() == typeof(IQueryHandler<,>))
+                .Select(contract => (Implementation: type, Service: contract)));
+
+        foreach (var (implementation, service) in handlers)
+        {
+            services.AddScoped(service, implementation);
+        }
     }
 
     private static void AddCommandHandlers(this IServiceCollection services)

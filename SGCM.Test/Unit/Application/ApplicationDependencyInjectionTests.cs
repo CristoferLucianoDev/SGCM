@@ -11,6 +11,8 @@ using SGCM.Data.Application.Behaviors;
 using SGCM.Data.Application.Identity;
 using SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
 using SGCM.Data.Application.People.Commands.CreateSpecialty;
+using SGCM.Data.Application.People.Queries.ListSpecialties;
+using SGCM.Data.Application.Common;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
@@ -27,6 +29,32 @@ public sealed class ApplicationDependencyInjectionTests
     private readonly IUserRepository _userRepository = Substitute.For<IUserRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
     private readonly ISpecialtyRepository _specialtyRepository = Substitute.For<ISpecialtyRepository>();
+    private readonly ISpecialtyListReader _specialtyListReader = Substitute.For<ISpecialtyListReader>();
+
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(0, false)]
+    public async Task AddApplication_QueryValidatesAndReadsWithoutTransaction(int pageNumber, bool valid)
+    {
+        _specialtyListReader.ListAsync(null, true, false, pageNumber, 20, CancellationToken.None)
+            .Returns(new PagedResult<SpecialtyDto>([], pageNumber, 20, 0));
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<IQueryHandler<ListSpecialtiesQuery, PagedResult<SpecialtyDto>>>();
+
+        handler.ShouldBeOfType<ListSpecialtiesQueryHandler>();
+        scope.ServiceProvider.GetRequiredService<IQueryHandler<ListSpecialtiesQuery, PagedResult<SpecialtyDto>>>()
+            .ShouldBeSameAs(handler);
+        using var otherScope = provider.CreateScope();
+        otherScope.ServiceProvider.GetRequiredService<IQueryHandler<ListSpecialtiesQuery, PagedResult<SpecialtyDto>>>()
+            .ShouldNotBeSameAs(handler);
+        var result = await handler.HandleAsync(new ListSpecialtiesQuery(PageNumber: pageNumber), CancellationToken.None);
+
+        result.IsSuccess.ShouldBe(valid);
+        _specialtyListReader.ReceivedCalls().Count().ShouldBe(valid ? 1 : 0);
+        await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
 
     [Fact]
     public void AddApplication_ResolvesCommandHandlerWrappedInValidation()
@@ -109,6 +137,8 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(_userRepository);
         services.AddSingleton(_unitOfWork);
         services.AddSingleton(_specialtyRepository);
+        services.AddSingleton(_specialtyListReader);
+        services.AddSingleton(Substitute.For<ICurrentUser>());
         services.AddSingleton(Substitute.For<IPasswordHasher>());
         services.AddSingleton(Substitute.For<ISecureTokenGenerator>());
         services.AddSingleton(Substitute.For<INotificationService>());

@@ -60,6 +60,7 @@ public static class DependencyInjection
         services.AddScoped<ISpecialtyRepository, SpecialtyRepository>();
         services.AddScoped<IUserProfileReader, UserProfileReader>();
         services.AddScoped<ITwoFactorStatusReader, TwoFactorStatusReader>();
+        services.AddScoped<ISpecialtyListReader, SpecialtyListReader>();
 
         return services;
     }
