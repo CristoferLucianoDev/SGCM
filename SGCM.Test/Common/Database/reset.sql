@@ -8,4 +8,5 @@
 DELETE FROM people.patient;
 DELETE FROM people.doctor;
 DELETE FROM people.administrator;
+DELETE FROM people.insurance_provider;
 DELETE FROM app."user";

@@ -2,6 +2,8 @@
 using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 using SGCM.Data.Application.Abstractions.Persistence;
+using SGCM.Data.Domain.Common;
+using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Infrastructure.Persistence.Interceptors;
 
@@ -19,16 +21,37 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
         {
             await context.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException exception) when (exception.InnerException is PostgresException
+        catch (DbUpdateException exception) when (TryGetUniqueConflict(exception, out var error))
         {
-            SqlState: PostgresErrorCodes.UniqueViolation,
-            ConstraintName: "uq_specialty_name",
-            SchemaName: "people",
-            TableName: "specialty"
-        })
-        {
-            throw new PersistenceConflictException(SpecialtyErrors.NameAlreadyInUse, exception);
+            throw new PersistenceConflictException(error, exception);
         }
+    }
+
+    // Índices únicos que el dominio reconoce como conflicto. La clave exige esquema, tabla e índice
+    // para no traducir por error una violación de otra tabla.
+    private static readonly Dictionary<(string Schema, string Table, string Constraint), Error> UniqueConflicts = new()
+    {
+        [("people", "specialty", "uq_specialty_name")] = SpecialtyErrors.NameAlreadyInUse,
+        [("people", "patient", "uq_patient_user_id")] = PatientErrors.ProfileAlreadyExists
+    };
+
+    private static bool TryGetUniqueConflict(DbUpdateException exception, out Error error)
+    {
+        if (exception.InnerException is PostgresException
+            {
+                SqlState: PostgresErrorCodes.UniqueViolation,
+                SchemaName: { } schema,
+                TableName: { } table,
+                ConstraintName: { } constraint
+            }
+            && UniqueConflicts.TryGetValue((schema, table, constraint), out var conflict))
+        {
+            error = conflict;
+            return true;
+        }
+
+        error = Error.None;
+        return false;
     }
 
     private sealed class EfTransaction(
