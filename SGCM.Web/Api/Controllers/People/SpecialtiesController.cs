@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.People.Commands.CreateSpecialty;
+using SGCM.Data.Application.Common;
+using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
 using SGCM.Web.Contracts.People;
@@ -12,6 +14,20 @@ namespace SGCM.Web.Api.Controllers.People;
 [Route("api/specialties")]
 public sealed class SpecialtiesController : ApiControllerBase
 {
+    [HttpGet]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(ListSpecialtiesResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> List(
+        [FromQuery] ListSpecialtiesRequest request,
+        [FromServices] IQueryHandler<ListSpecialtiesQuery, PagedResult<SpecialtyDto>> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToQuery(), cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
+    }
+
     [HttpPost]
     [Authorize(Roles = nameof(UserRole.Administrator))]
     [ProducesResponseType(typeof(CreateSpecialtyResponse), StatusCodes.Status201Created)]
