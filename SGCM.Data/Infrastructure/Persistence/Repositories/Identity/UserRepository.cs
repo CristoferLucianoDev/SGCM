@@ -54,6 +54,18 @@ internal sealed class UserRepository(AppDbContext context) : IUserRepository
         return await GetByEmailAsync(email, cancellationToken);
     }
 
+    public async Task<User?> GetByIdForUpdateAsync(int userId, CancellationToken cancellationToken)
+    {
+        EnsureTransaction();
+
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM app.\"user\" WHERE id = {userId} FOR UPDATE",
+            cancellationToken);
+
+        return await UsersWithChildren()
+            .SingleOrDefaultAsync(user => user.Id == userId, cancellationToken);
+    }
+
     public async Task<int> DeleteExpiredPendingRegistrationsAsync(DateTimeOffset now, CancellationToken cancellationToken)
     {
         EnsureTransaction();

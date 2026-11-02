@@ -26,8 +26,11 @@ public class Program
         builder.Services.AddSgcmApiDocumentation();
 
         builder.Services.AddControllersWithViews(options =>
+        {
             // La validación de datos la hace FluentValidation; así todo error de la API lleva su código.
-            options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true);
+            options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true;
+            options.Filters.Add<PendingStepFilter>();
+        });
 
         var app = builder.Build();
 

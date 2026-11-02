@@ -99,6 +99,43 @@ public sealed class HttpCurrentUserTests
         user.IsInRole(UserRole.Administrator).ShouldBeFalse();
     }
 
+    [Fact]
+    public void UserId_lee_el_claim_de_la_identidad_autenticada()
+    {
+        var user = CreateUser(new ClaimsIdentity(
+            [new Claim(AppClaims.UserId, "7")], "Bearer", AppClaims.UserId, AppClaims.Role));
+
+        user.UserId.ShouldBe(7);
+    }
+
+    [Fact]
+    public void UserId_sin_contexto_lanza_excepcion()
+    {
+        var user = new HttpCurrentUser(new HttpContextAccessor());
+
+        Should.Throw<InvalidOperationException>(() => user.UserId);
+    }
+
+    [Fact]
+    public void UserId_de_una_identidad_no_autenticada_lanza_excepcion()
+    {
+        var user = CreateUser(new ClaimsIdentity(
+            [new Claim(AppClaims.UserId, "7")], null, AppClaims.UserId, AppClaims.Role));
+
+        Should.Throw<InvalidOperationException>(() => user.UserId);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("no-es-un-id")]
+    public void UserId_sin_claim_valido_lanza_excepcion(string? value)
+    {
+        Claim[] claims = value is null ? [] : [new Claim(AppClaims.UserId, value)];
+        var user = CreateUser(new ClaimsIdentity(claims, "Bearer", AppClaims.UserId, AppClaims.Role));
+
+        Should.Throw<InvalidOperationException>(() => user.UserId);
+    }
+
     private static HttpCurrentUser CreateUser(params ClaimsIdentity[] identities) => new(new HttpContextAccessor
     {
         HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(identities) }

@@ -22,11 +22,12 @@ public interface ISessionService
     /// (<see cref="UserErrors.AccountInactive"/> o <see cref="UserErrors.EmailNotConfirmed"/>).
     /// </returns>
     /// <remarks>
-    /// El usuario debe venir cargado con <see cref="IUserRepository.GetByEmailForUpdateAsync"/>,
-    /// dentro de la transacción del comando. Sin ese bloqueo, dos aperturas simultáneas del
-    /// mismo usuario pueden revocar la misma sesión antigua y dejar más sesiones activas que
-    /// el máximo. Aplica a todos los que abren sesión: el inicio de sesión, el segundo factor
-    /// y el cambio de contraseña temporal.
+    /// El usuario debe venir cargado con <see cref="IUserRepository.GetByEmailForUpdateAsync"/>
+    /// o <see cref="IUserRepository.GetByIdForUpdateAsync"/>, dentro de la transacción del
+    /// comando. Sin ese bloqueo, dos aperturas simultáneas del mismo usuario pueden revocar la
+    /// misma sesión antigua y dejar más sesiones activas que el máximo. Aplica a todos los que
+    /// abren sesión: el inicio de sesión, el segundo factor, el cambio de contraseña temporal
+    /// y el completado del perfil.
     /// </remarks>
     Task<Result<SessionTokens>> StartAsync(
         User user,

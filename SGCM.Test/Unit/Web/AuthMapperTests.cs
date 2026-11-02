@@ -48,6 +48,19 @@ public sealed class AuthMapperTests
         response.PendingStep.ShouldBeNull();
     }
 
+    [Fact]
+    public void ToResponse_SessionTokens_ReturnsTheSameResponseAsAnAuthenticatedLogin()
+    {
+        var tokens = Tokens(null);
+
+        var response = tokens.ToResponse();
+
+        response.ShouldBe(LoginResult.Authenticated(tokens).ToResponse());
+        response.RequiresTwoFactor.ShouldBeFalse();
+        response.AccessToken.ShouldBe("access-token");
+        response.PendingStep.ShouldBeNull();
+    }
+
     private static SessionTokens Tokens(PendingStep? step) => new(
         new AccessToken("access-token", AccessTokenExpiresAt),
         "refresh-token",
