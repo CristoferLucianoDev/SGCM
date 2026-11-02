@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Domain.Common;
+using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Infrastructure.Persistence;
@@ -45,6 +46,9 @@ public class UnitOfWorkConflictTests
     }
 
     [Theory]
+    [InlineData("23505", "pk_doctor_specialty", "app", "doctor_specialty")]
+    [InlineData("23505", "pk_doctor_specialty", "people", "doctor")]
+    [InlineData("23503", "pk_doctor_specialty", "people", "doctor_specialty")]
     [InlineData("23505", "uq_patient_user_id", "people", "specialty")]
     [InlineData("23505", "uq_specialty_name", "people", "patient")]
     [InlineData("23505", "uq_patient_user_id", "app", "patient")]
@@ -84,6 +88,21 @@ public class UnitOfWorkConflictTests
         var original = new OperationCanceledException();
 
         await Should.ThrowAsync<OperationCanceledException>(() => SaveThrowingAsync(original));
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_traduce_la_clave_compuesta_del_vinculo_sin_perder_la_causa()
+    {
+        var postgres = CreatePostgresException("23505", "pk_doctor_specialty", "people", "doctor_specialty");
+        var original = new DbUpdateException("Conflicto de vínculo.", postgres);
+
+        var conflict = await Should.ThrowAsync<PersistenceConflictException>(() => SaveThrowingAsync(original));
+
+        conflict.Error.ShouldBe(DoctorErrors.SpecialtyAlreadyAssociated);
+        conflict.Error.Code.ShouldBe("Doctor.SpecialtyAlreadyAssociated");
+        conflict.Error.Type.ShouldBe(ErrorType.Conflict);
+        conflict.InnerException.ShouldBeSameAs(original);
+        conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);
     }
 
     private static PostgresException CreatePostgresException(string sqlState, string? constraint, string? schema, string? table) =>

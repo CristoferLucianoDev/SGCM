@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Domain.Common;
+using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Infrastructure.Persistence.Interceptors;
@@ -32,7 +33,8 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
     private static readonly Dictionary<(string Schema, string Table, string Constraint), Error> UniqueConflicts = new()
     {
         [("people", "specialty", "uq_specialty_name")] = SpecialtyErrors.NameAlreadyInUse,
-        [("people", "patient", "uq_patient_user_id")] = PatientErrors.ProfileAlreadyExists
+        [("people", "patient", "uq_patient_user_id")] = PatientErrors.ProfileAlreadyExists,
+        [("people", "doctor_specialty", "pk_doctor_specialty")] = DoctorErrors.SpecialtyAlreadyAssociated
     };
 
     private static bool TryGetUniqueConflict(DbUpdateException exception, out Error error)
