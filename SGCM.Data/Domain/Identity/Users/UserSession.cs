@@ -41,7 +41,10 @@ public sealed class UserSession : Entity
     public DateTimeOffset ExpiresAt { get; private set; }
 
     /// <summary>
-    /// Último momento en que se usó la sesión. Decide cuál se revoca al superar el máximo.
+    /// Último momento en que se usó la sesión. Lo fijan el inicio de sesión y cada rotación.
+    /// Decide cuál se revoca al superar el máximo y mide el margen de gracia de reutilización
+    /// en <see cref="User.RefreshSession"/>. Ninguna otra operación debe modificarlo, porque
+    /// ese margen se mide desde la última rotación.
     /// </summary>
     public DateTimeOffset LastUsedAt { get; private set; }
 
@@ -83,6 +86,21 @@ public sealed class UserSession : Entity
     /// y todavía no venció.
     /// </summary>
     public bool IsActiveAt(DateTimeOffset now) => RevokedAt is null && ExpiresAt > now;
+
+    /// <summary>
+    /// Reemplaza el refresh token y renueva la vigencia desde <paramref name="now"/> durante
+    /// <paramref name="lifetime"/>. Solo se conserva el hash inmediatamente anterior.
+    /// Fija <see cref="LastUsedAt"/> en el momento de la rotación porque desde ahí se mide el
+    /// margen de gracia de reutilización.
+    /// Los datos ya vienen validados por <see cref="User.RefreshSession"/>.
+    /// </summary>
+    internal void Rotate(string newRefreshTokenHash, DateTimeOffset now, TimeSpan lifetime)
+    {
+        PreviousRefreshTokenHash = RefreshTokenHash;
+        RefreshTokenHash = newRefreshTokenHash;
+        ExpiresAt = now + lifetime;
+        LastUsedAt = now;
+    }
 
     /// <summary>
     /// Revoca la sesión. Si ya estaba revocada, conserva la fecha y el motivo originales.

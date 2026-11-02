@@ -431,6 +431,74 @@ public sealed class User : ActivatableAggregateRoot
     }
 
     /// <summary>
+    /// Renueva la sesión a la que pertenece el refresh token presentado: reemplaza su hash,
+    /// guarda el anterior y extiende su vigencia hasta <paramref name="now"/> más
+    /// <paramref name="lifetime"/>. Si se presenta el hash anterior de una sesión activa fuera
+    /// de <paramref name="reuseGracePeriod"/>, se asume robo y se revocan todas las sesiones
+    /// activas con <see cref="SessionRevocationReason.TokenReuse"/>.
+    /// </summary>
+    /// <remarks>
+    /// El margen existe porque dos pestañas que renuevan a la vez o una respuesta de red perdida
+    /// también presentan el hash anterior justo después de rotar, y eso no debe cerrar todas las
+    /// sesiones del usuario.
+    /// </remarks>
+    /// <param name="presentedRefreshTokenHash">
+    /// Hash del refresh token presentado. Viene de fuera: si es nulo o vacío no coincide con
+    /// ninguna sesión.
+    /// </param>
+    /// <param name="newRefreshTokenHash">Hash del refresh token que reemplaza al presentado.</param>
+    /// <param name="now">Momento de la renovación.</param>
+    /// <param name="lifetime">Tiempo de vigencia de la sesión a partir de <paramref name="now"/>.</param>
+    /// <param name="reuseGracePeriod">
+    /// Tiempo desde el último uso de la sesión durante el que presentar su hash anterior se trata
+    /// como una renovación concurrente o un reintento, incluido el límite.
+    /// </param>
+    /// <returns>
+    /// La sesión renovada; <see cref="UserErrors.SessionInvalid"/> si la cuenta está inactiva,
+    /// la sesión de ese hash vigente está revocada o vencida, o el hash no coincide con ninguna
+    /// sesión. Si el hash es el anterior de una sesión: <see cref="UserErrors.SessionInvalid"/>
+    /// si esa sesión no está activa o si sigue dentro del margen, y
+    /// <see cref="UserErrors.RefreshTokenReused"/> si está activa y fuera del margen.
+    /// <see cref="UserErrors.RefreshTokenReused"/> es el único error que sí modifica el usuario,
+    /// porque revoca sus sesiones: quien llama debe persistir ese cambio aunque el resultado sea
+    /// un fallo. Con <see cref="UserErrors.SessionInvalid"/> el usuario no se modifica.
+    /// </returns>
+    /// <exception cref="DomainException">
+    /// Si falta el hash nuevo, es igual al presentado, la vigencia no es positiva o el margen
+    /// es negativo.
+    /// </exception>
+    public Result<UserSession> RefreshSession(
+        string presentedRefreshTokenHash,
+        string newRefreshTokenHash,
+        DateTimeOffset now,
+        TimeSpan lifetime,
+        TimeSpan reuseGracePeriod)
+    {
+        EnsureRefreshData(presentedRefreshTokenHash, newRefreshTokenHash, lifetime, reuseGracePeriod);
+
+        if (!IsActive)
+        {
+            return UserErrors.SessionInvalid;
+        }
+
+        var session = _sessions.FirstOrDefault(session => session.RefreshTokenHash == presentedRefreshTokenHash);
+
+        if (session is null)
+        {
+            return RejectNonCurrentRefreshToken(presentedRefreshTokenHash, now, reuseGracePeriod);
+        }
+
+        if (!session.IsActiveAt(now))
+        {
+            return UserErrors.SessionInvalid;
+        }
+
+        session.Rotate(newRefreshTokenHash, now, lifetime);
+
+        return session;
+    }
+
+    /// <summary>
     /// Indica el paso que el usuario debe completar antes de usar el resto del sistema.
     /// La contraseña temporal va primero, porque el médico la cambia antes de completar su
     /// perfil. El administrador no tiene paso de perfil.
@@ -504,6 +572,28 @@ public sealed class User : ActivatableAggregateRoot
         }
     }
 
+    private Error RejectNonCurrentRefreshToken(
+        string presentedRefreshTokenHash,
+        DateTimeOffset now,
+        TimeSpan reuseGracePeriod)
+    {
+        // Una sesión que nunca rotó no tiene hash anterior: sin esa condición, un hash
+        // presentado nulo coincidiría con ella y se tomaría por robo.
+        var rotated = _sessions.FirstOrDefault(session =>
+            session.PreviousRefreshTokenHash is not null
+            && session.PreviousRefreshTokenHash == presentedRefreshTokenHash);
+
+        // Un token de una sesión ya cerrada no debe poder cerrar las demás del usuario.
+        if (rotated is null || !rotated.IsActiveAt(now) || now - rotated.LastUsedAt <= reuseGracePeriod)
+        {
+            return UserErrors.SessionInvalid;
+        }
+
+        RevokeActiveSessions(SessionRevocationReason.TokenReuse, now);
+
+        return UserErrors.RefreshTokenReused;
+    }
+
     // La espera se mide desde el último enlace enviado, sea por registro, reemplazo o reenvío.
     private DateTimeOffset LastEmailConfirmationIssuedAt() =>
         _tokens
@@ -548,6 +638,33 @@ public sealed class User : ActivatableAggregateRoot
         if (maxActiveSessions < 1)
         {
             throw new DomainException("El máximo de sesiones activas debe ser al menos uno.");
+        }
+    }
+
+    private static void EnsureRefreshData(
+        string presentedRefreshTokenHash,
+        string newRefreshTokenHash,
+        TimeSpan lifetime,
+        TimeSpan reuseGracePeriod)
+    {
+        if (string.IsNullOrWhiteSpace(newRefreshTokenHash))
+        {
+            throw new DomainException("El hash del refresh token es obligatorio.");
+        }
+
+        if (newRefreshTokenHash == presentedRefreshTokenHash)
+        {
+            throw new DomainException("El hash nuevo debe ser distinto del presentado.");
+        }
+
+        if (lifetime <= TimeSpan.Zero)
+        {
+            throw new DomainException("La vigencia de la sesión debe ser positiva.");
+        }
+
+        if (reuseGracePeriod < TimeSpan.Zero)
+        {
+            throw new DomainException("El margen de reutilización no puede ser negativo.");
         }
     }
 

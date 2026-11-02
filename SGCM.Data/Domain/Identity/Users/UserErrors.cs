@@ -7,6 +7,8 @@ namespace SGCM.Data.Domain.Identity.Users;
 /// </summary>
 public static class UserErrors
 {
+    private const string SessionInvalidDescription = "La sesión no es válida. Inicia sesión de nuevo.";
+
     /// <summary>
     /// La contraseña no alcanza la longitud mínima.
     /// </summary>
@@ -113,5 +115,25 @@ public static class UserErrors
     public static readonly Error TooManyPasswordResetRequests = Error.TooManyRequests(
         code: "User.TooManyPasswordResetRequests",
         description: "Demasiadas solicitudes de recuperación. Intenta de nuevo más tarde."
+    );
+
+    /// <summary>
+    /// La sesión no se puede renovar. Es la misma respuesta para un hash que no coincide con
+    /// ninguna sesión, una sesión revocada o vencida, una cuenta inactiva y el hash anterior
+    /// de una sesión inactiva o dentro del margen de gracia.
+    /// </summary>
+    public static readonly Error SessionInvalid = Error.Unauthorized(
+        code: "User.SessionInvalid",
+        description: SessionInvalidDescription
+    );
+
+    /// <summary>
+    /// Se presentó el hash anterior inmediato de una sesión activa fuera del margen de gracia:
+    /// se asume robo y se revocan todas las sesiones activas del usuario. Su descripción es la
+    /// de <see cref="SessionInvalid"/> para no revelar al cliente que se detectó la reutilización.
+    /// </summary>
+    public static readonly Error RefreshTokenReused = Error.Unauthorized(
+        code: "User.RefreshTokenReused",
+        description: SessionInvalidDescription
     );
 }
