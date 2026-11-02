@@ -10,7 +10,9 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.People.Commands.ActivateSpecialty;
 using SGCM.Data.Application.People.Commands.CreateSpecialty;
+using SGCM.Data.Application.People.Commands.DeactivateSpecialty;
 using SGCM.Data.Application.People.Commands.UpdateSpecialty;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
@@ -32,6 +34,184 @@ public class SpecialtiesControllerTests
         Substitute.For<ICommandHandler<UpdateSpecialtyCommand, Unit>>();
     private readonly IQueryHandler<ListSpecialtiesQuery, PagedResult<SpecialtyDto>> _queryHandler =
         Substitute.For<IQueryHandler<ListSpecialtiesQuery, PagedResult<SpecialtyDto>>>();
+
+    [Fact]
+    public async Task Deactivate_pasa_el_id_y_token_al_handler_y_devuelve_204()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = Substitute.For<ICommandHandler<DeactivateSpecialtyCommand, Unit>>();
+        handler.HandleAsync(new DeactivateSpecialtyCommand(42), cancellation.Token).Returns(Unit.Value);
+
+        var result = await new SpecialtiesController().Deactivate(42, handler, cancellation.Token);
+
+        result.ShouldBeOfType<NoContentResult>().StatusCode.ShouldBe(204);
+        await handler.Received(1).HandleAsync(new DeactivateSpecialtyCommand(42), cancellation.Token);
+        handler.ReceivedCalls().ShouldHaveSingleItem();
+        _handler.ReceivedCalls().ShouldBeEmpty();
+        _updateHandler.ReceivedCalls().ShouldBeEmpty();
+        _queryHandler.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(400, 0)]
+    [InlineData(404, 42)]
+    [InlineData(409, 42)]
+    public async Task Deactivate_utiliza_ErrorResult_con_el_estado_codigo_y_mensaje(int status, int id)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = Substitute.For<ICommandHandler<DeactivateSpecialtyCommand, Unit>>();
+        var error = status switch
+        {
+            400 => SpecialtyErrors.InvalidId,
+            404 => SpecialtyErrors.NotFound,
+            _ => ActivationErrors.AlreadyInactive(nameof(Specialty))
+        };
+        handler.HandleAsync(new DeactivateSpecialtyCommand(id), cancellation.Token).Returns(Result<Unit>.Failure(error));
+
+        var result = await new SpecialtiesController().Deactivate(id, handler, cancellation.Token);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(status);
+        var problem = response.Value.ShouldBeOfType<ProblemDetails>();
+        problem.Status.ShouldBe(status);
+        problem.Title.ShouldBe(error.Description);
+        problem.Extensions["code"].ShouldBe(error.Code);
+        await handler.Received(1).HandleAsync(new DeactivateSpecialtyCommand(id), cancellation.Token);
+        handler.ReceivedCalls().ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Deactivate_propaga_la_cancelacion_del_handler()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var handler = Substitute.For<ICommandHandler<DeactivateSpecialtyCommand, Unit>>();
+        handler.HandleAsync(new DeactivateSpecialtyCommand(42), cancellation.Token)
+            .Returns(Task.FromCanceled<Result<Unit>>(cancellation.Token));
+
+        var exception = await Should.ThrowAsync<OperationCanceledException>(() =>
+            new SpecialtiesController().Deactivate(42, handler, cancellation.Token));
+
+        exception.CancellationToken.ShouldBe(cancellation.Token);
+        await handler.Received(1).HandleAsync(new DeactivateSpecialtyCommand(42), cancellation.Token);
+    }
+
+    [Fact]
+    public void Deactivate_es_PATCH_administrativo_con_id_de_ruta_sin_cuerpo_y_handler_de_servicios()
+    {
+        var controller = typeof(SpecialtiesController);
+        controller.GetCustomAttribute<RouteAttribute>()!.Template.ShouldBe("api/specialties");
+        controller.GetCustomAttributes<AllowAnonymousAttribute>().ShouldBeEmpty();
+        var method = controller.GetMethod(nameof(SpecialtiesController.Deactivate))!;
+        method.GetCustomAttributes<HttpPatchAttribute>().ShouldHaveSingleItem()
+            .Template.ShouldBe("{id:int}/deactivate");
+        method.GetCustomAttributes<AllowAnonymousAttribute>().ShouldBeEmpty();
+        method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem()
+            .Roles.ShouldBe(nameof(UserRole.Administrator));
+        var parameters = method.GetParameters();
+        parameters.Length.ShouldBe(3);
+        parameters.Single(parameter => parameter.Name == "id").ParameterType.ShouldBe(typeof(int));
+        parameters.Single(parameter => parameter.Name == "id")
+            .GetCustomAttribute<FromRouteAttribute>().ShouldNotBeNull();
+        parameters.Single(parameter => parameter.ParameterType == typeof(ICommandHandler<DeactivateSpecialtyCommand, Unit>))
+            .GetCustomAttribute<FromServicesAttribute>().ShouldNotBeNull();
+        parameters.Single(parameter => parameter.ParameterType == typeof(CancellationToken)).ShouldNotBeNull();
+        parameters.ShouldAllBe(parameter => parameter.GetCustomAttribute<FromBodyAttribute>() == null);
+        var responses = method.GetCustomAttributes<ProducesResponseTypeAttribute>().ToArray();
+        responses.Select(attribute => attribute.StatusCode)
+            .ShouldBe(new[] { 204, 400, 401, 403, 404, 409 }, ignoreOrder: true);
+        responses.Where(attribute => attribute.StatusCode == 400 || attribute.StatusCode == 404 || attribute.StatusCode == 409)
+            .ShouldAllBe(attribute => attribute.Type == typeof(ProblemDetails));
+    }
+
+    [Fact]
+    public async Task Activate_pasa_el_id_y_token_al_handler_y_devuelve_204()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = Substitute.For<ICommandHandler<ActivateSpecialtyCommand, Unit>>();
+        handler.HandleAsync(new ActivateSpecialtyCommand(42), cancellation.Token).Returns(Unit.Value);
+
+        var result = await new SpecialtiesController().Activate(42, handler, cancellation.Token);
+
+        result.ShouldBeOfType<NoContentResult>().StatusCode.ShouldBe(204);
+        await handler.Received(1).HandleAsync(new ActivateSpecialtyCommand(42), cancellation.Token);
+        handler.ReceivedCalls().ShouldHaveSingleItem();
+        _handler.ReceivedCalls().ShouldBeEmpty();
+        _updateHandler.ReceivedCalls().ShouldBeEmpty();
+        _queryHandler.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(400, 0)]
+    [InlineData(404, 42)]
+    [InlineData(409, 42)]
+    public async Task Activate_utiliza_ErrorResult_con_el_estado_codigo_y_mensaje(int status, int id)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = Substitute.For<ICommandHandler<ActivateSpecialtyCommand, Unit>>();
+        var error = status switch
+        {
+            400 => SpecialtyErrors.InvalidId,
+            404 => SpecialtyErrors.NotFound,
+            _ => ActivationErrors.AlreadyActive(nameof(Specialty))
+        };
+        handler.HandleAsync(new ActivateSpecialtyCommand(id), cancellation.Token).Returns(Result<Unit>.Failure(error));
+
+        var result = await new SpecialtiesController().Activate(id, handler, cancellation.Token);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(status);
+        var problem = response.Value.ShouldBeOfType<ProblemDetails>();
+        problem.Status.ShouldBe(status);
+        problem.Title.ShouldBe(error.Description);
+        problem.Extensions["code"].ShouldBe(error.Code);
+        await handler.Received(1).HandleAsync(new ActivateSpecialtyCommand(id), cancellation.Token);
+        handler.ReceivedCalls().ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Activate_propaga_la_cancelacion_del_handler()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var handler = Substitute.For<ICommandHandler<ActivateSpecialtyCommand, Unit>>();
+        handler.HandleAsync(new ActivateSpecialtyCommand(42), cancellation.Token)
+            .Returns(Task.FromCanceled<Result<Unit>>(cancellation.Token));
+
+        var exception = await Should.ThrowAsync<OperationCanceledException>(() =>
+            new SpecialtiesController().Activate(42, handler, cancellation.Token));
+
+        exception.CancellationToken.ShouldBe(cancellation.Token);
+        await handler.Received(1).HandleAsync(new ActivateSpecialtyCommand(42), cancellation.Token);
+    }
+
+    [Fact]
+    public void Activate_es_PATCH_administrativo_con_id_de_ruta_sin_cuerpo_y_handler_de_servicios()
+    {
+        var controller = typeof(SpecialtiesController);
+        controller.GetCustomAttribute<RouteAttribute>()!.Template.ShouldBe("api/specialties");
+        controller.GetCustomAttributes<AllowAnonymousAttribute>().ShouldBeEmpty();
+        var method = controller.GetMethod(nameof(SpecialtiesController.Activate))!;
+        method.GetCustomAttributes<HttpPatchAttribute>().ShouldHaveSingleItem()
+            .Template.ShouldBe("{id:int}/activate");
+        method.GetCustomAttributes<AllowAnonymousAttribute>().ShouldBeEmpty();
+        method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem()
+            .Roles.ShouldBe(nameof(UserRole.Administrator));
+        var parameters = method.GetParameters();
+        parameters.Length.ShouldBe(3);
+        parameters.Single(parameter => parameter.Name == "id").ParameterType.ShouldBe(typeof(int));
+        parameters.Single(parameter => parameter.Name == "id")
+            .GetCustomAttribute<FromRouteAttribute>().ShouldNotBeNull();
+        parameters.Single(parameter => parameter.ParameterType == typeof(ICommandHandler<ActivateSpecialtyCommand, Unit>))
+            .GetCustomAttribute<FromServicesAttribute>().ShouldNotBeNull();
+        parameters.Single(parameter => parameter.ParameterType == typeof(CancellationToken)).ShouldNotBeNull();
+        parameters.ShouldAllBe(parameter => parameter.GetCustomAttribute<FromBodyAttribute>() == null);
+        var responses = method.GetCustomAttributes<ProducesResponseTypeAttribute>().ToArray();
+        responses.Select(attribute => attribute.StatusCode)
+            .ShouldBe(new[] { 204, 400, 401, 403, 404, 409 }, ignoreOrder: true);
+        responses.Where(attribute => attribute.StatusCode == 400 || attribute.StatusCode == 404 || attribute.StatusCode == 409)
+            .ShouldAllBe(attribute => attribute.Type == typeof(ProblemDetails));
+    }
 
     [Fact]
     public async Task Update_mapea_el_id_y_los_campos_propaga_el_token_y_devuelve_204()

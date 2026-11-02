@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using FluentValidation;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using SGCM.Data.Application;
@@ -10,8 +11,10 @@ using SGCM.Data.Application.Abstractions.Services;
 using SGCM.Data.Application.Behaviors;
 using SGCM.Data.Application.Identity;
 using SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
+using SGCM.Data.Application.People.Commands.ActivateSpecialty;
 using SGCM.Data.Application.People.Commands.CompletePatientProfile;
 using SGCM.Data.Application.People.Commands.CreateSpecialty;
+using SGCM.Data.Application.People.Commands.DeactivateSpecialty;
 using SGCM.Data.Application.People.Commands.UpdateSpecialty;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Data.Application.Common;
@@ -325,6 +328,191 @@ public sealed class ApplicationDependencyInjectionTests
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
         await transaction.DidNotReceive().CommitAsync(Arg.Any<CancellationToken>());
         await transaction.Received(beforeValidation ? 0 : 1).DisposeAsync();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AddApplication_ResolvesActivationHandlersAndValidatorsWithScopedLifetime(bool activate)
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        using var otherScope = provider.CreateScope();
+
+        if (activate)
+        {
+            var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<ActivateSpecialtyCommand, Unit>>();
+            handler.ShouldBeOfType<ValidationDecorator<ActivateSpecialtyCommand, Unit>>();
+            scope.ServiceProvider.GetRequiredService<ICommandHandler<ActivateSpecialtyCommand, Unit>>().ShouldBeSameAs(handler);
+            otherScope.ServiceProvider.GetRequiredService<ICommandHandler<ActivateSpecialtyCommand, Unit>>().ShouldNotBeSameAs(handler);
+            scope.ServiceProvider.GetRequiredService<ActivateSpecialtyCommandHandler>().ShouldNotBeNull();
+            scope.ServiceProvider.GetServices<IValidator<ActivateSpecialtyCommand>>()
+                .ShouldHaveSingleItem().ShouldBeOfType<ActivateSpecialtyCommandValidator>();
+        }
+        else
+        {
+            var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<DeactivateSpecialtyCommand, Unit>>();
+            handler.ShouldBeOfType<ValidationDecorator<DeactivateSpecialtyCommand, Unit>>();
+            scope.ServiceProvider.GetRequiredService<ICommandHandler<DeactivateSpecialtyCommand, Unit>>().ShouldBeSameAs(handler);
+            otherScope.ServiceProvider.GetRequiredService<ICommandHandler<DeactivateSpecialtyCommand, Unit>>().ShouldNotBeSameAs(handler);
+            scope.ServiceProvider.GetRequiredService<DeactivateSpecialtyCommandHandler>().ShouldNotBeNull();
+            scope.ServiceProvider.GetServices<IValidator<DeactivateSpecialtyCommand>>()
+                .ShouldHaveSingleItem().ShouldBeOfType<DeactivateSpecialtyCommandValidator>();
+        }
+        _unitOfWork.ReceivedCalls().ShouldBeEmpty();
+        _specialtyRepository.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(true, 0)]
+    [InlineData(true, -1)]
+    [InlineData(false, 0)]
+    [InlineData(false, -1)]
+    public async Task AddApplication_InvalidActivationIsRejectedBeforeOpeningTransaction(bool activate, int id)
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        var result = await HandleActivation(scope.ServiceProvider, activate, id, CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(SpecialtyErrors.InvalidId);
+        _unitOfWork.ReceivedCalls().ShouldBeEmpty();
+        _specialtyRepository.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AddApplication_ActivationSavesAndCommitsOnceAfterTheHandler(bool activate)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var specialty = ConfigureActivationSpecialty(!activate, cancellation.Token);
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(cancellation.Token).Returns(transaction);
+        _unitOfWork.SaveChangesAsync(cancellation.Token).Returns(_ =>
+        {
+            specialty.IsActive.ShouldBe(activate);
+            return Task.CompletedTask;
+        });
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        var result = await HandleActivation(scope.ServiceProvider, activate, 42, cancellation.Token);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(Unit.Value);
+        specialty.Id.ShouldBe(42);
+        specialty.Name.ShouldBe("Cardiología");
+        specialty.Description.ShouldBe("Descripción original.");
+        specialty.IsActive.ShouldBe(activate);
+        Received.InOrder(() =>
+        {
+            _unitOfWork.BeginTransactionAsync(cancellation.Token);
+            _specialtyRepository.GetByIdAsync(42, cancellation.Token);
+            _unitOfWork.SaveChangesAsync(cancellation.Token);
+            transaction.CommitAsync(cancellation.Token);
+        });
+        await _unitOfWork.Received(1).BeginTransactionAsync(cancellation.Token);
+        await _unitOfWork.Received(1).SaveChangesAsync(cancellation.Token);
+        await transaction.Received(1).CommitAsync(cancellation.Token);
+        await transaction.Received(1).DisposeAsync();
+        await transaction.DidNotReceive().RollbackAsync(Arg.Any<CancellationToken>());
+        _specialtyRepository.ReceivedCalls().ShouldHaveSingleItem();
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task AddApplication_MissingOrConflictingActivationRollsBackWithoutSaving(bool activate, bool missing)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var specialty = missing ? null : ConfigureActivationSpecialty(activate, cancellation.Token);
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(cancellation.Token).Returns(transaction);
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        var result = await HandleActivation(scope.ServiceProvider, activate, 42, cancellation.Token);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(missing ? SpecialtyErrors.NotFound : activate
+            ? ActivationErrors.AlreadyActive(nameof(Specialty))
+            : ActivationErrors.AlreadyInactive(nameof(Specialty)));
+        Received.InOrder(() =>
+        {
+            _unitOfWork.BeginTransactionAsync(cancellation.Token);
+            _specialtyRepository.GetByIdAsync(42, cancellation.Token);
+            transaction.RollbackAsync(cancellation.Token);
+        });
+        await _unitOfWork.Received(1).BeginTransactionAsync(cancellation.Token);
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        await transaction.Received(1).RollbackAsync(cancellation.Token);
+        await transaction.DidNotReceive().CommitAsync(Arg.Any<CancellationToken>());
+        await transaction.Received(1).DisposeAsync();
+        _specialtyRepository.ReceivedCalls().ShouldHaveSingleItem();
+        if (specialty is not null)
+        {
+            specialty.Id.ShouldBe(42);
+            specialty.Name.ShouldBe("Cardiología");
+            specialty.Description.ShouldBe("Descripción original.");
+            specialty.IsActive.ShouldBe(activate);
+            specialty.DomainEvents.ShouldBeEmpty();
+        }
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task AddApplication_CanceledActivationDoesNotSaveOrCommit(bool activate, bool beforeValidation)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(cancellation.Token).Returns(transaction);
+        _specialtyRepository.GetByIdAsync(42, cancellation.Token).Returns(_ =>
+        {
+            cancellation.Cancel();
+            return Task.FromCanceled<Specialty?>(cancellation.Token);
+        });
+        if (beforeValidation)
+        {
+            cancellation.Cancel();
+        }
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        var exception = await Should.ThrowAsync<OperationCanceledException>(() =>
+            HandleActivation(scope.ServiceProvider, activate, 42, cancellation.Token));
+
+        exception.CancellationToken.ShouldBe(cancellation.Token);
+        await _unitOfWork.Received(beforeValidation ? 0 : 1).BeginTransactionAsync(cancellation.Token);
+        await _specialtyRepository.Received(beforeValidation ? 0 : 1).GetByIdAsync(42, cancellation.Token);
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        await transaction.DidNotReceive().CommitAsync(Arg.Any<CancellationToken>());
+        await transaction.Received(beforeValidation ? 0 : 1).DisposeAsync();
+    }
+
+    private static Task<Result<Unit>> HandleActivation(IServiceProvider provider, bool activate, int id, CancellationToken cancellationToken) =>
+        activate
+            ? provider.GetRequiredService<ICommandHandler<ActivateSpecialtyCommand, Unit>>()
+                .HandleAsync(new(id), cancellationToken)
+            : provider.GetRequiredService<ICommandHandler<DeactivateSpecialtyCommand, Unit>>()
+                .HandleAsync(new(id), cancellationToken);
+
+    private Specialty ConfigureActivationSpecialty(bool active, CancellationToken cancellationToken)
+    {
+        var specialty = Specialty.Create("Cardiología", "Descripción original.").Value;
+        typeof(Entity).GetProperty(nameof(Entity.Id))!.SetValue(specialty, 42);
+        if (!active)
+        {
+            specialty.Deactivate().IsSuccess.ShouldBeTrue();
+        }
+        _specialtyRepository.GetByIdAsync(42, cancellationToken).Returns(specialty);
+        return specialty;
     }
 
     private Specialty ConfigureUpdateSpecialty(CancellationToken cancellationToken)
