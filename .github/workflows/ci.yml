@@ -50,6 +50,7 @@ jobs:
           --logger trx
           --collect:"XPlat Code Coverage"
           --results-directory TestResults
+          -- xUnit.ReporterSwitch=allure
 
       - name: Publicar resultados de pruebas
         if: always()
@@ -132,18 +133,64 @@ jobs:
           ref: gh-pages
           path: gh-pages
 
-      - name: Generar reporte Allure
-        uses: simple-elf/allure-report-action@v1.12
+      - name: Instalar Java
+        uses: actions/setup-java@v4
         with:
-          gh_pages: gh-pages
-          allure_results: allure-results
-          allure_history: allure-history
-          subfolder: ${{ github.ref_name }}
-          keep_reports: 30
+          distribution: temurin
+          java-version: '17'
+
+      - name: Instalar Allure
+        run: npm install -g allure-commandline@2
+
+      # Copia el sitio actual, recupera el historial de la rama y genera el
+      # reporte nuevo en <rama>/. El historial es lo que alimenta la tendencia.
+      - name: Generar reporte Allure
+        env:
+          BRANCH: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p site
+          if [ -d gh-pages ]; then
+            cp -r gh-pages/. site/
+            rm -rf site/.git
+          fi
+
+          if [ -d "site/$BRANCH/history" ]; then
+            cp -r "site/$BRANCH/history" allure-results/history
+          fi
+
+          cat > allure-results/executor.json <<JSON
+          {
+            "name": "GitHub Actions",
+            "type": "github",
+            "buildOrder": $RUN_NUMBER,
+            "buildName": "SGCM CI #$RUN_NUMBER",
+            "buildUrl": "$RUN_URL",
+            "reportName": "SGCM - $BRANCH"
+          }
+          JSON
+
+          allure generate allure-results --clean -o "site/$BRANCH"
+
+          cat > site/index.html <<HTML
+          <!doctype html>
+          <html lang="es">
+          <head><meta charset="utf-8"><title>Reportes de pruebas SGCM</title></head>
+          <body>
+            <h1>Reportes de pruebas SGCM</h1>
+            <ul>
+              <li><a href="dev/">dev</a></li>
+              <li><a href="qa/">qa</a></li>
+              <li><a href="main/">main</a></li>
+            </ul>
+          </body>
+          </html>
+          HTML
 
       - name: Publicar en GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
-          publish_dir: allure-history
+          publish_dir: site
