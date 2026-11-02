@@ -12,6 +12,8 @@ using SGCM.Data.Application.Behaviors;
 using SGCM.Data.Application.Identity;
 using SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
 using SGCM.Data.Application.People.Commands.ActivateSpecialty;
+using SGCM.Data.Application.People.Commands.AssociateDoctorSpecialty;
+using SGCM.Data.Application.People.Commands.DisassociateDoctorSpecialty;
 using SGCM.Data.Application.People.Commands.CompletePatientProfile;
 using SGCM.Data.Application.People.Commands.CreateSpecialty;
 using SGCM.Data.Application.People.Commands.DeactivateSpecialty;
@@ -21,10 +23,12 @@ using SGCM.Data.Application.Common;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
+using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Test.Common.Fakes;
 using SGCM.Test.Common.Mothers;
+using SGCM.Test.Unit.Application.People;
 using Shouldly;
 
 namespace SGCM.Test.Unit.Application;
@@ -38,6 +42,7 @@ public sealed class ApplicationDependencyInjectionTests
     private readonly ISpecialtyRepository _specialtyRepository = Substitute.For<ISpecialtyRepository>();
     private readonly ISpecialtyListReader _specialtyListReader = Substitute.For<ISpecialtyListReader>();
     private readonly IPatientRepository _patientRepository = Substitute.For<IPatientRepository>();
+    private readonly IDoctorRepository _doctorRepository = Substitute.For<IDoctorRepository>();
 
     [Theory]
     [InlineData(1, true)]
@@ -524,6 +529,203 @@ public sealed class ApplicationDependencyInjectionTests
         return specialty;
     }
 
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AddApplication_resuelve_comandos_Doctor_y_validadores_automaticamente_por_scope(bool associate)
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+        if (associate)
+        {
+            var handler = first.ServiceProvider.GetRequiredService<ICommandHandler<AssociateDoctorSpecialtyCommand, Unit>>();
+            handler.ShouldBeOfType<ValidationDecorator<AssociateDoctorSpecialtyCommand, Unit>>();
+            handler.ShouldBeSameAs(first.ServiceProvider.GetRequiredService<ICommandHandler<AssociateDoctorSpecialtyCommand, Unit>>());
+            handler.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<ICommandHandler<AssociateDoctorSpecialtyCommand, Unit>>());
+            first.ServiceProvider.GetRequiredService<AssociateDoctorSpecialtyCommandHandler>().ShouldNotBeNull();
+            first.ServiceProvider.GetServices<IValidator<AssociateDoctorSpecialtyCommand>>()
+                .ShouldHaveSingleItem().ShouldBeOfType<AssociateDoctorSpecialtyCommandValidator>();
+        }
+        else
+        {
+            var handler = first.ServiceProvider.GetRequiredService<ICommandHandler<DisassociateDoctorSpecialtyCommand, Unit>>();
+            handler.ShouldBeOfType<ValidationDecorator<DisassociateDoctorSpecialtyCommand, Unit>>();
+            handler.ShouldBeSameAs(first.ServiceProvider.GetRequiredService<ICommandHandler<DisassociateDoctorSpecialtyCommand, Unit>>());
+            handler.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<ICommandHandler<DisassociateDoctorSpecialtyCommand, Unit>>());
+            first.ServiceProvider.GetRequiredService<DisassociateDoctorSpecialtyCommandHandler>().ShouldNotBeNull();
+            first.ServiceProvider.GetServices<IValidator<DisassociateDoctorSpecialtyCommand>>()
+                .ShouldHaveSingleItem().ShouldBeOfType<DisassociateDoctorSpecialtyCommandValidator>();
+        }
+        _unitOfWork.ReceivedCalls().ShouldBeEmpty();
+        _doctorRepository.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(true, 0)]
+    [InlineData(true, -1)]
+    [InlineData(true, int.MinValue)]
+    [InlineData(false, 0)]
+    [InlineData(false, -1)]
+    [InlineData(false, int.MinValue)]
+    public async Task AddApplication_Doctor_invalido_no_abre_transaccion_ni_lee_perfiles(bool associate, int id)
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        var result = await HandleDoctorSpecialty(scope.ServiceProvider, associate, id, CancellationToken.None);
+
+        result.Error.ShouldBe(SpecialtyErrors.InvalidId);
+        result.Error.Code.ShouldBe("Specialty.InvalidId");
+        result.Error.Type.ShouldBe(ErrorType.Validation);
+        _unitOfWork.ReceivedCalls().ShouldBeEmpty();
+        _doctorRepository.ReceivedCalls().ShouldBeEmpty();
+        _specialtyRepository.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AddApplication_Doctor_guarda_y_confirma_una_vez_despues_de_la_operacion(bool associate)
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ICurrentUser>().UserId.Returns(42);
+        var doctor = DoctorCommandData.Doctor(11, 22);
+        var expected = associate ? new[] { 11, 22, 33 } : new[] { 22 };
+        _doctorRepository.GetByUserIdForUpdateAsync(42, cancellation.Token).Returns(doctor);
+        _specialtyRepository.GetByIdAsync(33, cancellation.Token).Returns(DoctorCommandData.Specialty(33));
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(cancellation.Token).Returns(transaction);
+        _unitOfWork.SaveChangesAsync(cancellation.Token).Returns(_ =>
+        {
+            doctor.Specialties.Select(link => link.SpecialtyId).ShouldBe(expected, ignoreOrder: true);
+            return Task.CompletedTask;
+        });
+
+        var result = await HandleDoctorSpecialty(scope.ServiceProvider, associate, associate ? 33 : 11, cancellation.Token);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(Unit.Value);
+        Received.InOrder(() =>
+        {
+            _unitOfWork.BeginTransactionAsync(cancellation.Token);
+            _doctorRepository.GetByUserIdForUpdateAsync(42, cancellation.Token);
+            if (associate) _specialtyRepository.GetByIdAsync(33, cancellation.Token);
+            _unitOfWork.SaveChangesAsync(cancellation.Token);
+            transaction.CommitAsync(cancellation.Token);
+        });
+        await _unitOfWork.Received(1).SaveChangesAsync(cancellation.Token);
+        await transaction.Received(1).CommitAsync(cancellation.Token);
+        await transaction.DidNotReceive().RollbackAsync(Arg.Any<CancellationToken>());
+        await transaction.Received(1).DisposeAsync();
+        if (!associate) _specialtyRepository.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(true, "missingProfile", "Doctor.NotFound", ErrorType.NotFound)]
+    [InlineData(false, "missingProfile", "Doctor.NotFound", ErrorType.NotFound)]
+    [InlineData(true, "legacy", "Doctor.ProfileIncomplete", ErrorType.Conflict)]
+    [InlineData(false, "legacy", "Doctor.ProfileIncomplete", ErrorType.Conflict)]
+    [InlineData(true, "missingSpecialty", "Specialty.NotFound", ErrorType.NotFound)]
+    [InlineData(true, "inactive", "Specialty.Inactive", ErrorType.Conflict)]
+    [InlineData(true, "duplicate", "Doctor.SpecialtyAlreadyAssociated", ErrorType.Conflict)]
+    [InlineData(false, "last", "Doctor.CannotRemoveLastSpecialty", ErrorType.Conflict)]
+    [InlineData(false, "missingLink", "Doctor.SpecialtyNotAssociated", ErrorType.Conflict)]
+    public async Task AddApplication_Doctor_revierte_errores_sin_guardar_ni_mutar(
+        bool associate, string scenario, string code, ErrorType type)
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ICurrentUser>().UserId.Returns(42);
+        var doctor = scenario == "legacy" ? DoctorCommandData.Legacy()
+            : DoctorCommandData.Doctor(scenario == "last" ? [11] : [11, 22]);
+        var profile = DoctorCommandData.Profile(doctor);
+        var links = doctor.Specialties.ToArray();
+        if (scenario != "missingProfile")
+            _doctorRepository.GetByUserIdForUpdateAsync(42, CancellationToken.None).Returns(doctor);
+        var id = scenario == "duplicate" ? 11 : scenario == "missingLink" ? 99 : associate ? 33 : 11;
+        if (associate && scenario != "missingSpecialty")
+            _specialtyRepository.GetByIdAsync(id, CancellationToken.None)
+                .Returns(DoctorCommandData.Specialty(id, scenario != "inactive"));
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(CancellationToken.None).Returns(transaction);
+
+        var result = await HandleDoctorSpecialty(scope.ServiceProvider, associate, id, CancellationToken.None);
+
+        result.Error.Code.ShouldBe(code);
+        result.Error.Type.ShouldBe(type);
+        DoctorCommandData.Profile(doctor).ShouldBe(profile);
+        doctor.Specialties.ShouldBe(links);
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        await transaction.Received(1).RollbackAsync(CancellationToken.None);
+        await transaction.DidNotReceive().CommitAsync(Arg.Any<CancellationToken>());
+        await transaction.Received(1).DisposeAsync();
+        if (!associate || scenario is "missingProfile" or "legacy") _specialtyRepository.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task AddApplication_Doctor_cancelado_no_guarda_ni_confirma(bool associate, bool beforeValidation)
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ICurrentUser>().UserId.Returns(42);
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(cancellation.Token).Returns(transaction);
+        _doctorRepository.GetByUserIdForUpdateAsync(42, cancellation.Token).Returns(_ =>
+        {
+            cancellation.Cancel();
+            return Task.FromCanceled<Doctor?>(cancellation.Token);
+        });
+        if (beforeValidation) cancellation.Cancel();
+
+        var error = await Should.ThrowAsync<OperationCanceledException>(() =>
+            HandleDoctorSpecialty(scope.ServiceProvider, associate, 11, cancellation.Token));
+
+        error.CancellationToken.ShouldBe(cancellation.Token);
+        await _unitOfWork.Received(beforeValidation ? 0 : 1).BeginTransactionAsync(cancellation.Token);
+        await _doctorRepository.Received(beforeValidation ? 0 : 1).GetByUserIdForUpdateAsync(42, cancellation.Token);
+        _specialtyRepository.ReceivedCalls().ShouldBeEmpty();
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        await transaction.DidNotReceive().CommitAsync(Arg.Any<CancellationToken>());
+        await transaction.Received(beforeValidation ? 0 : 1).DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AddApplication_Doctor_conflicto_de_persistencia_se_devuelve_tras_rollback()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ICurrentUser>().UserId.Returns(42);
+        _doctorRepository.GetByUserIdForUpdateAsync(42, CancellationToken.None).Returns(DoctorCommandData.Doctor(11));
+        _specialtyRepository.GetByIdAsync(22, CancellationToken.None).Returns(DoctorCommandData.Specialty(22));
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(CancellationToken.None).Returns(transaction);
+        _unitOfWork.SaveChangesAsync(CancellationToken.None).Returns(Task.FromException(
+            new PersistenceConflictException(DoctorErrors.SpecialtyAlreadyAssociated, new InvalidOperationException())));
+
+        var result = await HandleDoctorSpecialty(scope.ServiceProvider, true, 22, CancellationToken.None);
+
+        result.Error.ShouldBe(DoctorErrors.SpecialtyAlreadyAssociated);
+        result.Error.Code.ShouldBe("Doctor.SpecialtyAlreadyAssociated");
+        result.Error.Type.ShouldBe(ErrorType.Conflict);
+        await transaction.Received(1).RollbackAsync(CancellationToken.None);
+        await transaction.DidNotReceive().CommitAsync(Arg.Any<CancellationToken>());
+        await transaction.Received(1).DisposeAsync();
+    }
+
+    private static Task<Result<Unit>> HandleDoctorSpecialty(
+        IServiceProvider provider, bool associate, int id, CancellationToken token) => associate
+        ? provider.GetRequiredService<ICommandHandler<AssociateDoctorSpecialtyCommand, Unit>>().HandleAsync(new(id), token)
+        : provider.GetRequiredService<ICommandHandler<DisassociateDoctorSpecialtyCommand, Unit>>().HandleAsync(new(id), token);
+
     private ServiceProvider BuildProvider()
     {
         var services = new ServiceCollection();
@@ -546,6 +748,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Options.Create(new PasswordResetLimitsOptions()));
         services.AddSingleton(Substitute.For<ITemporaryPasswordGenerator>());
         services.AddSingleton(_patientRepository);
+        services.AddSingleton(_doctorRepository);
         services.AddSingleton(Substitute.For<IInsuranceProviderReader>());
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });

@@ -7,6 +7,9 @@ namespace SGCM.Data.Domain.People.Specialties;
 /// </summary>
 public static class SpecialtyErrors
 {
+    public static readonly Error Inactive = Error.Conflict(
+        "Specialty.Inactive", "La especialidad está inactiva y no puede asociarse al médico.");
+
     public static readonly Error NotFound = Error.NotFound(
         code: "Specialty.NotFound",
         description: "La especialidad no existe."

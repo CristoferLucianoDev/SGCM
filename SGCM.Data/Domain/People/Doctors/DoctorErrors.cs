@@ -4,6 +4,12 @@ namespace SGCM.Data.Domain.People.Doctors;
 
 public static class DoctorErrors
 {
+    public static readonly Error NotFound = Error.NotFound(
+        "Doctor.NotFound", "No se encontró el perfil del médico autenticado.");
+
+    public static readonly Error ProfileIncomplete = Error.Conflict(
+        "Doctor.ProfileIncomplete", "El perfil médico no tiene especialidades y requiere regularización.");
+
     public static readonly Error SpecialtyAlreadyAssociated = Error.Conflict(
         "Doctor.SpecialtyAlreadyAssociated", "El médico ya tiene asociada esta especialidad.");
 
