@@ -21,6 +21,12 @@ jobs:
     name: Compilar y probar
     runs-on: ubuntu-latest
 
+    services:
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - 54325:1025
+
     steps:
       - name: Obtener codigo
         uses: actions/checkout@v4
