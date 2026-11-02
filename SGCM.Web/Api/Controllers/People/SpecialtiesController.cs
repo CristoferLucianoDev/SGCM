@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.People.Commands.ActivateSpecialty;
 using SGCM.Data.Application.People.Commands.CreateSpecialty;
+using SGCM.Data.Application.People.Commands.DeactivateSpecialty;
 using SGCM.Data.Application.People.Commands.UpdateSpecialty;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
@@ -16,6 +18,42 @@ namespace SGCM.Web.Api.Controllers.People;
 [Route("api/specialties")]
 public sealed class SpecialtiesController : ApiControllerBase
 {
+    [HttpPatch("{id:int}/deactivate")]
+    [Authorize(Roles = nameof(UserRole.Administrator))]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Deactivate(
+        [FromRoute] int id,
+        [FromServices] ICommandHandler<DeactivateSpecialtyCommand, Unit> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new DeactivateSpecialtyCommand(id), cancellationToken);
+
+        return result.IsSuccess ? NoContent() : ErrorResult(result.Error);
+    }
+
+    [HttpPatch("{id:int}/activate")]
+    [Authorize(Roles = nameof(UserRole.Administrator))]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Activate(
+        [FromRoute] int id,
+        [FromServices] ICommandHandler<ActivateSpecialtyCommand, Unit> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new ActivateSpecialtyCommand(id), cancellationToken);
+
+        return result.IsSuccess ? NoContent() : ErrorResult(result.Error);
+    }
+
     [HttpPatch("{id:int}")]
     [Authorize(Roles = nameof(UserRole.Administrator))]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
