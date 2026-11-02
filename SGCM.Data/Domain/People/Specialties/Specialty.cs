@@ -22,6 +22,32 @@ public sealed class Specialty : ActivatableAggregateRoot
     {
     }
 
+    public Result Update(bool nameProvided, string? name, bool descriptionProvided, string? description)
+    {
+        if (!nameProvided && !descriptionProvided)
+        {
+            return SpecialtyErrors.NoFieldsProvided;
+        }
+
+        var candidate = Create(nameProvided ? name : Name, descriptionProvided ? description : Description);
+        if (candidate.IsFailure)
+        {
+            return candidate.Error;
+        }
+
+        if (nameProvided)
+        {
+            Name = candidate.Value.Name;
+        }
+
+        if (descriptionProvided)
+        {
+            Description = candidate.Value.Description;
+        }
+
+        return Result.Success();
+    }
+
     /// <summary>
     /// Crea una especialidad activa y valida las longitudes sobre los valores normalizados.
     /// El formato título usa cultura invariable para que el nombre no dependa del entorno.
