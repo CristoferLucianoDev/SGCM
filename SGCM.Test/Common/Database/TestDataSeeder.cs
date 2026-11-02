@@ -1,5 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using SGCM.Data.Infrastructure.Persistence;
+using SGCM.Data.Domain.Identity.Users;
+using System.Text.Json;
 
 namespace SGCM.Test.Common.Database;
 
@@ -10,6 +12,70 @@ namespace SGCM.Test.Common.Database;
 internal static class TestDataSeeder
 {
     private static readonly DateOnly PatientBirthDate = new(1990, 5, 20);
+
+    public static async Task<int> InsertDoctorProfileAsync(AppDbContext context, int userId)
+    {
+        var license = $"TASK226-{Guid.NewGuid():N}";
+        return (await context.Database.SqlQuery<int>(
+            $"""
+            INSERT INTO people.doctor
+                (user_id, first_name, last_name, license_number, phone_number,
+                 province_id, municipality_id, address_line, consultation_fee, years_of_experience, biography)
+            SELECT {userId}, 'Luis', 'Pérez', {license}, '8095550200',
+                   m.province_id, m.id, 'Calle de pruebas 226', 1500, 10, 'Perfil médico de prueba.'
+            FROM people.municipality m
+            ORDER BY m.id
+            LIMIT 1
+            RETURNING id AS "Value"
+            """).ToListAsync()).Single();
+    }
+
+    public static async Task InsertProfileAsync(AppDbContext context, User user)
+    {
+        switch (user.Role)
+        {
+            case UserRole.Patient:
+                await InsertPatientProfileAsync(context, user.Id);
+                break;
+            case UserRole.Doctor:
+                await InsertDoctorProfileAsync(context, user.Id);
+                break;
+            case UserRole.Administrator:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(user));
+        }
+    }
+
+    public static Task<int> InsertDoctorSpecialtyAsync(AppDbContext context, int doctorId, int specialtyId) =>
+        context.Database.ExecuteSqlInterpolatedAsync(
+            $"INSERT INTO people.doctor_specialty (doctor_id, specialty_id) VALUES ({doctorId}, {specialtyId})");
+
+    // Los snapshots incluyen auditoría para detectar UPDATEs o recreaciones de relaciones.
+    public static async Task<string[]> ReadDoctorSpecialtiesAsync(AppDbContext context, int[] doctorIds) =>
+        (await context.Database.SqlQuery<string>(
+            $"""
+            SELECT to_jsonb(ds)::text AS "Value" FROM people.doctor_specialty ds
+            WHERE ds.doctor_id = ANY({doctorIds}) ORDER BY ds.doctor_id, ds.specialty_id
+            """).ToListAsync()).ToArray();
+
+    public static async Task<string[]> ReadDoctorsAsync(AppDbContext context, int[] doctorIds) =>
+        (await context.Database.SqlQuery<string>(
+            $"""
+            SELECT to_jsonb(d)::text AS "Value" FROM people.doctor d
+            WHERE d.id = ANY({doctorIds}) ORDER BY d.id
+            """).ToListAsync()).ToArray();
+
+    public static async Task<(int[] Ids, string[] Names)> ReadDirectorySpecialtiesAsync(AppDbContext context, int doctorId)
+    {
+        var row = await context.Database.SqlQuery<string>(
+            $"SELECT to_jsonb(d)::text AS \"Value\" FROM people.vw_doctor_directory d WHERE d.id = {doctorId}")
+            .SingleAsync();
+        using var document = JsonDocument.Parse(row);
+        return (
+            document.RootElement.GetProperty("specialty_ids").EnumerateArray().Select(value => value.GetInt32()).ToArray(),
+            document.RootElement.GetProperty("specialty_names").EnumerateArray().Select(value => value.GetString()!).ToArray());
+    }
 
     /// <summary>
     /// Crea el perfil de paciente del usuario, solo con las columnas obligatorias.
