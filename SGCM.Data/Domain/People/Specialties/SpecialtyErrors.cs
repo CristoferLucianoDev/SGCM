@@ -7,6 +7,11 @@ namespace SGCM.Data.Domain.People.Specialties;
 /// </summary>
 public static class SpecialtyErrors
 {
+    public static readonly Error NoFieldsProvided = Error.Validation(
+        code: "Specialty.NoFieldsProvided",
+        description: "Debe proporcionar el nombre, la descripción o ambos para actualizar la especialidad."
+    );
+
     public static readonly Error NameAlreadyInUse = Error.Conflict(
         code: "Specialty.NameAlreadyInUse",
         description: "El nombre de la especialidad ya está en uso."
