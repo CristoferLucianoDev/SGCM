@@ -5,8 +5,10 @@
 -- Cada tarea que agregue tablas con datos de prueba agrega aquí su DELETE,
 -- en orden de hijas a padres.
 -- Los perfiles no tienen cascada desde el usuario (a propósito, para no perder historial clínico), así que se borran antes.
+DELETE FROM people.doctor_specialty;
 DELETE FROM people.patient;
 DELETE FROM people.doctor;
 DELETE FROM people.administrator;
 DELETE FROM people.insurance_provider;
+DELETE FROM people.specialty;
 DELETE FROM app."user";

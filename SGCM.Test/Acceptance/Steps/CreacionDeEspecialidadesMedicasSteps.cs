@@ -4,13 +4,16 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Reqnroll;
 using SGCM.Data.Application.Abstractions.Persistence;
+using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Infrastructure.Persistence;
 using SGCM.Test.Common.Mothers;
+using SGCM.Test.Common.Database;
 using SGCM.Test.Common.Web;
 using SGCM.Web.Contracts.People;
 using Shouldly;
@@ -31,6 +34,7 @@ public sealed class CreacionDeEspecialidadesMedicasSteps(ApiScenario scenario)
     [Given("que estoy autenticado para crear especialidades como {string}")]
     [Given("que estoy autenticado para consultar especialidades como {string}")]
     [Given("que estoy autenticado para actualizar especialidades como {string}")]
+    [Given("que estoy autenticado para cambiar el estado de especialidades como {string}")]
     public async Task DadoUnUsuarioAutenticado(string role)
     {
         const string password = "Secreta123";
@@ -40,6 +44,10 @@ public sealed class CreacionDeEspecialidadesMedicasSteps(ApiScenario scenario)
             passwordHash: scenario.Factory.HashPassword(password));
         await scenario.Factory.SaveAsync(user);
         _createdUserIds.Add(user.Id);
+        using (var scope = scenario.Factory.Services.CreateScope())
+        {
+            await TestDataSeeder.InsertProfileAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>(), user);
+        }
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login")
         {
@@ -51,12 +59,18 @@ public sealed class CreacionDeEspecialidadesMedicasSteps(ApiScenario scenario)
         var login = await response.ReadLoginAsync();
         login.RequiresTwoFactor.ShouldBeFalse();
         login.AccessToken.ShouldNotBeNullOrEmpty();
+        login.PendingStep.ShouldBeNull();
+        var jwt = new JsonWebToken(login.AccessToken);
+        jwt.Claims.Where(claim => claim.Type == AppClaims.Role).Select(claim => claim.Value)
+            .ShouldBe(new[] { role });
+        jwt.Claims.ShouldNotContain(claim => claim.Type == AppClaims.PendingStep);
         scenario.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", login.AccessToken);
     }
 
     [Given("que no estoy autenticado para crear especialidades")]
     [Given("que no estoy autenticado para consultar especialidades")]
     [Given("que no estoy autenticado para actualizar especialidades")]
+    [Given("que no estoy autenticado para cambiar el estado de especialidades")]
     public void DadoUnUsuarioAnonimo() => scenario.Client.DefaultRequestHeaders.Authorization = null;
 
     [Given("que existe la especialidad {string}")]
@@ -174,6 +188,11 @@ public sealed class CreacionDeEspecialidadesMedicasSteps(ApiScenario scenario)
 
         if (_createdUserIds.Count > 0)
         {
+            var userIds = _createdUserIds.ToArray();
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM people.doctor WHERE user_id = ANY({userIds})", timeout.Token);
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM people.patient WHERE user_id = ANY({userIds})", timeout.Token);
             await context.Users.Where(value => _createdUserIds.Contains(value.Id)).ExecuteDeleteAsync(timeout.Token);
         }
     }
