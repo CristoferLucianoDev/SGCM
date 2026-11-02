@@ -59,11 +59,19 @@ jobs:
           path: TestResults/**/*.trx
           reporter: dotnet-trx
 
+      - name: Unificar cobertura
+        if: always()
+        uses: danielpalme/ReportGenerator-GitHub-Action@5
+        with:
+          reports: TestResults/**/coverage.cobertura.xml
+          targetdir: TestResults/CoverageReport
+          reporttypes: Cobertura;HtmlInline
+
       - name: Resumen de cobertura
         if: always()
         uses: irongut/CodeCoverageSummary@v1.3.0
         with:
-          filename: TestResults/**/coverage.cobertura.xml
+          filename: TestResults/CoverageReport/Cobertura.xml
           format: markdown
           output: both
 
