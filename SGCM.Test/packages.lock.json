@@ -2,6 +2,19 @@
   "version": 2,
   "dependencies": {
     "net8.0": {
+      "Allure.Xunit": {
+        "type": "Direct",
+        "requested": "[2.15.0, )",
+        "resolved": "2.15.0",
+        "contentHash": "YCyt/WTOA1Tmikno1U9tsXEwWptXSUwvZ6Vz43bAmCew/Ghrx0DUgr9JoXVFvrBtJ2OVzoglPppye7mJMM83PA==",
+        "dependencies": {
+          "Allure.Net.Commons": "2.15.0",
+          "Lib.Harmony": "2.4.2",
+          "xunit.assert": "2.6.6",
+          "xunit.core": "2.6.6",
+          "xunit.runner.utility": "2.6.6"
+        }
+      },
       "coverlet.collector": {
         "type": "Direct",
         "requested": "[10.1.0, )",
@@ -97,9 +110,25 @@
       },
       "xunit.runner.visualstudio": {
         "type": "Direct",
-        "requested": "[4.0.0, )",
-        "resolved": "4.0.0",
-        "contentHash": "kzLFyBYUnoidpGOXvpNOfIo8C92gVgVR6X8ncHwhcrDYugiOut5rrhDkr0L3cWHd7J2pKXf6LgaeXoBBDlx1ag=="
+        "requested": "[2.8.2, )",
+        "resolved": "2.8.2",
+        "contentHash": "vm1tbfXhFmjFMUmS4M0J0ASXz3/U5XvXBa6DOQUL3fEz4Vt6YPhv+ESCarx6M6D+9kJkJYZKCNvJMas1+nVfmQ=="
+      },
+      "Allure.Net.Commons": {
+        "type": "Transitive",
+        "resolved": "2.15.0",
+        "contentHash": "CbEuYafbLehdc5ncB2zY84mqvjZMiseFOgm4VNYV61lxQfPc7yj5GIrq2QjYi1yVbYDzELEnmm+miTl8984WDw==",
+        "dependencies": {
+          "AspectInjector": "2.8.1",
+          "MimeTypesMap": "1.0.9",
+          "Newtonsoft.Json": "13.0.4",
+          "System.Collections.Immutable": "5.0.0"
+        }
+      },
+      "AspectInjector": {
+        "type": "Transitive",
+        "resolved": "2.8.1",
+        "contentHash": "8BScDeaLazJVFaa2Tt9hoWLhllnxXP3Sew+l/vktdZEcgoPOsqhlDqe6GXJvy7xVkdICAbKFsrcDJ0cfrDR6Mg=="
       },
       "BouncyCastle.Cryptography": {
         "type": "Transitive",
@@ -215,6 +244,11 @@
         "dependencies": {
           "Cucumber.Messages": "29.0.1"
         }
+      },
+      "Lib.Harmony": {
+        "type": "Transitive",
+        "resolved": "2.4.2",
+        "contentHash": "D2X9ojVjqbqdqWVK3VQETrEb56yVoXxtEp6tP5UvW0PP+bA4uJiswqOxF8GhH02ECwyevUa9vwhwdLzyXfksbw=="
       },
       "Microsoft.AspNetCore.Cryptography.Internal": {
         "type": "Transitive",
@@ -602,10 +636,20 @@
           "System.Security.Cryptography.Pkcs": "10.0.0"
         }
       },
+      "MimeTypesMap": {
+        "type": "Transitive",
+        "resolved": "1.0.9",
+        "contentHash": "M0TuSCwL1a8QV0VKw8ysY4AIs6v/Aor3N7GXQeqgNlAvqjx9Kj9KxNd09Pg5RzpY1tCOU8mkrfYBi1Lxwj8quQ=="
+      },
       "Mono.Cecil": {
         "type": "Transitive",
         "resolved": "0.11.3",
         "contentHash": "DNYE+io5XfEE8+E+5padThTPHJARJHbz1mhbhMPNrrWGKVKKqj/KEeLvbawAmbIcT73NuxLV7itHZaYCZcVWGg=="
+      },
+      "Newtonsoft.Json": {
+        "type": "Transitive",
+        "resolved": "13.0.4",
+        "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
       },
       "Npgsql": {
         "type": "Transitive",
@@ -738,6 +782,11 @@
         "resolved": "6.0.0",
         "contentHash": "CPc6tWO1LAer3IzfZufDBRL+UZQcj5uS207NHALQzP84Vp/z6wF0Aa0YZImOQY8iStY0A2zI/e3ihKNPfUm8XA=="
       },
+      "System.Collections.Immutable": {
+        "type": "Transitive",
+        "resolved": "5.0.0",
+        "contentHash": "FXkLXiK0sVVewcso0imKQoOxjoPAj42R8HtjjbSjVPAzwDfzoyoznWxgA3c38LDbN9SJux1xXoXYAhz98j7r2g=="
+      },
       "System.Diagnostics.EventLog": {
         "type": "Transitive",
         "resolved": "8.0.1",
@@ -843,6 +892,14 @@
         "contentHash": "yMb6vMESlSrE3Wfj7V6cjQ3S4TXdXpRqYeNEI3zsX31uTsGMJjEw6oD5F5u1cHnMptjhEECnmZSsPxB6ChZHDQ==",
         "dependencies": {
           "xunit.extensibility.core": "[2.9.3]"
+        }
+      },
+      "xunit.runner.utility": {
+        "type": "Transitive",
+        "resolved": "2.6.6",
+        "contentHash": "I7OUAf1X8yEqFdw5tBIvlC/4yThLV1u6iItgrzEhrJoabZ+sQLeYJfDOeHEaN+kpU+yPIIYdYME+PM2+fMcQbA==",
+        "dependencies": {
+          "xunit.abstractions": "2.0.3"
         }
       },
       "Xunit.SkippableFact": {

@@ -80,9 +80,70 @@ jobs:
         if: always()
         run: cat code-coverage-results.md >> $GITHUB_STEP_SUMMARY
 
+      # Allure.Xunit escribe en la carpeta de salida del proyecto de pruebas
+      # (bin/Release/<tfm>/allure-results); se copia a una ruta fija.
+      - name: Reunir resultados de Allure
+        if: always()
+        run: |
+          mkdir -p allure-results
+          dir=$(find SGCM.Test/bin -type d -name allure-results | head -n 1)
+          if [ -n "$dir" ]; then cp -r "$dir"/. allure-results/; else echo "No se encontraron resultados de Allure"; fi
+
+      - name: Subir resultados de Allure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results
+          retention-days: 7
+
       - name: Subir reportes y logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: TestResults
           path: TestResults
+
+  allure-report:
+    name: Publicar reporte Allure
+    needs: build-and-test
+    # Solo en push o ejecucion manual: la tendencia refleja la rama, no cada PR.
+    if: always() && github.event_name != 'pull_request' && needs.build-and-test.result != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: gh-pages
+      cancel-in-progress: false
+
+    steps:
+      - name: Descargar resultados de Allure
+        uses: actions/download-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results
+
+      # Trae los reportes anteriores para conservar el historial (tendencia).
+      # En el primer run la rama gh-pages no existe y el paso se omite.
+      - name: Obtener historial
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Generar reporte Allure
+        uses: simple-elf/allure-report-action@v1.12
+        with:
+          gh_pages: gh-pages
+          allure_results: allure-results
+          allure_history: allure-history
+          subfolder: ${{ github.ref_name }}
+          keep_reports: 30
+
+      - name: Publicar en GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: allure-history
