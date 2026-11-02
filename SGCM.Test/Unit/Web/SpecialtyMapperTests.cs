@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.ModelBinding.Binders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Primitives;
 using SGCM.Data.Application.Common;
+using SGCM.Data.Application.People.Commands.UpdateSpecialty;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Web.Contracts.People;
 using SGCM.Web.Mappers.People;
@@ -17,6 +18,22 @@ namespace SGCM.Test.Unit.Web;
 public sealed class SpecialtyMapperTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    [Theory]
+    [InlineData("{}", false, null, false, null)]
+    [InlineData("{\"name\":null}", true, null, false, null)]
+    [InlineData("{\"description\":null}", false, null, true, null)]
+    [InlineData("{\"name\":\"  NEUROLOGÍA  \"}", true, "  NEUROLOGÍA  ", false, null)]
+    [InlineData("{\"description\":\"Descripción\"}", false, null, true, "Descripción")]
+    [InlineData("{\"name\":\"Nombre\",\"description\":\"Descripción\"}", true, "Nombre", true, "Descripción")]
+    [InlineData("{\"id\":999,\"name\":\"Nombre\",\"nameProvided\":false,\"descriptionProvided\":true}", true, "Nombre", false, null)]
+    public void ToCommand_actualizacion_conserva_presencia_valores_y_utiliza_el_id_de_la_ruta(
+        string json, bool nameProvided, string? name, bool descriptionProvided, string? description)
+    {
+        var request = JsonSerializer.Deserialize<UpdateSpecialtyRequest>(json, JsonOptions)!;
+
+        request.ToCommand(42).ShouldBe(new UpdateSpecialtyCommand(42, nameProvided, name, descriptionProvided, description));
+    }
 
     [Fact]
     public void Request_usa_activas_y_la_primera_pagina_de_20_por_defecto()

@@ -1,4 +1,5 @@
 using SGCM.Data.Application.People.Commands.CreateSpecialty;
+using SGCM.Data.Application.People.Commands.UpdateSpecialty;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Web.Contracts.People;
@@ -7,6 +8,9 @@ namespace SGCM.Web.Mappers.People;
 
 public static class SpecialtyMapper
 {
+    public static UpdateSpecialtyCommand ToCommand(this UpdateSpecialtyRequest request, int id) =>
+        new(id, request.NameProvided, request.Name, request.DescriptionProvided, request.Description);
+
     public static CreateSpecialtyCommand ToCommand(this CreateSpecialtyRequest request) =>
         new(request.Name, request.Description);
 

@@ -7,6 +7,16 @@ namespace SGCM.Data.Domain.People.Specialties;
 /// </summary>
 public static class SpecialtyErrors
 {
+    public static readonly Error NotFound = Error.NotFound(
+        code: "Specialty.NotFound",
+        description: "La especialidad no existe."
+    );
+
+    public static readonly Error InvalidId = Error.Validation(
+        code: "Specialty.InvalidId",
+        description: "El identificador de la especialidad debe ser mayor que cero."
+    );
+
     public static readonly Error NoFieldsProvided = Error.Validation(
         code: "Specialty.NoFieldsProvided",
         description: "Debe proporcionar el nombre, la descripción o ambos para actualizar la especialidad."

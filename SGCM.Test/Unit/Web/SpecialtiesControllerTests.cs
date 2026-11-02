@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.People.Commands.CreateSpecialty;
+using SGCM.Data.Application.People.Commands.UpdateSpecialty;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Data.Domain.Common;
@@ -22,11 +23,111 @@ using Shouldly;
 
 namespace SGCM.Test.Unit.Web;
 
+using Unit = SGCM.Data.Domain.Common.Unit;
+
 public class SpecialtiesControllerTests
 {
     private readonly ICommandHandler<CreateSpecialtyCommand, int> _handler = Substitute.For<ICommandHandler<CreateSpecialtyCommand, int>>();
+    private readonly ICommandHandler<UpdateSpecialtyCommand, Unit> _updateHandler =
+        Substitute.For<ICommandHandler<UpdateSpecialtyCommand, Unit>>();
     private readonly IQueryHandler<ListSpecialtiesQuery, PagedResult<SpecialtyDto>> _queryHandler =
         Substitute.For<IQueryHandler<ListSpecialtiesQuery, PagedResult<SpecialtyDto>>>();
+
+    [Fact]
+    public async Task Update_mapea_el_id_y_los_campos_propaga_el_token_y_devuelve_204()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var request = new UpdateSpecialtyRequest { Name = "  NEUROLOGÍA  ", Description = "Descripción nueva." };
+        _updateHandler.HandleAsync(Arg.Any<UpdateSpecialtyCommand>(), cancellation.Token).Returns(Unit.Value);
+
+        var result = await new SpecialtiesController().Update(42, request, _updateHandler, cancellation.Token);
+
+        result.ShouldBeOfType<NoContentResult>().StatusCode.ShouldBe(204);
+        await _updateHandler.Received(1).HandleAsync(
+            new UpdateSpecialtyCommand(42, true, "  NEUROLOGÍA  ", true, "Descripción nueva."), cancellation.Token);
+        _handler.ReceivedCalls().ShouldBeEmpty();
+        _queryHandler.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("Specialty.NameRequired", 400, 42, "{\"name\":null}")]
+    [InlineData("Specialty.DescriptionRequired", 400, 42, "{\"description\":null}")]
+    [InlineData("Specialty.NoFieldsProvided", 400, 42, "{}")]
+    [InlineData("Specialty.InvalidId", 400, 0, "{\"name\":\"Neurología\"}")]
+    [InlineData("Specialty.NotFound", 404, 42, "{\"name\":\"Neurología\"}")]
+    [InlineData("Specialty.NameAlreadyInUse", 409, 42, "{\"name\":\"Neurología\"}")]
+    public async Task Update_utiliza_ErrorResult_con_el_estado_y_codigo_correspondientes(string code, int status, int id, string json)
+    {
+        var error = code switch
+        {
+            "Specialty.NameRequired" => SpecialtyErrors.NameRequired,
+            "Specialty.DescriptionRequired" => SpecialtyErrors.DescriptionRequired,
+            "Specialty.NoFieldsProvided" => SpecialtyErrors.NoFieldsProvided,
+            "Specialty.InvalidId" => SpecialtyErrors.InvalidId,
+            "Specialty.NotFound" => SpecialtyErrors.NotFound,
+            _ => SpecialtyErrors.NameAlreadyInUse
+        };
+        var request = JsonSerializer.Deserialize<UpdateSpecialtyRequest>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var command = new UpdateSpecialtyCommand(id, request.NameProvided, request.Name, request.DescriptionProvided, request.Description);
+        var validation = new UpdateSpecialtyCommandValidator().Validate(command);
+        if (status == 400)
+        {
+            validation.IsValid.ShouldBeFalse();
+            validation.Errors.ShouldHaveSingleItem().ErrorCode.ShouldBe(code);
+        }
+        else
+        {
+            validation.IsValid.ShouldBeTrue();
+        }
+        _updateHandler.HandleAsync(command, CancellationToken.None)
+            .Returns(Result<Unit>.Failure(error));
+
+        var result = await new SpecialtiesController().Update(id, request, _updateHandler, CancellationToken.None);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(status);
+        var problem = response.Value.ShouldBeOfType<ProblemDetails>();
+        problem.Status.ShouldBe(status);
+        problem.Title.ShouldBe(error.Description);
+        problem.Extensions["code"].ShouldBe(code);
+        await _updateHandler.Received(1).HandleAsync(command, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Update_propaga_la_cancelacion_del_handler()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        _updateHandler.HandleAsync(Arg.Any<UpdateSpecialtyCommand>(), cancellation.Token)
+            .Returns(Task.FromCanceled<Result<Unit>>(cancellation.Token));
+
+        var exception = await Should.ThrowAsync<OperationCanceledException>(() => new SpecialtiesController().Update(
+            42, new UpdateSpecialtyRequest { Name = "Neurología" }, _updateHandler, cancellation.Token));
+
+        exception.CancellationToken.ShouldBe(cancellation.Token);
+        await _updateHandler.Received(1).HandleAsync(
+            new UpdateSpecialtyCommand(42, true, "Neurología", false, null), cancellation.Token);
+    }
+
+    [Fact]
+    public void Update_es_PATCH_administrativo_con_id_de_ruta_y_cuerpo_JSON()
+    {
+        var controller = typeof(SpecialtiesController);
+        controller.GetCustomAttribute<RouteAttribute>()!.Template.ShouldBe("api/specialties");
+        controller.GetCustomAttributes<AllowAnonymousAttribute>().ShouldBeEmpty();
+        var update = controller.GetMethod(nameof(SpecialtiesController.Update))!;
+        update.GetCustomAttributes<HttpPatchAttribute>().ShouldHaveSingleItem().Template.ShouldBe("{id:int}");
+        update.GetCustomAttributes<AllowAnonymousAttribute>().ShouldBeEmpty();
+        update.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Administrator));
+        update.GetParameters().Single(parameter => parameter.Name == "id")
+            .GetCustomAttribute<FromRouteAttribute>().ShouldNotBeNull();
+        update.GetParameters().Single(parameter => parameter.ParameterType == typeof(UpdateSpecialtyRequest))
+            .GetCustomAttribute<FromBodyAttribute>().ShouldNotBeNull();
+        update.GetParameters().Single(parameter => parameter.ParameterType == typeof(ICommandHandler<UpdateSpecialtyCommand, Unit>))
+            .GetCustomAttribute<FromServicesAttribute>().ShouldNotBeNull();
+        update.GetCustomAttributes<ProducesResponseTypeAttribute>().Select(attribute => attribute.StatusCode)
+            .ShouldBe(new[] { 204, 400, 401, 403, 404, 409 }, ignoreOrder: true);
+    }
 
     [Fact]
     public async Task Create_mapea_la_solicitud_y_devuelve_201_con_el_id()
