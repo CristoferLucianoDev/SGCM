@@ -46,6 +46,18 @@ public interface IUserRepository : IRepository<User>
     Task<User?> GetByTokenHashForUpdateAsync(UserTokenType type, string tokenHash, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Busca el usuario que tiene una sesión con ese refresh token, ya sea como hash vigente o
+    /// como hash anterior, y antes bloquea su fila hasta el fin de la transacción. Debe llamarse
+    /// dentro de la transacción del comando, para que dos renovaciones simultáneas del mismo
+    /// token se ejecuten una tras otra y la segunda vea el hash ya rotado.
+    /// </summary>
+    /// <param name="refreshTokenHash">Hash del refresh token recibido.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
+    /// <returns>El usuario con sus tokens y sesiones, o <c>null</c> si ninguna sesión coincide.</returns>
+    /// <exception cref="InvalidOperationException">Si no hay una transacción activa.</exception>
+    Task<User?> GetBySessionRefreshTokenHashForUpdateAsync(string refreshTokenHash, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Borra las cuentas sin confirmar que no tienen ningún token de confirmación vigente
     /// en <paramref name="now"/>. Salta los usuarios cuya fila está bloqueada por otra
     /// transacción; la siguiente pasada los vuelve a evaluar.

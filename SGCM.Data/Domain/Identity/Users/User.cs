@@ -499,6 +499,48 @@ public sealed class User : ActivatableAggregateRoot
     }
 
     /// <summary>
+    /// Cierra la sesión cuyo hash vigente o anterior coincide con el indicado, revocándola con
+    /// <see cref="SessionRevocationReason.Logout"/>. Es idempotente: si ninguna sesión coincide o
+    /// la que coincide ya está revocada o vencida, no hace nada. Las demás sesiones no se tocan.
+    /// </summary>
+    /// <remarks>
+    /// Acepta el hash anterior porque, si el cliente quedó con ese token por una renovación
+    /// perdida o concurrente, el usuario espera que cerrar sesión cierre esa sesión. Fuera del
+    /// margen de gracia no agrega riesgo, porque ese hash ya provoca la revocación total en
+    /// <see cref="RefreshSession"/>. Dentro del margen, quien tenga un token ya rotado puede
+    /// cerrar esa sesión, pero no las demás; se acepta porque el impacto se limita a una sesión
+    /// y el usuario vuelve a iniciar sesión.
+    /// </remarks>
+    /// <param name="refreshTokenHash">
+    /// Hash del refresh token presentado. Viene de fuera: si es nulo o vacío no coincide con
+    /// ninguna sesión.
+    /// </param>
+    /// <param name="now">Momento del cierre de sesión.</param>
+    /// <returns>Si se cerró una sesión y con qué hash, para que quien llama pueda registrarlo.</returns>
+    public SessionEndOutcome EndSession(string refreshTokenHash, DateTimeOffset now)
+    {
+        // Una sesión que nunca rotó tiene el hash anterior nulo: sin esa condición, un hash
+        // presentado nulo la cerraría. El filtro de activa va en la búsqueda porque el hash
+        // anterior no es único en la base y otra sesión inactiva podría tener el mismo.
+        var session = _sessions.FirstOrDefault(session =>
+            session.IsActiveAt(now)
+            && (session.RefreshTokenHash == refreshTokenHash
+                || (session.PreviousRefreshTokenHash is not null
+                    && session.PreviousRefreshTokenHash == refreshTokenHash)));
+
+        if (session is null)
+        {
+            return SessionEndOutcome.None;
+        }
+
+        session.Revoke(SessionRevocationReason.Logout, now);
+
+        return session.RefreshTokenHash == refreshTokenHash
+            ? SessionEndOutcome.ClosedByCurrentToken
+            : SessionEndOutcome.ClosedByPreviousToken;
+    }
+
+    /// <summary>
     /// Indica el paso que el usuario debe completar antes de usar el resto del sistema.
     /// La contraseña temporal va primero, porque el médico la cambia antes de completar su
     /// perfil. El administrador no tiene paso de perfil.

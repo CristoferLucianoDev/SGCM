@@ -13,6 +13,8 @@ CREATE INDEX ix_user_token_token_type_id_token_hash ON app.user_token (token_typ
 CREATE INDEX ix_user_created_at_unconfirmed ON app."user" (created_at) WHERE is_email_confirmed = false;
 -- Sesiones activas de un usuario (limite de 5, revocar todas).
 CREATE INDEX ix_user_session_user_id_active ON app.user_session (user_id) WHERE revoked_at IS NULL;
+-- Permite encontrar al dueno de un hash rotado al detectar la reutilizacion.
+CREATE INDEX ix_user_session_previous_refresh_token_hash ON app.user_session (previous_refresh_token_hash) WHERE previous_refresh_token_hash IS NOT NULL;
 
 -- people
 CREATE INDEX ix_doctor_province_id_municipality_id ON people.doctor (province_id, municipality_id);

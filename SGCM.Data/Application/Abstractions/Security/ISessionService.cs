@@ -4,7 +4,7 @@ using SGCM.Data.Domain.Identity.Users;
 namespace SGCM.Data.Application.Abstractions.Security;
 
 /// <summary>
-/// Abre las sesiones de los usuarios y les emite sus tokens.
+/// Abre, renueva y cierra las sesiones de los usuarios, y les emite sus tokens.
 /// </summary>
 public interface ISessionService
 {
@@ -34,4 +34,34 @@ public interface ISessionService
         string? deviceName,
         string? ipAddress,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Renueva la sesión del refresh token presentado: lo reemplaza por uno nuevo y emite un
+    /// access token con los pasos pendientes recalculados. Debe llamarse dentro de la transacción
+    /// del comando, porque bloquea la fila del usuario para que dos renovaciones simultáneas del
+    /// mismo token se ejecuten una tras otra.
+    /// </summary>
+    /// <param name="refreshToken">Refresh token en claro recibido del cliente.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
+    /// <returns>
+    /// Los tokens nuevos; <see cref="UserErrors.SessionInvalid"/> si la sesión no se puede
+    /// renovar; o <see cref="UserErrors.RefreshTokenReused"/> si se presentó un token ya rotado
+    /// y se asume robo.
+    /// </returns>
+    /// <remarks>
+    /// <see cref="UserErrors.RefreshTokenReused"/> deja revocadas las sesiones del usuario en el
+    /// contexto: quien llama debe persistir ese cambio aunque el resultado sea un fallo.
+    /// </remarks>
+    Task<Result<SessionTokens>> RefreshAsync(string refreshToken, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Cierra la sesión del refresh token presentado, sea el vigente o el anterior a la última
+    /// rotación. Es idempotente: no hace nada si el token no existe o la sesión ya está revocada
+    /// o vencida. Debe llamarse dentro de la transacción del comando, porque bloquea la fila del
+    /// usuario.
+    /// </summary>
+    /// <param name="refreshToken">Refresh token en claro recibido del cliente.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
+    /// <returns>Una tarea que termina cuando la sesión queda marcada como cerrada en el contexto.</returns>
+    Task EndAsync(string refreshToken, CancellationToken cancellationToken);
 }

@@ -27,6 +27,7 @@ internal sealed class UserSessionConfiguration : IEntityTypeConfiguration<UserSe
         builder.Property(session => session.PreviousRefreshTokenHash).HasMaxLength(TokenHashMaxLength);
         builder.Property(session => session.DeviceName).HasMaxLength(UserSession.MaxDeviceNameLength);
         builder.Property(session => session.IpAddress).HasMaxLength(UserSession.MaxIpAddressLength);
+        builder.Property(session => session.LastUsedAt).IsRequired();
 
         builder.Property(session => session.RevocationReason)
             .HasConversion(RevocationReasonConverter)

@@ -128,9 +128,9 @@ SELECT pg_temp.expect($$UPDATE clinical.medical_record SET diagnosis='x'$$, '425
 SELECT pg_temp.expect($$DELETE FROM clinical.medical_record$$, '42501');
 
 -- ---------------- T8 sesiones ----------------
-INSERT INTO app.user_session(user_id, refresh_token_hash, expires_at)
-SELECT id, 'rt1', now() + interval '7 days' FROM app."user" WHERE email='pac@test.com';
-SELECT pg_temp.expect($$INSERT INTO app.user_session(user_id, refresh_token_hash, expires_at, revoked_at) SELECT id, 'rt2', now(), now() FROM app."user" WHERE email='pac@test.com'$$, 'ck_user_session_revocation_consistency');
+INSERT INTO app.user_session(user_id, refresh_token_hash, expires_at, last_used_at)
+SELECT id, 'rt1', now() + interval '7 days', now() FROM app."user" WHERE email='pac@test.com';
+SELECT pg_temp.expect($$INSERT INTO app.user_session(user_id, refresh_token_hash, expires_at, last_used_at, revoked_at) SELECT id, 'rt2', now(), now(), now() FROM app."user" WHERE email='pac@test.com'$$, 'ck_user_session_revocation_consistency');
 UPDATE app."user" SET is_active=false WHERE email='pac@test.com';
 SELECT pg_temp.ok((SELECT revocation_reason FROM app.user_session WHERE refresh_token_hash='rt1')='account_deactivated', 'T8 sesiones revocadas');
 

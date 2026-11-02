@@ -15,6 +15,13 @@ public sealed class JwtOptions
     public int RefreshTokenDays { get; set; }
     public int MaxActiveSessionsPerUser { get; set; }
     public int ClockSkewSeconds { get; set; }
+
+    /// <summary>
+    /// Segundos desde la última rotación durante los que presentar el refresh token anterior se
+    /// trata como una renovación concurrente o un reintento, y no como robo. Con 0 solo se tolera
+    /// el mismo instante de la rotación.
+    /// </summary>
+    public int RefreshReuseGraceSeconds { get; set; }
 }
 
 public sealed class JwtOptionsValidator : IValidateOptions<JwtOptions>
@@ -31,6 +38,7 @@ public sealed class JwtOptionsValidator : IValidateOptions<JwtOptions>
         OptionsRules.Positive(errors, "Jwt:RefreshTokenDays", options.RefreshTokenDays);
         OptionsRules.Positive(errors, "Jwt:MaxActiveSessionsPerUser", options.MaxActiveSessionsPerUser);
         OptionsRules.NonNegative(errors, "Jwt:ClockSkewSeconds", options.ClockSkewSeconds);
+        OptionsRules.NonNegative(errors, "Jwt:RefreshReuseGraceSeconds", options.RefreshReuseGraceSeconds);
 
         return errors.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(errors);
     }

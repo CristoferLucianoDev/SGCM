@@ -5,6 +5,7 @@ using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.Abstractions.Services;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
+using Serilog;
 
 namespace SGCM.Data.Infrastructure.Security;
 
@@ -17,13 +18,16 @@ internal sealed class SessionService(
     ITokenService tokenService,
     IUnitOfWork unitOfWork,
     IUserProfileReader profileReader,
+    IUserRepository userRepository,
     IDateTimeProvider dateTimeProvider,
-    IOptions<JwtOptions> options) : ISessionService
+    IOptions<JwtOptions> options,
+    ILogger logger) : ISessionService
 {
     // Tamaño del refresh token que fija la arquitectura.
     private const int RefreshTokenSizeInBytes = 64;
 
     private readonly JwtOptions _options = options.Value;
+    private readonly ILogger _logger = logger.ForContext<SessionService>();
 
     public async Task<Result<SessionTokens>> StartAsync(
         User user,
@@ -55,6 +59,66 @@ internal sealed class SessionService(
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return await IssueTokensAsync(user, session, refreshToken.Value, cancellationToken);
+    }
+
+    public async Task<Result<SessionTokens>> RefreshAsync(string refreshToken, CancellationToken cancellationToken)
+    {
+        var presentedHash = tokenGenerator.Hash(refreshToken);
+        var user = await userRepository.GetBySessionRefreshTokenHashForUpdateAsync(presentedHash, cancellationToken);
+
+        if (user is null)
+        {
+            return UserErrors.SessionInvalid;
+        }
+
+        var newRefreshToken = tokenGenerator.Generate(RefreshTokenSizeInBytes);
+
+        var refreshed = user.RefreshSession(
+            presentedHash,
+            newRefreshToken.Hash,
+            dateTimeProvider.UtcNow,
+            TimeSpan.FromDays(_options.RefreshTokenDays),
+            TimeSpan.FromSeconds(_options.RefreshReuseGraceSeconds));
+
+        if (refreshed.IsFailure)
+        {
+            LogIfTokenReused(user, refreshed.Error);
+            return refreshed.Error;
+        }
+
+        // A diferencia de StartAsync no se guarda aquí: la sesión ya tiene id y el decorador de
+        // transacción del comando persiste la rotación.
+        return await IssueTokensAsync(user, refreshed.Value, newRefreshToken.Value, cancellationToken);
+    }
+
+    public async Task EndAsync(string refreshToken, CancellationToken cancellationToken)
+    {
+        var refreshTokenHash = tokenGenerator.Hash(refreshToken);
+        var user = await userRepository.GetBySessionRefreshTokenHashForUpdateAsync(refreshTokenHash, cancellationToken);
+
+        if (user is null)
+        {
+            return;
+        }
+
+        var outcome = user.EndSession(refreshTokenHash, dateTimeProvider.UtcNow);
+
+        // Puede ser un cliente que quedó con el token anterior o alguien con un token robado, y
+        // la API responde igual: se deja rastro, sin el token ni su hash.
+        if (outcome == SessionEndOutcome.ClosedByPreviousToken)
+        {
+            _logger.Warning("Cierre de sesión con un refresh token ya rotado para el usuario {UserId}", user.Id);
+        }
+    }
+
+    // Es el único rastro de un posible robo, porque la API responde igual que con una sesión
+    // inválida. No se registra el token ni su hash: el hash permitiría localizar la sesión.
+    private void LogIfTokenReused(User user, Error error)
+    {
+        if (error == UserErrors.RefreshTokenReused)
+        {
+            _logger.Warning("Reutilización de refresh token detectada para el usuario {UserId}", user.Id);
+        }
     }
 
     private async Task<SessionTokens> IssueTokensAsync(

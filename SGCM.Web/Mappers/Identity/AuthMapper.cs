@@ -1,5 +1,7 @@
 ﻿using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.Identity.Commands.Login;
+using SGCM.Data.Application.Identity.Commands.Logout;
+using SGCM.Data.Application.Identity.Commands.RefreshSession;
 using SGCM.Web.Contracts.Identity;
 
 namespace SGCM.Web.Mappers.Identity;
@@ -45,4 +47,32 @@ public static class AuthMapper
     /// <returns>La respuesta con los tokens; nunca pide segundo factor.</returns>
     public static LoginResponse ToResponse(this SessionTokens tokens) =>
         LoginResult.Authenticated(tokens).ToResponse();
+
+    /// <summary>
+    /// Arma el comando de renovación de sesión.
+    /// </summary>
+    /// <param name="request">Datos recibidos.</param>
+    /// <returns>El comando de renovación.</returns>
+    public static RefreshSessionCommand ToCommand(this RefreshSessionRequest request) =>
+        new(request.RefreshToken);
+
+    /// <summary>
+    /// Arma el comando de cierre de sesión.
+    /// </summary>
+    /// <param name="request">Datos recibidos.</param>
+    /// <returns>El comando de cierre.</returns>
+    public static LogoutCommand ToCommand(this LogoutRequest request) =>
+        new(request.RefreshToken);
+
+    /// <summary>
+    /// Convierte los tokens de una sesión renovada en la respuesta de la API.
+    /// </summary>
+    /// <param name="tokens">Tokens de la sesión.</param>
+    /// <returns>La respuesta con los tokens nuevos.</returns>
+    public static RefreshSessionResponse ToRefreshSessionResponse(this SessionTokens tokens) => new(
+        tokens.AccessToken.Value,
+        tokens.AccessToken.ExpiresAt,
+        tokens.RefreshToken,
+        tokens.RefreshTokenExpiresAt,
+        tokens.PendingStep is { } step ? PendingStepClaimValues.From(step) : null);
 }
