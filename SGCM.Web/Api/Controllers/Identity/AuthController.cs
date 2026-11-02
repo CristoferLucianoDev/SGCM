@@ -3,6 +3,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Identity.Commands.Login;
+using SGCM.Data.Application.Identity.Commands.Logout;
+using SGCM.Data.Application.Identity.Commands.RefreshSession;
+using SGCM.Data.Domain.Common;
+using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
 using SGCM.Web.Contracts.Identity;
 using SGCM.Web.Hosting;
@@ -26,6 +30,8 @@ public sealed class AuthController : ApiControllerBase
     [HttpPost("login")]
     [AllowAnonymous]
     [EnableRateLimiting(RateLimitPolicies.Login)]
+    // La respuesta lleva tokens: ningún intermediario ni el navegador deben guardarla.
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
@@ -42,5 +48,74 @@ public sealed class AuthController : ApiControllerBase
         var result = await handler.HandleAsync(request.ToCommand(deviceName, ipAddress), cancellationToken);
 
         return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
+    }
+
+    /// <summary>
+    /// Renueva la sesión con su refresh token y devuelve los tokens nuevos. El refresh token
+    /// presentado deja de servir, así que el cliente debe guardar el nuevo.
+    /// </summary>
+    /// <remarks>
+    /// Es anónimo porque se usa justamente cuando el access token ya venció.
+    /// Ante un 401 el cliente debe enviar al usuario al inicio de sesión y no reintentar.
+    /// </remarks>
+    /// <param name="request">Refresh token de la sesión.</param>
+    /// <param name="handler">Caso de uso de la renovación.</param>
+    /// <returns>
+    /// 200 con los tokens nuevos, 400 si falta el token o 401 si la sesión no se puede renovar.
+    /// </returns>
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    // La respuesta lleva tokens: ningún intermediario ni el navegador deben guardarla.
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    [ProducesResponseType(typeof(RefreshSessionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Refresh(
+        RefreshSessionRequest request,
+        [FromServices] ICommandHandler<RefreshSessionCommand, RefreshSessionResult> handler)
+    {
+        // Sin la cancelación de la petición: si el cliente corta antes del commit, la revocación
+        // por robo se revertiría, y quien presenta un token robado podría provocarlo a propósito.
+        // Es una operación corta, así que termina aunque el cliente se desconecte.
+        var result = await handler.HandleAsync(request.ToCommand(), CancellationToken.None);
+
+        if (result.IsFailure)
+        {
+            return ErrorResult(result.Error);
+        }
+
+        // La misma respuesta que una sesión inválida, para no revelar que se detectó la reutilización.
+        if (result.Value.SessionRevoked)
+        {
+            return ErrorResult(UserErrors.SessionInvalid);
+        }
+
+        return Ok(result.Value.Tokens!.ToRefreshSessionResponse());
+    }
+
+    /// <summary>
+    /// Cierra la sesión del refresh token recibido.
+    /// </summary>
+    /// <remarks>
+    /// Es anónimo para que un usuario con el access token vencido pueda cerrar su sesión.
+    /// Responde 204 aunque el token no exista o ya esté cerrado.
+    /// </remarks>
+    /// <param name="request">Refresh token de la sesión.</param>
+    /// <param name="handler">Caso de uso del cierre de sesión.</param>
+    /// <returns>204 si termina bien, o 400 si falta el token.</returns>
+    [HttpPost("logout")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> Logout(
+        LogoutRequest request,
+        [FromServices] ICommandHandler<LogoutCommand, Unit> handler)
+    {
+        // Sin la cancelación de la petición, para que un usuario que pierde la conexión no quede
+        // con la sesión abierta sin saberlo. Es una operación corta, así que termina aunque el
+        // cliente se desconecte.
+        var result = await handler.HandleAsync(request.ToCommand(), CancellationToken.None);
+
+        return result.IsSuccess ? NoContent() : ErrorResult(result.Error);
     }
 }

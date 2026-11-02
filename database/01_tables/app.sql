@@ -99,7 +99,7 @@ CREATE TABLE app.user_session (
     device_name                  varchar(150)  NULL,
     ip_address                   varchar(45)   NULL,
     expires_at                   timestamptz   NOT NULL,
-    last_used_at                 timestamptz   NULL,
+    last_used_at                 timestamptz   NOT NULL,
     revoked_at                   timestamptz   NULL,
     revocation_reason            varchar(50)   NULL,
     created_at                   timestamptz   NOT NULL DEFAULT now(),
@@ -109,4 +109,5 @@ CREATE TABLE app.user_session (
     CONSTRAINT pk_user_session PRIMARY KEY (id)
 );
 COMMENT ON TABLE app.user_session IS 'Sesion por dispositivo. Guarda el hash del refresh token; el JWT no se almacena.';
-COMMENT ON COLUMN app.user_session.previous_refresh_token_hash IS 'Hash anterior a la ultima rotacion; si se presenta, se asume robo.';
+COMMENT ON COLUMN app.user_session.previous_refresh_token_hash IS 'Hash anterior a la ultima rotacion. Presentarlo con la sesion activa y fuera del margen de gracia se trata como robo y revoca todas las sesiones.';
+COMMENT ON COLUMN app.user_session.last_used_at IS 'Lo fijan el inicio de sesion y cada rotacion. Decide que sesion se revoca por limite y desde cuando corre el margen de gracia.';

@@ -15,7 +15,8 @@ public class JwtOptionsValidatorTests
         AccessTokenMinutes = 15,
         RefreshTokenDays = 7,
         MaxActiveSessionsPerUser = 5,
-        ClockSkewSeconds = 30
+        ClockSkewSeconds = 30,
+        RefreshReuseGraceSeconds = 30
     };
 
     [Fact]
@@ -46,5 +47,26 @@ public class JwtOptionsValidatorTests
 
         result.Failed.ShouldBeTrue();
         result.FailureMessage.ShouldContain("al menos 32 bytes");
+    }
+
+    [Fact]
+    public void Negative_refresh_reuse_grace_fails_and_names_the_setting()
+    {
+        var options = ValidOptions();
+        options.RefreshReuseGraceSeconds = -1;
+
+        var result = _validator.Validate(null, options);
+
+        result.Failed.ShouldBeTrue();
+        result.FailureMessage.ShouldContain("RefreshReuseGraceSeconds");
+    }
+
+    [Fact]
+    public void Zero_refresh_reuse_grace_passes()
+    {
+        var options = ValidOptions();
+        options.RefreshReuseGraceSeconds = 0;
+
+        _validator.Validate(null, options).Succeeded.ShouldBeTrue();
     }
 }

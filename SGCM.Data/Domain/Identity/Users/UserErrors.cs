@@ -118,6 +118,14 @@ public static class UserErrors
     );
 
     /// <summary>
+    /// La petición no trae un refresh token, o el que trae supera la longitud máxima admitida.
+    /// </summary>
+    public static readonly Error RefreshTokenRequired = Error.Validation(
+        code: "User.RefreshTokenRequired",
+        description: "El refresh token es obligatorio."
+    );
+
+    /// <summary>
     /// La sesión no se puede renovar. Es la misma respuesta para un hash que no coincide con
     /// ninguna sesión, una sesión revocada o vencida, una cuenta inactiva y el hash anterior
     /// de una sesión inactiva o dentro del margen de gracia.

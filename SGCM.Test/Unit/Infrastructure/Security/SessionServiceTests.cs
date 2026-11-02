@@ -1,8 +1,10 @@
 ﻿using Microsoft.Extensions.Options;
 using NSubstitute;
+using Serilog;
 using Shouldly;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Application.Abstractions.Security;
+using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Infrastructure.Security;
 using SGCM.Test.Common.Fakes;
@@ -11,23 +13,29 @@ using SGCM.Test.Common.Mothers;
 namespace SGCM.Test.Unit.Infrastructure.Security;
 
 /// <summary>
-/// Pruebas de la apertura de sesiones en <see cref="SessionService"/>.
+/// Pruebas de la apertura, la renovación y el cierre de sesiones en <see cref="SessionService"/>.
 /// </summary>
 public sealed class SessionServiceTests
 {
     private const int RefreshTokenSizeInBytes = 64;
     private const int RefreshTokenDays = 7;
     private const int MaxActiveSessions = 5;
+    private const int ReuseGraceSeconds = 30;
+    private const int UserId = 42;
     private const string DeviceName = "Chrome en Windows";
     private const string IpAddress = "203.0.113.10";
+    private const string PresentedToken = "refresh-presentado";
 
     private static readonly SecureToken RefreshToken = new("refresh-raw", "refresh-hash");
+    private static readonly SecureToken RotatedToken = new("rotated-raw", "rotated-hash");
     private static readonly AccessToken IssuedAccessToken = new("access-token", UserMother.Now.AddMinutes(15));
 
     private readonly ISecureTokenGenerator _tokenGenerator = Substitute.For<ISecureTokenGenerator>();
     private readonly ITokenService _tokenService = Substitute.For<ITokenService>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
     private readonly IUserProfileReader _profileReader = Substitute.For<IUserProfileReader>();
+    private readonly IUserRepository _userRepository = Substitute.For<IUserRepository>();
+    private readonly ILogger _logger = Substitute.For<ILogger>();
     private readonly FakeDateTimeProvider _clock = new();
     private readonly SessionService _service;
 
@@ -40,14 +48,18 @@ public sealed class SessionServiceTests
         _profileReader
             .HasProfileAsync(Arg.Any<int>(), Arg.Any<UserRole>(), Arg.Any<CancellationToken>())
             .Returns(true);
+        _tokenGenerator.Hash(PresentedToken).Returns(RefreshToken.Hash);
+        _logger.ForContext<SessionService>().Returns(_logger);
 
         var options = Options.Create(new JwtOptions
         {
             RefreshTokenDays = RefreshTokenDays,
-            MaxActiveSessionsPerUser = MaxActiveSessions
+            MaxActiveSessionsPerUser = MaxActiveSessions,
+            RefreshReuseGraceSeconds = ReuseGraceSeconds
         });
 
-        _service = new SessionService(_tokenGenerator, _tokenService, _unitOfWork, _profileReader, _clock, options);
+        _service = new SessionService(
+            _tokenGenerator, _tokenService, _unitOfWork, _profileReader, _userRepository, _clock, options, _logger);
     }
 
     public static TheoryData<string?, string?> DeviceNames => new()
@@ -166,6 +178,148 @@ public sealed class SessionServiceTests
 
         await _profileReader.Received(1)
             .HasProfileAsync(Arg.Is(user.Id), Arg.Is(user.Role), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RefreshAsync_rota_la_sesion_y_devuelve_tokens_nuevos_sin_guardar()
+    {
+        var (user, session) = await UserWithSessionAsync();
+        _clock.UtcNow = _clock.UtcNow.AddHours(1);
+        _tokenGenerator.Generate(RefreshTokenSizeInBytes).Returns(RotatedToken);
+
+        var result = await _service.RefreshAsync(PresentedToken, CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.RefreshToken.ShouldBe(RotatedToken.Value);
+        result.Value.RefreshTokenExpiresAt.ShouldBe(_clock.UtcNow.AddDays(RefreshTokenDays));
+        result.Value.AccessToken.ShouldBe(IssuedAccessToken);
+        session.RefreshTokenHash.ShouldBe(RotatedToken.Hash);
+        session.PreviousRefreshTokenHash.ShouldBe(RefreshToken.Hash);
+        user.Sessions.ShouldHaveSingleItem();
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RefreshAsync_recalcula_el_paso_pendiente()
+    {
+        await UserWithSessionAsync();
+        _tokenGenerator.Generate(RefreshTokenSizeInBytes).Returns(RotatedToken);
+        _profileReader
+            .HasProfileAsync(Arg.Any<int>(), Arg.Any<UserRole>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var result = await _service.RefreshAsync(PresentedToken, CancellationToken.None);
+
+        result.Value.PendingStep.ShouldBe(PendingStep.PatientProfile);
+        _tokenService.Received(1).CreateAccessToken(
+            Arg.Any<int>(), Arg.Any<UserRole>(), Arg.Any<int>(), Arg.Is<PendingStep?>(PendingStep.PatientProfile));
+    }
+
+    [Fact]
+    public async Task RefreshAsync_con_usuario_no_encontrado_devuelve_SessionInvalid()
+    {
+        var result = await _service.RefreshAsync(PresentedToken, CancellationToken.None);
+
+        result.Error.ShouldBe(UserErrors.SessionInvalid);
+        _tokenGenerator.DidNotReceive().Generate(Arg.Any<int>());
+        _logger.DidNotReceiveWithAnyArgs().Warning(default!, default(int));
+    }
+
+    [Fact]
+    public async Task RefreshAsync_con_token_reutilizado_revoca_avisa_y_devuelve_el_error()
+    {
+        var (user, session) = await UserWithSessionAsync();
+        _tokenGenerator.Generate(RefreshTokenSizeInBytes).Returns(RotatedToken);
+        await _service.RefreshAsync(PresentedToken, CancellationToken.None);
+        _clock.UtcNow = _clock.UtcNow.AddSeconds(ReuseGraceSeconds + 1);
+        _tokenGenerator.Generate(RefreshTokenSizeInBytes).Returns(new SecureToken("otro-raw", "otro-hash"));
+
+        var result = await _service.RefreshAsync(PresentedToken, CancellationToken.None);
+
+        result.Error.ShouldBe(UserErrors.RefreshTokenReused);
+        session.RevocationReason.ShouldBe(SessionRevocationReason.TokenReuse);
+        _logger.Received(1).Warning(Arg.Any<string>(), user.Id);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_dentro_del_margen_devuelve_SessionInvalid_sin_revocar_ni_avisar()
+    {
+        var (_, session) = await UserWithSessionAsync();
+        _tokenGenerator.Generate(RefreshTokenSizeInBytes).Returns(RotatedToken);
+        await _service.RefreshAsync(PresentedToken, CancellationToken.None);
+        _clock.UtcNow = _clock.UtcNow.AddSeconds(ReuseGraceSeconds);
+        _tokenGenerator.Generate(RefreshTokenSizeInBytes).Returns(new SecureToken("otro-raw", "otro-hash"));
+
+        var result = await _service.RefreshAsync(PresentedToken, CancellationToken.None);
+
+        result.Error.ShouldBe(UserErrors.SessionInvalid);
+        session.RevokedAt.ShouldBeNull();
+        _logger.DidNotReceiveWithAnyArgs().Warning(default!, default(int));
+    }
+
+    [Fact]
+    public async Task EndAsync_revoca_la_sesion_con_Logout_sin_guardar()
+    {
+        var (_, session) = await UserWithSessionAsync();
+
+        await _service.EndAsync(PresentedToken, CancellationToken.None);
+
+        session.RevocationReason.ShouldBe(SessionRevocationReason.Logout);
+        session.RevokedAt.ShouldBe(_clock.UtcNow);
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        _logger.DidNotReceiveWithAnyArgs().Warning(default!, default(int));
+    }
+
+    [Fact]
+    public async Task EndAsync_con_el_token_anterior_cierra_la_sesion_y_avisa_con_el_id_del_usuario()
+    {
+        var (user, session) = await UserWithSessionAsync();
+        _tokenGenerator.Generate(RefreshTokenSizeInBytes).Returns(RotatedToken);
+        await _service.RefreshAsync(PresentedToken, CancellationToken.None);
+
+        await _service.EndAsync(PresentedToken, CancellationToken.None);
+
+        session.RevocationReason.ShouldBe(SessionRevocationReason.Logout);
+        _logger.Received(1).Warning(Arg.Any<string>(), user.Id);
+    }
+
+    [Fact]
+    public async Task EndAsync_repetido_no_avisa()
+    {
+        var (_, session) = await UserWithSessionAsync();
+        await _service.EndAsync(PresentedToken, CancellationToken.None);
+
+        await _service.EndAsync(PresentedToken, CancellationToken.None);
+
+        session.RevocationReason.ShouldBe(SessionRevocationReason.Logout);
+        _logger.DidNotReceiveWithAnyArgs().Warning(default!, default(int));
+    }
+
+    [Fact]
+    public async Task EndAsync_con_token_desconocido_no_falla()
+    {
+        await Should.NotThrowAsync(() => _service.EndAsync(PresentedToken, CancellationToken.None));
+
+        await _userRepository.Received(1)
+            .GetBySessionRefreshTokenHashForUpdateAsync(RefreshToken.Hash, Arg.Any<CancellationToken>());
+        _logger.DidNotReceiveWithAnyArgs().Warning(default!, default(int));
+    }
+
+    // Abre una sesión cuyo hash es el del token presentado y deja al repositorio devolviendo a su
+    // dueño. Olvida el guardado de la apertura, para que las pruebas vean solo el de la operación.
+    private async Task<(User User, UserSession Session)> UserWithSessionAsync()
+    {
+        var user = ConfirmedUser();
+
+        // Un id distinto de cero y del de la sesión, para que las pruebas del aviso detecten otro valor.
+        typeof(Entity).GetProperty(nameof(Entity.Id))!.SetValue(user, UserId);
+        await _service.StartAsync(user, DeviceName, IpAddress, CancellationToken.None);
+        _unitOfWork.ClearReceivedCalls();
+        _userRepository
+            .GetBySessionRefreshTokenHashForUpdateAsync(RefreshToken.Hash, Arg.Any<CancellationToken>())
+            .Returns(user);
+
+        return (user, user.Sessions.Single());
     }
 
     private static User ConfirmedUser()

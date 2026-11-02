@@ -42,6 +42,36 @@ internal sealed class UserRepository(AppDbContext context) : IUserRepository
             .SingleOrDefaultAsync(user => user.Id == userId.Value, cancellationToken);
     }
 
+    public async Task<User?> GetBySessionRefreshTokenHashForUpdateAsync(
+        string refreshTokenHash,
+        CancellationToken cancellationToken)
+    {
+        EnsureTransaction();
+
+        // El hash anterior no es único en la base, pero basta con el primero: son hashes de
+        // tokens aleatorios de 64 bytes, así que en la práctica solo pertenecen a un usuario.
+        var userId = await context.Users
+            .Where(user => user.Sessions.Any(session =>
+                session.RefreshTokenHash == refreshTokenHash
+                || session.PreviousRefreshTokenHash == refreshTokenHash))
+            .Select(user => (int?)user.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (userId is null)
+        {
+            return null;
+        }
+
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM app.\"user\" WHERE id = {userId.Value} FOR UPDATE",
+            cancellationToken);
+
+        // Se recarga en una sentencia nueva: en READ COMMITTED ve el hash ya rotado si otra
+        // transacción renovó la sesión mientras esta esperaba el bloqueo.
+        return await UsersWithChildren()
+            .SingleOrDefaultAsync(user => user.Id == userId.Value, cancellationToken);
+    }
+
     public async Task<User?> GetByEmailForUpdateAsync(Email email, CancellationToken cancellationToken)
     {
         EnsureTransaction();
