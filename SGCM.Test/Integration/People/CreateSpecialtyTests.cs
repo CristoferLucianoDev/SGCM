@@ -263,6 +263,9 @@ public class CreateSpecialtyTests(PostgresFixture database) : ApiIntegrationTest
     // Simula la ventana de concurrencia sin reemplazar el INSERT ni el índice PostgreSQL.
     private sealed class SkipDuplicateCheckRepository(ISpecialtyRepository inner, Action onCheck) : ISpecialtyRepository
     {
+        public Task<Specialty?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
+            inner.GetByIdAsync(id, cancellationToken);
+
         public Task<bool> ExistsByNameAsync(string name, int? excludeId = null, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
