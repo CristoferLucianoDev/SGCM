@@ -29,6 +29,7 @@ public sealed class CreacionDeEspecialidadesMedicasSteps(ApiScenario scenario)
     private int _originalId;
 
     [Given("que estoy autenticado para crear especialidades como {string}")]
+    [Given("que estoy autenticado para consultar especialidades como {string}")]
     public async Task DadoUnUsuarioAutenticado(string role)
     {
         const string password = "Secreta123";
@@ -53,6 +54,7 @@ public sealed class CreacionDeEspecialidadesMedicasSteps(ApiScenario scenario)
     }
 
     [Given("que no estoy autenticado para crear especialidades")]
+    [Given("que no estoy autenticado para consultar especialidades")]
     public void DadoUnUsuarioAnonimo() => scenario.Client.DefaultRequestHeaders.Authorization = null;
 
     [Given("que existe la especialidad {string}")]
