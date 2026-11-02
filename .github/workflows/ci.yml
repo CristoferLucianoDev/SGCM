@@ -53,11 +53,12 @@ jobs:
 
       - name: Publicar resultados de pruebas
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v2
         with:
           name: Resultados de pruebas
           path: TestResults/**/*.trx
           reporter: dotnet-trx
+          use-actions-summary: 'true'
 
       - name: Unificar cobertura
         if: always()
