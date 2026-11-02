@@ -221,10 +221,10 @@ Las versiones de los paquetes NuGet se definen solo en `Directory.Packages.props
 Proyecto desarrollado bajo Scrum por:
 
 * [Cristofer Luciano](https://github.com/CristoferLucianoDev)
-* Diego
+* [Diego Mendez](https://github.com/Dieguittoxxx)
 * Enmanuel
-* José
-* Stanley
+* [José Nuñez](https://github.com/JoseNunez1108)
+* [Stanley Abreu](https://github.com/StanleyCM)
 
 ---
 
