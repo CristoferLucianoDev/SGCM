@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Identity.Commands.Login;
+using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
+using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.Identity.Commands.Logout;
 using SGCM.Data.Application.Identity.Commands.RefreshSession;
 using SGCM.Data.Domain.Common;
@@ -17,6 +19,25 @@ namespace SGCM.Web.Api.Controllers.Identity;
 [Route("api/auth")]
 public sealed class AuthController : ApiControllerBase
 {
+    /// <summary>Cambia la contraseña temporal y renueva las credenciales de la misma sesión.</summary>
+    [HttpPost("change-temporary-password")]
+    [Authorize(Roles = nameof(UserRole.Doctor))]
+    [AllowPendingStep(PendingStep.ChangeTemporaryPassword)]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ChangeTemporaryPassword(
+        ChangeTemporaryPasswordRequest request,
+        [FromServices] ICommandHandler<ChangeTemporaryPasswordCommand, SessionTokens> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToCommand(), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
+    }
+
     /// <summary>
     /// Inicia sesión con correo y contraseña y devuelve los tokens de la sesión.
     /// </summary>

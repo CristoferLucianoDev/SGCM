@@ -1,4 +1,7 @@
 using System.Reflection;
+using Microsoft.AspNetCore.Authorization;
+using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
+using SGCM.Web.Api.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
@@ -21,6 +24,55 @@ using Unit = SGCM.Data.Domain.Common.Unit;
 /// </summary>
 public sealed class AuthControllerTests
 {
+    [Fact]
+    public async Task Cambio_temporal_mapea_y_devuelve_LoginResponse()
+    {
+        var handler = Substitute.For<ICommandHandler<ChangeTemporaryPasswordCommand, SessionTokens>>();
+        handler.HandleAsync(Arg.Any<ChangeTemporaryPasswordCommand>(), Arg.Any<CancellationToken>()).Returns(Tokens);
+        using var cancellation = new CancellationTokenSource();
+        var result = await new AuthController().ChangeTemporaryPassword(new("NuevaClave123"), handler, cancellation.Token);
+        var response = result.ShouldBeOfType<OkObjectResult>().Value.ShouldBeOfType<LoginResponse>();
+        response.RequiresTwoFactor.ShouldBeFalse();
+        response.AccessToken.ShouldBe(Tokens.AccessToken.Value);
+        response.RefreshToken.ShouldBe(Tokens.RefreshToken);
+        await handler.Received(1).HandleAsync(new("NuevaClave123"), cancellation.Token);
+    }
+
+    [Theory]
+    [InlineData(400)]
+    [InlineData(401)]
+    [InlineData(403)]
+    [InlineData(409)]
+    public async Task Cambio_temporal_conserva_codigo_y_http_del_error(int status)
+    {
+        var error = status switch
+        {
+            400 => UserErrors.PasswordUnchanged,
+            401 => UserErrors.SessionInvalid,
+            403 => UserErrors.AccountInactive,
+            _ => UserErrors.TemporaryPasswordChangeNotRequired
+        };
+        var handler = Substitute.For<ICommandHandler<ChangeTemporaryPasswordCommand, SessionTokens>>();
+        handler.HandleAsync(Arg.Any<ChangeTemporaryPasswordCommand>(), Arg.Any<CancellationToken>()).Returns(error);
+        var result = await new AuthController().ChangeTemporaryPassword(new("NuevaClave123"), handler, CancellationToken.None);
+        ShouldBeProblem(result, status).Extensions["code"].ShouldBe(error.Code);
+    }
+
+    [Fact]
+    public void Cambio_temporal_solo_permite_Doctor_y_su_paso_en_esta_accion()
+    {
+        var controller = typeof(AuthController);
+        var action = controller.GetMethod(nameof(AuthController.ChangeTemporaryPassword))!;
+        action.GetCustomAttribute<HttpPostAttribute>()!.Template.ShouldBe("change-temporary-password");
+        controller.GetCustomAttribute<RouteAttribute>()!.Template.ShouldBe("api/auth");
+        action.GetCustomAttribute<AuthorizeAttribute>()!.Roles.ShouldBe(nameof(UserRole.Doctor));
+        action.GetCustomAttribute<AllowPendingStepAttribute>()!.Step.ShouldBe(PendingStep.ChangeTemporaryPassword);
+        action.GetCustomAttribute<AllowAnonymousAttribute>().ShouldBeNull();
+        controller.GetCustomAttribute<AllowAnonymousAttribute>().ShouldBeNull();
+        controller.GetCustomAttribute<AllowPendingStepAttribute>().ShouldBeNull();
+        ShouldForbidStoringResponse(nameof(AuthController.ChangeTemporaryPassword));
+    }
+
     private const string RefreshToken = "refresh-en-claro";
     private const int NoContentStatus = 204;
     private const int BadRequestStatus = 400;

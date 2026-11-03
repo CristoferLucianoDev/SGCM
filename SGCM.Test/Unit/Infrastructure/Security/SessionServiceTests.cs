@@ -9,6 +9,7 @@ using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Infrastructure.Security;
 using SGCM.Test.Common.Fakes;
 using SGCM.Test.Common.Mothers;
+using SGCM.Test.Unit.Domain.Identity.Users;
 
 namespace SGCM.Test.Unit.Infrastructure.Security;
 
@@ -60,6 +61,75 @@ public sealed class SessionServiceTests
 
         _service = new SessionService(
             _tokenGenerator, _tokenService, _unitOfWork, _profileReader, _userRepository, _clock, options, _logger);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RenewCurrentAsync_rota_la_misma_sesion_y_recalcula_el_paso(bool hasProfile)
+    {
+        var data = new PasswordSessionScenario();
+        data.Owner.ChangeTemporaryPassword("nuevo-hash", data.Current.Id, _clock.UtcNow).IsSuccess.ShouldBeTrue();
+        var otherBefore = data.Owner.Sessions.Where(s => s.Id != data.Current.Id)
+            .Select(PasswordSessionScenario.SessionState.From).ToArray();
+        var foreignBefore = PasswordSessionScenario.Snapshot(data.ForeignOwner);
+        var count = data.Owner.Sessions.Count;
+        var previous = data.Current.RefreshTokenHash;
+        var device = data.Current.DeviceName;
+        var ip = data.Current.IpAddress;
+        _profileReader.HasProfileAsync(data.Owner.Id, UserRole.Doctor, Arg.Any<CancellationToken>()).Returns(hasProfile);
+
+        var result = await _service.RenewCurrentAsync(data.Owner, data.Current.Id, _clock.UtcNow, CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.RefreshToken.ShouldBe(RefreshToken.Value);
+        result.Value.AccessToken.ShouldBe(IssuedAccessToken);
+        result.Value.PendingStep.ShouldBe(hasProfile ? null : PendingStep.DoctorProfile);
+        result.Value.RefreshTokenExpiresAt.ShouldBe(_clock.UtcNow.AddDays(RefreshTokenDays));
+        data.Owner.Sessions.Count.ShouldBe(count);
+        data.Current.Id.ShouldBe(101);
+        data.Current.RefreshTokenHash.ShouldBe(RefreshToken.Hash);
+        data.Current.PreviousRefreshTokenHash.ShouldBe(previous);
+        data.Current.LastUsedAt.ShouldBe(_clock.UtcNow);
+        data.Current.DeviceName.ShouldBe(device);
+        data.Current.IpAddress.ShouldBe(ip);
+        data.Current.RevokedAt.ShouldBeNull();
+        data.Owner.Sessions.Where(s => s.Id != data.Current.Id)
+            .Select(PasswordSessionScenario.SessionState.From).ShouldBe(otherBefore);
+        PasswordSessionScenario.Snapshot(data.ForeignOwner).ShouldBe(foreignBefore);
+        _tokenService.Received(1).CreateAccessToken(data.Owner.Id, UserRole.Doctor, data.Current.Id,
+            hasProfile ? null : PendingStep.DoctorProfile);
+        _userRepository.ReceivedCalls().ShouldBeEmpty();
+        _unitOfWork.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("inactive")]
+    [InlineData("missing")]
+    [InlineData("zero")]
+    [InlineData("foreign")]
+    [InlineData("revocada")]
+    [InlineData("expirada")]
+    [InlineData("limite")]
+    public async Task RenewCurrentAsync_rechaza_sin_generar_tokens_ni_mutar(string kind)
+    {
+        var data = new PasswordSessionScenario();
+        if (kind == "inactive") data.Owner.Deactivate();
+        var id = kind switch
+        {
+            "missing" => 999,
+            "zero" => 0,
+            "foreign" => data.ForeignCurrent.Id,
+            "revocada" or "expirada" or "limite" => data.InactiveSession(kind).Id,
+            _ => data.Current.Id
+        };
+        var before = PasswordSessionScenario.Snapshot(data.Owner);
+        (await _service.RenewCurrentAsync(data.Owner, id, _clock.UtcNow, CancellationToken.None))
+            .Error.ShouldBe(UserErrors.SessionInvalid);
+        PasswordSessionScenario.Snapshot(data.Owner).ShouldBe(before);
+        _tokenGenerator.ReceivedCalls().ShouldBeEmpty();
+        _tokenService.ReceivedCalls().ShouldBeEmpty();
+        _unitOfWork.ReceivedCalls().ShouldBeEmpty();
     }
 
     public static TheoryData<string?, string?> DeviceNames => new()

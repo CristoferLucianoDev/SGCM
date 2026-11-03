@@ -136,6 +136,50 @@ public sealed class UserChangeTemporaryPasswordTests
         data.Current.RevokedAt.ShouldBeNull();
     }
 
+    [Theory]
+    [InlineData("valida", null)]
+    [InlineData("inactiva", "User.AccountInactive")]
+    [InlineData("sin-marca", "User.TemporaryPasswordChangeNotRequired")]
+    [InlineData("ajena", "User.SessionInvalid")]
+    [InlineData("revocada", "User.SessionInvalid")]
+    [InlineData("expirada", "User.SessionInvalid")]
+    [InlineData("limite", "User.SessionInvalid")]
+    [InlineData("inexistente", "User.SessionInvalid")]
+    public void Comprobacion_previa_no_modifica_ningun_estado(string kind, string? error)
+    {
+        var data = new PasswordSessionScenario(mustChangePassword: kind != "sin-marca");
+        if (kind == "inactiva") data.Owner.Deactivate();
+        var id = kind switch
+        {
+            "ajena" => data.ForeignCurrent.Id,
+            "revocada" or "expirada" or "limite" => data.InactiveSession(kind).Id,
+            "inexistente" => 999,
+            _ => data.Current.Id
+        };
+        var before = PasswordSessionScenario.Snapshot(data.Owner);
+        var foreign = PasswordSessionScenario.Snapshot(data.ForeignOwner);
+        var result = data.Owner.CanChangeTemporaryPassword(id, PasswordSessionScenario.Now);
+        result.IsSuccess.ShouldBe(error is null);
+        if (error is not null) result.Error.Code.ShouldBe(error);
+        PasswordSessionScenario.Snapshot(data.Owner).ShouldBe(before);
+        PasswordSessionScenario.Snapshot(data.ForeignOwner).ShouldBe(foreign);
+    }
+
+    [Fact]
+    public void Comprobacion_y_mutador_conservan_prioridad_de_cuenta_marca_hash_y_sesion()
+    {
+        var data = new PasswordSessionScenario(mustChangePassword: false);
+        data.Owner.CanChangeTemporaryPassword(0, PasswordSessionScenario.Now).Error
+            .ShouldBe(UserErrors.TemporaryPasswordChangeNotRequired);
+        data.Owner.ChangeTemporaryPassword(null!, 0, PasswordSessionScenario.Now).Error
+            .ShouldBe(UserErrors.TemporaryPasswordChangeNotRequired);
+        data.Owner.Deactivate();
+        data.Owner.CanChangeTemporaryPassword(0, PasswordSessionScenario.Now).Error.ShouldBe(UserErrors.AccountInactive);
+        data.Owner.ChangeTemporaryPassword(null!, 0, PasswordSessionScenario.Now).Error.ShouldBe(UserErrors.AccountInactive);
+        var active = new PasswordSessionScenario();
+        Should.Throw<DomainException>(() => active.Owner.ChangeTemporaryPassword(null!, 0, PasswordSessionScenario.Now));
+    }
+
     private static void AssertRejected(PasswordSessionScenario data, int currentSessionId, string code, ErrorType type)
     {
         var before = PasswordSessionScenario.Snapshot(data.Owner);

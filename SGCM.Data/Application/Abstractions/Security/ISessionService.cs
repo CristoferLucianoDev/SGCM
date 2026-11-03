@@ -9,6 +9,14 @@ namespace SGCM.Data.Application.Abstractions.Security;
 public interface ISessionService
 {
     /// <summary>
+    /// Rota las credenciales de la sesión autenticada sin abrir otra. El usuario debe ser la
+    /// primera carga del agregado en el scope, bajo GetByIdForUpdateAsync y dentro de la
+    /// transacción del comando. El decorador persiste la rotación antes de entregar los tokens.
+    /// </summary>
+    Task<Result<SessionTokens>> RenewCurrentAsync(
+        User user, int currentSessionId, DateTimeOffset now, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Abre una sesión para el usuario ya autenticado y le emite su access token y su
     /// refresh token. Debe llamarse dentro de la transacción del comando, porque guarda
     /// la sesión para obtener su id antes de emitir el access token.
@@ -26,8 +34,8 @@ public interface ISessionService
     /// o <see cref="IUserRepository.GetByIdForUpdateAsync"/>, dentro de la transacción del
     /// comando. Sin ese bloqueo, dos aperturas simultáneas del mismo usuario pueden revocar la
     /// misma sesión antigua y dejar más sesiones activas que el máximo. Aplica a todos los que
-    /// abren sesión: el inicio de sesión, el segundo factor, el cambio de contraseña temporal
-    /// y el completado del perfil.
+    /// abren sesión: el inicio de sesión, el segundo factor y el completado del perfil.
+    /// El cambio de contraseña temporal conserva su sesión mediante <see cref="RenewCurrentAsync"/>.
     /// </remarks>
     Task<Result<SessionTokens>> StartAsync(
         User user,

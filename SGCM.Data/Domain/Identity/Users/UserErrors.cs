@@ -9,6 +9,10 @@ public static class UserErrors
 {
     private const string SessionInvalidDescription = "La sesión no es válida. Inicia sesión de nuevo.";
 
+    /// <summary>La candidata coincide con la contraseña vigente.</summary>
+    public static readonly Error PasswordUnchanged = Error.Validation(
+        "User.PasswordUnchanged", "La contraseña nueva debe ser distinta de la contraseña temporal.");
+
     /// <summary>
     /// La contraseña no alcanza la longitud mínima.
     /// </summary>
