@@ -7,11 +7,68 @@ using SGCM.Data.Domain.Identity.Users;
 using SGCM.Test.Common.Mothers;
 using SGCM.Web.Contracts.Identity;
 using SGCM.Web.Mappers.Identity;
+using System.Text.Json;
 
 namespace SGCM.Test.Unit.Web;
 
 public sealed class AuthMapperTests
 {
+    [Theory]
+    [InlineData(true, true, PendingStep.ChangeTemporaryPassword, true)]
+    [InlineData(true, true, PendingStep.DoctorProfile, true)]
+    [InlineData(false, true, PendingStep.ChangeTemporaryPassword, false)]
+    [InlineData(false, true, PendingStep.DoctorProfile, false)]
+    [InlineData(true, false, PendingStep.ChangeTemporaryPassword, false)]
+    [InlineData(true, false, PendingStep.PatientProfile, false)]
+    [InlineData(true, false, null, false)]
+    public void Aviso_web_combina_cliente_y_dato_factual_sin_alterar_tokens(
+        bool mobile, bool doctorPending, PendingStep? step, bool expected)
+    {
+        var tokens = Tokens(step);
+        var result = LoginResult.Authenticated(tokens, doctorPending);
+        var response = result.ToResponse(mobile);
+        response.RequiresWebFirstAccess.ShouldBe(expected);
+        response.RequiresTwoFactor.ShouldBeFalse();
+        response.AccessToken.ShouldBe(tokens.AccessToken.Value);
+        response.AccessTokenExpiresAt.ShouldBe(tokens.AccessToken.ExpiresAt);
+        response.RefreshToken.ShouldBe(tokens.RefreshToken);
+        response.RefreshTokenExpiresAt.ShouldBe(tokens.RefreshTokenExpiresAt);
+        response.PendingStep.ShouldBe(step is { } value ? PendingStepClaimValues.From(value) : null);
+        result.ToResponse().RequiresWebFirstAccess.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Aviso_web_no_se_anticipa_al_segundo_factor()
+    {
+        var response = LoginResult.TwoFactorRequired().ToResponse(isMobile: true);
+        response.RequiresTwoFactor.ShouldBeTrue();
+        response.RequiresWebFirstAccess.ShouldBeFalse();
+        response.AccessToken.ShouldBeNull();
+        response.RefreshToken.ShouldBeNull();
+        response.PendingStep.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Aviso_web_se_serializa_solo_si_es_true_y_conserva_el_contrato_anterior(bool notice)
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var response = LoginResult.Authenticated(Tokens(PendingStep.DoctorProfile), hasPendingDoctorFirstAccess: true)
+            .ToResponse(isMobile: notice);
+        var json = JsonSerializer.SerializeToElement(response, options);
+        var legacy = Tokens(PendingStep.DoctorProfile).ToResponse();
+        var legacyJson = JsonSerializer.SerializeToElement(legacy, options);
+        string[] oldFields = ["requiresTwoFactor", "accessToken", "accessTokenExpiresAt", "refreshToken", "refreshTokenExpiresAt", "pendingStep"];
+        legacyJson.EnumerateObject().Select(p => p.Name).Order().ShouldBe(oldFields.Order());
+        json.EnumerateObject().Select(p => p.Name).Order()
+            .ShouldBe((notice ? oldFields.Append("requiresWebFirstAccess") : oldFields).Order());
+        foreach (var name in oldFields) json.GetProperty(name).GetRawText().ShouldBe(legacyJson.GetProperty(name).GetRawText());
+        if (notice) json.GetProperty("requiresWebFirstAccess").GetBoolean().ShouldBeTrue();
+        else JsonSerializer.Deserialize<LoginResponse>(json, options)!.RequiresWebFirstAccess.ShouldBeFalse();
+        new LoginResponse(false, null, null, null, null, null).RequiresWebFirstAccess.ShouldBeFalse();
+    }
+
     [Fact]
     public void Cambio_temporal_mapea_solo_la_contrasena_y_oculta_los_secretos()
     {

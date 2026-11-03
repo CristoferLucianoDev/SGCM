@@ -89,6 +89,7 @@ internal sealed class LoginCommandHandler(
         }
 
         attemptLimiter.Reset(attemptKey);
-        return LoginResult.Authenticated(tokensResult.Value);
+        return LoginResult.Authenticated(tokensResult.Value,
+            hasPendingDoctorFirstAccess: user.Role == UserRole.Doctor && tokensResult.Value.PendingStep is not null);
     }
 }

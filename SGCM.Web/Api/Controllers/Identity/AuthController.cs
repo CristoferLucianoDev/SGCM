@@ -11,6 +11,7 @@ using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
 using SGCM.Web.Contracts.Identity;
+using SGCM.Web.Contracts.Common;
 using SGCM.Web.Hosting;
 using SGCM.Web.Mappers.Identity;
 
@@ -19,6 +20,9 @@ namespace SGCM.Web.Api.Controllers.Identity;
 [Route("api/auth")]
 public sealed class AuthController : ApiControllerBase
 {
+    private static readonly Error InvalidClientType = Error.Validation(
+        "Request.InvalidClientType", "El tipo de cliente debe ser web o mobile, con un único valor.");
+
     /// <summary>Cambia la contraseña temporal y renueva las credenciales de la misma sesión.</summary>
     [HttpPost("change-temporary-password")]
     [Authorize(Roles = nameof(UserRole.Doctor))]
@@ -47,6 +51,10 @@ public sealed class AuthController : ApiControllerBase
     /// 429 aparece por demasiados intentos con el mismo correo o demasiadas peticiones desde
     /// la misma IP.
     /// Con requiresTwoFactor en true no hay tokens y el cliente debe completar el segundo factor.
+    /// X-SGCM-Client admite web o mobile (sin distinguir mayúsculas y con espacios exteriores).
+    /// Ausente conserva web; valores vacíos, desconocidos o múltiples responden 400 antes del comando.
+    /// El médico móvil con paso pendiente recibe requiresWebFirstAccess: true y los tokens habituales.
+    /// La cabecera es declarativa: no acredita procedencia ni modifica la autorización.
     /// </remarks>
     [HttpPost("login")]
     [AllowAnonymous]
@@ -62,13 +70,27 @@ public sealed class AuthController : ApiControllerBase
         [FromServices] ICommandHandler<LoginCommand, LoginResult> handler,
         CancellationToken cancellationToken)
     {
+        var client = ReadMobileClient();
+        if (client.IsFailure) return ErrorResult(client.Error);
+
         var userAgent = Request.Headers.UserAgent.ToString();
         var deviceName = string.IsNullOrEmpty(userAgent) ? null : userAgent;
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
 
         var result = await handler.HandleAsync(request.ToCommand(deviceName, ipAddress), cancellationToken);
 
-        return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
+        return result.IsSuccess ? Ok(result.Value.ToResponse(isMobile: client.Value)) : ErrorResult(result.Error);
+    }
+
+    private Result<bool> ReadMobileClient()
+    {
+        if (!Request.Headers.TryGetValue(ClientTypeHeader.Name, out var values)) return false;
+        if (values.Count != 1) return InvalidClientType;
+
+        var value = values[0]?.Trim();
+        if (string.Equals(value, ClientTypeHeader.Web, StringComparison.OrdinalIgnoreCase)) return false;
+        if (string.Equals(value, ClientTypeHeader.Mobile, StringComparison.OrdinalIgnoreCase)) return true;
+        return InvalidClientType;
     }
 
     /// <summary>

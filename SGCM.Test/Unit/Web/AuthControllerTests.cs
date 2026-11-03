@@ -1,4 +1,8 @@
 using System.Reflection;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Primitives;
+using SGCM.Data.Application.Identity.Commands.Login;
+using SGCM.Web.Contracts.Common;
 using Microsoft.AspNetCore.Authorization;
 using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
 using SGCM.Web.Api.Infrastructure;
@@ -24,6 +28,93 @@ using Unit = SGCM.Data.Domain.Common.Unit;
 /// </summary>
 public sealed class AuthControllerTests
 {
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData(ClientTypeHeader.Web, false)]
+    [InlineData(ClientTypeHeader.Mobile, true)]
+    [InlineData("WEB", false)]
+    [InlineData("Mobile", true)]
+    [InlineData("  web  ", false)]
+    [InlineData("  MOBILE  ", true)]
+    public async Task Cliente_declarado_valido_conserva_login_y_adapta_solo_el_aviso(string? header, bool notice)
+    {
+        // Literales deliberados: fijan el contrato externo aunque cambien sus constantes.
+        ClientTypeHeader.Name.ShouldBe("X-SGCM-Client");
+        ClientTypeHeader.Web.ShouldBe("web");
+        ClientTypeHeader.Mobile.ShouldBe("mobile");
+        var controller = LoginController(header is null ? (StringValues?)null : new StringValues(header));
+        var handler = Substitute.For<ICommandHandler<LoginCommand, LoginResult>>();
+        var tokens = Tokens with { PendingStep = PendingStep.ChangeTemporaryPassword };
+        handler.HandleAsync(Arg.Any<LoginCommand>(), Arg.Any<CancellationToken>())
+            .Returns(LoginResult.Authenticated(tokens, hasPendingDoctorFirstAccess: true));
+        using var cancellation = new CancellationTokenSource();
+
+        var result = await controller.Login(new("doctor@correo.com", "  Clave123  "), handler, cancellation.Token);
+
+        var body = result.ShouldBeOfType<OkObjectResult>().Value.ShouldBeOfType<LoginResponse>();
+        body.RequiresWebFirstAccess.ShouldBe(notice);
+        body.PendingStep.ShouldBe("change_password");
+        body.AccessToken.ShouldBe(tokens.AccessToken.Value);
+        body.RefreshToken.ShouldBe(tokens.RefreshToken);
+        await handler.Received(1).HandleAsync(new("doctor@correo.com", "  Clave123  ", "Agente no clasificador", "203.0.113.10"), cancellation.Token);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("unknown-client")]
+    [InlineData("web,mobile")]
+    [InlineData("mobile,web")]
+    [InlineData("mobile,mobile")]
+    public async Task Cliente_declarado_invalido_no_despacha_comando(string header)
+    {
+        await AssertInvalidClientAsync(new StringValues(header));
+    }
+
+    [Theory]
+    [InlineData(ClientTypeHeader.Web, ClientTypeHeader.Web)]
+    [InlineData(ClientTypeHeader.Mobile, ClientTypeHeader.Mobile)]
+    [InlineData(ClientTypeHeader.Web, ClientTypeHeader.Mobile)]
+    public async Task Cliente_declarado_multiple_no_selecciona_el_primer_valor(string first, string second)
+    {
+        await AssertInvalidClientAsync(new StringValues([first, second]));
+    }
+
+    [Fact]
+    public async Task Cliente_declarado_no_se_toma_de_query_ni_UserAgent_y_conserva_errores()
+    {
+        var controller = LoginController(null);
+        controller.Request.QueryString = new QueryString("?clientType=mobile");
+        controller.Request.Headers.UserAgent = "Mobile";
+        var handler = Substitute.For<ICommandHandler<LoginCommand, LoginResult>>();
+        handler.HandleAsync(Arg.Any<LoginCommand>(), Arg.Any<CancellationToken>())
+            .Returns(LoginResult.Authenticated(Tokens, hasPendingDoctorFirstAccess: true));
+        var result = await controller.Login(new("doctor@correo.com", "Clave123"), handler, CancellationToken.None);
+        result.ShouldBeOfType<OkObjectResult>().Value.ShouldBeOfType<LoginResponse>().RequiresWebFirstAccess.ShouldBeFalse();
+        handler.HandleAsync(Arg.Any<LoginCommand>(), Arg.Any<CancellationToken>()).Returns(UserErrors.InvalidCredentials);
+        result = await controller.Login(new("doctor@correo.com", "Incorrecta"), handler, CancellationToken.None);
+        ShouldBeProblem(result, 401).Extensions["code"].ShouldBe("User.InvalidCredentials");
+    }
+
+    private static AuthController LoginController(StringValues? header)
+    {
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("203.0.113.10");
+        context.Request.Headers.UserAgent = "Agente no clasificador";
+        if (header.HasValue) context.Request.Headers[ClientTypeHeader.Name] = header.Value;
+        return new AuthController { ControllerContext = new ControllerContext { HttpContext = context } };
+    }
+
+    private static async Task AssertInvalidClientAsync(StringValues header)
+    {
+        var handler = Substitute.For<ICommandHandler<LoginCommand, LoginResult>>();
+        var result = await LoginController(header).Login(new("doctor@correo.com", "Clave123"), handler, CancellationToken.None);
+        var problem = ShouldBeProblem(result, 400);
+        problem.Extensions["code"].ShouldBe("Request.InvalidClientType");
+        problem.Title.ShouldBe("El tipo de cliente debe ser web o mobile, con un único valor.");
+        handler.ReceivedCalls().ShouldBeEmpty();
+    }
+
     [Fact]
     public async Task Cambio_temporal_mapea_y_devuelve_LoginResponse()
     {

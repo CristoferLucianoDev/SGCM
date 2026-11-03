@@ -10,6 +10,12 @@ namespace SGCM.Data.Application.Identity.Commands.Login;
 /// <param name="Tokens">Tokens de la sesión abierta, o <c>null</c> si falta el segundo factor.</param>
 public sealed record LoginResult(bool RequiresTwoFactor, SessionTokens? Tokens)
 {
+    /// <summary>
+    /// Dato del usuario autenticado y del paso calculado al emitir sus tokens; no identifica
+    /// el cliente HTTP ni modifica sus permisos. Siempre es false antes de completar 2FA.
+    /// </summary>
+    public bool HasPendingDoctorFirstAccess { get; private init; }
+
     // La tarea "Implementar el segundo paso del inicio de sesión" agregará aquí el desafío que
     // identifica al usuario en ese paso.
 
@@ -19,6 +25,10 @@ public sealed record LoginResult(bool RequiresTwoFactor, SessionTokens? Tokens)
     /// <param name="tokens">Tokens emitidos para la sesión.</param>
     /// <returns>Un resultado sin segundo factor pendiente.</returns>
     public static LoginResult Authenticated(SessionTokens tokens) => new(false, tokens);
+
+    /// <summary>Sesión abierta y estado factual del primer acceso del médico.</summary>
+    public static LoginResult Authenticated(SessionTokens tokens, bool hasPendingDoctorFirstAccess) =>
+        new(false, tokens) { HasPendingDoctorFirstAccess = hasPendingDoctorFirstAccess };
 
     /// <summary>
     /// Credenciales válidas, pero falta el segundo factor; no se emiten tokens.
