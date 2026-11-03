@@ -30,7 +30,10 @@ public static class AuthMapper
     /// </summary>
     /// <param name="result">Resultado del comando.</param>
     /// <returns>La respuesta, sin tokens si falta el segundo factor.</returns>
-    public static LoginResponse ToResponse(this LoginResult result)
+    public static LoginResponse ToResponse(this LoginResult result) => result.ToResponse(isMobile: false);
+
+    /// <summary>Adapta únicamente el aviso al cliente declarado, conservando las credenciales.</summary>
+    public static LoginResponse ToResponse(this LoginResult result, bool isMobile)
     {
         var tokens = result.Tokens;
 
@@ -40,7 +43,9 @@ public static class AuthMapper
             tokens?.AccessToken.ExpiresAt,
             tokens?.RefreshToken,
             tokens?.RefreshTokenExpiresAt,
-            tokens?.PendingStep is { } step ? PendingStepClaimValues.From(step) : null);
+            tokens?.PendingStep is { } step ? PendingStepClaimValues.From(step) : null,
+            RequiresWebFirstAccess: isMobile && !result.RequiresTwoFactor && tokens is not null
+                && result.HasPendingDoctorFirstAccess);
     }
 
     /// <summary>

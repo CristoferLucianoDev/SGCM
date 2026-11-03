@@ -10,10 +10,15 @@ using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Infrastructure.Persistence;
+using SGCM.Data.Infrastructure.Security;
 using SGCM.Test.Common.Database;
 using SGCM.Test.Common.Web;
 using SGCM.Web.Contracts.Identity;
 using DomainPassword = SGCM.Data.Domain.Identity.Users.Password;
+using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Options;
+using SGCM.Web.Contracts.Common;
 
 namespace SGCM.Test.Integration.Identity;
 
@@ -261,6 +266,287 @@ public sealed class LoginTests(PostgresFixture database) : ApiIntegrationTestBas
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         (await response.ReadErrorCodeAsync()).ShouldBe(expectedCode);
+    }
+
+    [Theory]
+    [InlineData(ClientTypeHeader.Web, true, false, "change_password", false)]
+    [InlineData(ClientTypeHeader.Mobile, true, false, "change_password", true)]
+    [InlineData(ClientTypeHeader.Web, false, false, "doctor_profile", false)]
+    [InlineData(ClientTypeHeader.Mobile, false, false, "doctor_profile", true)]
+    [InlineData(ClientTypeHeader.Web, false, true, null, false)]
+    [InlineData(ClientTypeHeader.Mobile, false, true, null, false)]
+    [InlineData(null, true, false, "change_password", false)]
+    [InlineData(null, false, false, "doctor_profile", false)]
+    public async Task Cliente_declarado_Doctor_conserva_JWT_sesion_y_contrato(
+        string? header, bool temporary, bool hasProfile, string? step, bool notice)
+    {
+        await PrepareClientDoctorAsync(temporary, hasProfile);
+        // Dos logins reales: al menos una sesión tendrá id distinto al usuario, sin depender
+        // de las secuencias que otras pruebas hayan consumido. Cada login debe añadir solo una.
+        var distinctSessionObserved = false;
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var previousIds = (await FindUserAsync(DoctorEmail))!.Sessions.Select(s => s.Id).ToArray();
+            using var response = await ClientLoginAsync(DoctorEmail, Password, header is null ? null : [header]);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK);
+            response.Headers.CacheControl!.NoStore.ShouldBeTrue();
+            var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+            AssertClientJson(json, notice, step);
+            var login = json.Deserialize<LoginResponse>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            login.RequiresWebFirstAccess.ShouldBe(notice);
+            login.RequiresTwoFactor.ShouldBeFalse();
+            login.AccessToken.ShouldNotBeNullOrWhiteSpace();
+            login.RefreshToken.ShouldNotBeNullOrWhiteSpace();
+            var user = (await FindUserAsync(DoctorEmail))!;
+            user.MustChangePassword.ShouldBe(temporary);
+            user.Sessions.Count.ShouldBe(previousIds.Length + 1);
+            var session = user.Sessions.Where(s => !previousIds.Contains(s.Id)).ShouldHaveSingleItem();
+            session.IsActiveAt(Clock.UtcNow).ShouldBeTrue();
+            session.DeviceName.ShouldBe(ClientTestAgent);
+            distinctSessionObserved |= user.Id != session.Id;
+            session.ExpiresAt.ShouldBe(login.RefreshTokenExpiresAt!.Value);
+            var jwtOptions = Factory.Services.GetRequiredService<IOptions<JwtOptions>>().Value;
+            session.ExpiresAt.ShouldBe(Clock.UtcNow.AddDays(jwtOptions.RefreshTokenDays));
+            login.AccessTokenExpiresAt.ShouldBe(Clock.UtcNow.AddMinutes(jwtOptions.AccessTokenMinutes));
+            string.Equals(session.RefreshTokenHash,
+                Factory.Services.GetRequiredService<ISecureTokenGenerator>().Hash(login.RefreshToken!), StringComparison.Ordinal).ShouldBeTrue();
+            var jwt = ReadAccessToken(login);
+            jwt.ValidTo.ShouldBe(login.AccessTokenExpiresAt!.Value.UtcDateTime);
+            jwt.GetClaim(AppClaims.UserId).Value.ShouldBe(user.Id.ToString(CultureInfo.InvariantCulture));
+            jwt.GetClaim(AppClaims.SessionId).Value.ShouldBe(session.Id.ToString(CultureInfo.InvariantCulture));
+            jwt.GetClaim(AppClaims.Role).Value.ShouldBe(nameof(UserRole.Doctor));
+            if (step is null) jwt.TryGetClaim(AppClaims.PendingStep, out _).ShouldBeFalse();
+            else jwt.GetClaim(AppClaims.PendingStep).Value.ShouldBe(step);
+            string[] claims = ["iss", "aud", "iat", "nbf", "exp", "sub", "sid", "role", "jti"];
+            jwt.Claims.Select(c => c.Type).Distinct().Order()
+                .ShouldBe((step is null ? claims : claims.Append("pending_step")).Order());
+            var validation = await new JsonWebTokenHandler().ValidateTokenAsync(login.AccessToken!, Factory.Services
+                .GetRequiredService<IOptionsMonitor<JwtBearerOptions>>().Get(JwtBearerDefaults.AuthenticationScheme).TokenValidationParameters);
+            validation.IsValid.ShouldBeTrue();
+            if (step is not null)
+            {
+                var before = await ClientStateSnapshotAsync();
+                using var blockedRequest = new HttpRequestMessage(HttpMethod.Post, "/api/doctors/me/specialties/11");
+                blockedRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", login.AccessToken);
+                blockedRequest.Headers.Add(ClientTypeHeader.Name, ClientTypeHeader.Web);
+                using var blocked = await Client.SendAsync(blockedRequest);
+                blocked.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+                string.Equals(await ClientStateSnapshotAsync(), before, StringComparison.Ordinal).ShouldBeTrue();
+            }
+        }
+        distinctSessionObserved.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(UserRole.Patient, false, "patient_profile")]
+    [InlineData(UserRole.Patient, true, "change_password")]
+    [InlineData(UserRole.Administrator, false, null)]
+    public async Task Cliente_declarado_mobile_no_impone_aviso_Doctor_a_otros_roles(
+        UserRole role, bool temporary, string? step)
+    {
+        SetClientClock();
+        await SaveUserAsync(role, Email, Password, temporary);
+        using var response = await ClientLoginAsync(Email, Password, [ClientTypeHeader.Mobile]);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        AssertClientJson(json, notice: false, step);
+        var login = json.Deserialize<LoginResponse>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var jwt = ReadAccessToken(login);
+        jwt.GetClaim(AppClaims.Role).Value.ShouldBe(role.ToString());
+        var user = (await FindUserAsync(Email))!;
+        user.Sessions.ShouldHaveSingleItem().Id.ToString(CultureInfo.InvariantCulture)
+            .ShouldBe(jwt.GetClaim(AppClaims.SessionId).Value);
+    }
+
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("web,mobile")]
+    [InlineData("mobile,web")]
+    [InlineData(ClientTypeHeader.Web, ClientTypeHeader.Web)]
+    [InlineData(ClientTypeHeader.Mobile, ClientTypeHeader.Mobile)]
+    [InlineData(ClientTypeHeader.Web, ClientTypeHeader.Mobile)]
+    public async Task Cliente_declarado_invalido_no_crea_sesiones_ni_cambia_datos(params string[] headers)
+    {
+        await PrepareClientDoctorAsync();
+        // Una sesión previa evita que comprobar solo cero sesiones oculte un reemplazo accidental.
+        await LoginSuccessfullyAsync(DoctorEmail, Password);
+        var before = await ClientStateSnapshotAsync();
+        using var response = await ClientLoginAsync(DoctorEmail, Password, headers);
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        json.GetProperty("code").GetString().ShouldBe("Request.InvalidClientType");
+        json.GetProperty("title").GetString().ShouldBe("El tipo de cliente debe ser web o mobile, con un único valor.");
+        json.TryGetProperty("accessToken", out _).ShouldBeFalse();
+        json.TryGetProperty("refreshToken", out _).ShouldBeFalse();
+        json.TryGetProperty("requiresWebFirstAccess", out _).ShouldBeFalse();
+        string.Equals(await ClientStateSnapshotAsync(), before, StringComparison.Ordinal).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Cliente_declarado_mobile_con_clave_incorrecta_no_revela_primer_acceso()
+    {
+        await PrepareClientDoctorAsync();
+        var before = await ClientStateSnapshotAsync();
+        using var response = await ClientLoginAsync(DoctorEmail, WrongPassword, [ClientTypeHeader.Mobile]);
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        json.GetProperty("code").GetString().ShouldBe("User.InvalidCredentials");
+        json.TryGetProperty("requiresWebFirstAccess", out _).ShouldBeFalse();
+        json.TryGetProperty("accessToken", out _).ShouldBeFalse();
+        (await CountSessionsAsync()).ShouldBe(0);
+        string.Equals(await ClientStateSnapshotAsync(), before, StringComparison.Ordinal).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Cliente_declarado_mobile_Doctor_con_2FA_no_recibe_aviso_ni_tokens()
+    {
+        await PrepareClientDoctorAsync();
+        await Factory.EnableTwoFactorAsync(DoctorEmail);
+        var before = await ClientStateSnapshotAsync();
+        using var response = await ClientLoginAsync(DoctorEmail, Password, [ClientTypeHeader.Mobile]);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        AssertClientJson(json, notice: false, step: null);
+        json.GetProperty("requiresTwoFactor").GetBoolean().ShouldBeTrue();
+        json.GetProperty("accessToken").ValueKind.ShouldBe(JsonValueKind.Null);
+        json.GetProperty("accessTokenExpiresAt").ValueKind.ShouldBe(JsonValueKind.Null);
+        json.GetProperty("refreshToken").ValueKind.ShouldBe(JsonValueKind.Null);
+        json.GetProperty("refreshTokenExpiresAt").ValueKind.ShouldBe(JsonValueKind.Null);
+        (await CountSessionsAsync()).ShouldBe(0);
+        string.Equals(await ClientStateSnapshotAsync(), before, StringComparison.Ordinal).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cliente_declarado_ignora_body_query_y_UserAgent_para_clasificar(bool withHeader)
+    {
+        await PrepareClientDoctorAsync();
+        using var response = await ClientLoginAsync(DoctorEmail, Password,
+            withHeader ? [ClientTypeHeader.Mobile] : null, spoofInput: true);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        AssertClientJson(json, notice: withHeader, step: "change_password");
+        var login = json.Deserialize<LoginResponse>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        ReadAccessToken(login).GetClaim(AppClaims.Role).Value.ShouldBe(nameof(UserRole.Doctor));
+    }
+
+    [Fact]
+    public async Task Cliente_declarado_no_altera_cambio_temporal_refresh_ni_logout()
+    {
+        await PrepareClientDoctorAsync();
+        using var loginResponse = await ClientLoginAsync(DoctorEmail, Password, [ClientTypeHeader.Mobile]);
+        loginResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var login = await loginResponse.ReadLoginAsync();
+        login.RequiresWebFirstAccess.ShouldBeTrue();
+        var sid = ReadAccessToken(login).GetClaim(AppClaims.SessionId).Value;
+        using var changeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/change-temporary-password")
+        { Content = JsonContent.Create(new { newPassword = "NuevaClave204" }) };
+        changeRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", login.AccessToken);
+        changeRequest.Headers.Add(ClientTypeHeader.Name, "valor-ignorado-fuera-de-login");
+        using var changed = await Client.SendAsync(changeRequest);
+        changed.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var changedJson = await changed.Content.ReadFromJsonAsync<JsonElement>();
+        AssertClientJson(changedJson, notice: false, step: "doctor_profile");
+        var changedTokens = changedJson.Deserialize<LoginResponse>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        ReadAccessToken(changedTokens).GetClaim(AppClaims.SessionId).Value.ShouldBe(sid);
+        ReadAccessToken(changedTokens).GetClaim(AppClaims.TokenId).Value.ShouldNotBe(ReadAccessToken(login).GetClaim(AppClaims.TokenId).Value);
+        using var refreshRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh")
+        { Content = JsonContent.Create(new { refreshToken = changedTokens.RefreshToken }) };
+        refreshRequest.Headers.Add(ClientTypeHeader.Name, "valor-ignorado-fuera-de-login");
+        using var refreshed = await Client.SendAsync(refreshRequest);
+        refreshed.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var refreshJson = await refreshed.Content.ReadFromJsonAsync<JsonElement>();
+        refreshJson.TryGetProperty("requiresWebFirstAccess", out _).ShouldBeFalse();
+        var refreshTokens = refreshJson.Deserialize<RefreshSessionResponse>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        refreshTokens.PendingStep.ShouldBe("doctor_profile");
+        new JsonWebTokenHandler().ReadJsonWebToken(refreshTokens.AccessToken).GetClaim(AppClaims.SessionId).Value.ShouldBe(sid);
+        using var logoutRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/logout")
+        { Content = JsonContent.Create(new { refreshToken = refreshTokens.RefreshToken }) };
+        logoutRequest.Headers.Add(ClientTypeHeader.Name, "valor-ignorado-fuera-de-login");
+        using var closed = await Client.SendAsync(logoutRequest);
+        closed.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        var session = (await FindUserAsync(DoctorEmail))!.Sessions.ShouldHaveSingleItem();
+        session.Id.ToString(CultureInfo.InvariantCulture).ShouldBe(sid);
+        session.RevocationReason.ShouldBe(SessionRevocationReason.Logout);
+    }
+
+    private const string ClientTestAgent = "Mobile/PruebasSGCM204";
+
+    private void SetClientClock() =>
+        Clock.UtcNow = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+    private async Task PrepareClientDoctorAsync(bool temporary = true, bool hasProfile = false)
+    {
+        SetClientClock();
+        await SaveUserAsync(UserRole.Doctor, DoctorEmail, Password, temporary);
+        if (hasProfile)
+        {
+            var user = (await FindUserAsync(DoctorEmail))!;
+            using var scope = Factory.Services.CreateScope();
+            await TestDataSeeder.InsertDoctorProfileAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>(), user.Id);
+        }
+    }
+
+    private async Task<HttpResponseMessage> ClientLoginAsync(string email, string password, string[]? headers, bool spoofInput = false)
+    {
+        if (headers is { Length: 1 } && headers[0].Length == 0)
+            return await ClientLoginWithEmptyHeaderAsync(email, password);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/login" + (spoofInput ? "?clientType=mobile" : ""));
+        request.Headers.UserAgent.ParseAdd(ClientTestAgent);
+        if (headers is not null) request.Headers.TryAddWithoutValidation(ClientTypeHeader.Name, headers).ShouldBeTrue();
+        request.Content = spoofInput
+            ? JsonContent.Create(new { email, password, clientType = ClientTypeHeader.Web, requiresWebFirstAccess = true, role = "Administrator" })
+            : JsonContent.Create(new LoginRequest(email, password));
+        return await Client.SendAsync(request);
+    }
+
+    private async Task<HttpResponseMessage> ClientLoginWithEmptyHeaderAsync(string email, string password)
+    {
+        // El adaptador HttpClient/TestServer omite la cabecera vacía al copiarla. Se entrega
+        // explícitamente al mismo pipeline HTTP para distinguirla de una cabecera ausente.
+        await using var body = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(new LoginRequest(email, password),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var context = await Factory.Server.SendAsync(context =>
+        {
+            context.Request.Method = "POST";
+            context.Request.Scheme = "https";
+            context.Request.Path = "/api/auth/login";
+            context.Request.ContentType = "application/json";
+            context.Request.ContentLength = body.Length;
+            context.Request.Body = body;
+            context.Request.Headers[ClientTypeHeader.Name] = string.Empty;
+            context.Request.Headers.ContainsKey(ClientTypeHeader.Name).ShouldBeTrue();
+        });
+        await using var responseBody = context.Response.Body;
+        using var reader = new StreamReader(responseBody);
+        return new HttpResponseMessage((HttpStatusCode)context.Response.StatusCode)
+        { Content = new StringContent(await reader.ReadToEndAsync(), System.Text.Encoding.UTF8, "application/json") };
+    }
+
+    private static void AssertClientJson(JsonElement json, bool notice, string? step)
+    {
+        string[] oldFields = ["requiresTwoFactor", "accessToken", "accessTokenExpiresAt", "refreshToken", "refreshTokenExpiresAt", "pendingStep"];
+        json.EnumerateObject().Select(p => p.Name).Order()
+            .ShouldBe((notice ? oldFields.Append("requiresWebFirstAccess") : oldFields).Order());
+        json.GetProperty("pendingStep").GetString().ShouldBe(step);
+        if (notice) json.GetProperty("requiresWebFirstAccess").GetBoolean().ShouldBeTrue();
+    }
+
+    private async Task<string> ClientStateSnapshotAsync()
+    {
+        using var scope = Factory.Services.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var users = await context.Database.SqlQuery<string>(
+            $"SELECT to_jsonb(u)::text AS \"Value\" FROM app.\"user\" u ORDER BY u.id").ToListAsync();
+        var sessions = await context.Database.SqlQuery<string>(
+            $"SELECT to_jsonb(s)::text AS \"Value\" FROM app.user_session s ORDER BY s.id").ToListAsync();
+        var tokens = await context.Database.SqlQuery<string>(
+            $"SELECT to_jsonb(t)::text AS \"Value\" FROM app.user_token t ORDER BY t.id").ToListAsync();
+        return string.Join("\n", users.Concat(sessions).Concat(tokens));
     }
 
     private async Task<(string Email, string Password)> PrepareRejectedLoginAsync(string caso)

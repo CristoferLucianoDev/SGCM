@@ -13,10 +13,17 @@
 /// Paso que el usuario debe completar, con los mismos valores que el claim <c>pending_step</c>
 /// (<c>PendingStepClaimValues</c>), o <c>null</c> si no hay paso.
 /// </param>
+/// <param name="RequiresWebFirstAccess">
+/// Aviso para el médico móvil con primer acceso pendiente. Se omite si es false para conservar
+/// el JSON anterior. Es una indicación de interfaz, no una acreditación del origen del cliente.
+/// </param>
 public sealed record LoginResponse(
     bool RequiresTwoFactor,
     string? AccessToken,
     DateTimeOffset? AccessTokenExpiresAt,
     string? RefreshToken,
     DateTimeOffset? RefreshTokenExpiresAt,
-    string? PendingStep);
+    string? PendingStep,
+    [property: System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    bool RequiresWebFirstAccess = false);

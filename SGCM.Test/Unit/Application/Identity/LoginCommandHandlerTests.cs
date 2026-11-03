@@ -192,6 +192,41 @@ public sealed class LoginCommandHandlerTests
             Arg.Any<User>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData(UserRole.Doctor, PendingStep.ChangeTemporaryPassword, true)]
+    [InlineData(UserRole.Doctor, PendingStep.DoctorProfile, true)]
+    [InlineData(UserRole.Doctor, null, false)]
+    [InlineData(UserRole.Patient, PendingStep.PatientProfile, false)]
+    [InlineData(UserRole.Patient, PendingStep.ChangeTemporaryPassword, false)]
+    [InlineData(UserRole.Administrator, null, false)]
+    [InlineData(UserRole.Administrator, PendingStep.ChangeTemporaryPassword, false)]
+    public async Task Primer_acceso_factual_usa_rol_autenticado_y_paso_real(UserRole role, PendingStep? step, bool expected)
+    {
+        var user = UserMother.WithRole(role, mustChangePassword: step == PendingStep.ChangeTemporaryPassword);
+        var tokens = Tokens with { PendingStep = step };
+        _userRepository.GetByEmailForUpdateAsync(Arg.Any<Email>(), Arg.Any<CancellationToken>()).Returns(user);
+        _sessionService.StartAsync(user, Command.DeviceName, Command.IpAddress, CancellationToken.None).Returns(tokens);
+        var result = await _handler.HandleAsync(Command, CancellationToken.None);
+        result.Value.HasPendingDoctorFirstAccess.ShouldBe(expected);
+        result.Value.RequiresTwoFactor.ShouldBeFalse();
+        result.Value.Tokens.ShouldBeSameAs(tokens);
+        await _sessionService.Received(1).StartAsync(user, Command.DeviceName, Command.IpAddress, CancellationToken.None);
+        _userRepository.ReceivedCalls().Count().ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Primer_acceso_factual_no_se_confirma_antes_del_segundo_factor_del_Doctor()
+    {
+        _userRepository.GetByEmailForUpdateAsync(Arg.Any<Email>(), Arg.Any<CancellationToken>())
+            .Returns(UserMother.WithRole(UserRole.Doctor, mustChangePassword: true));
+        _twoFactorStatusReader.IsEnabledAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(true);
+        var result = await _handler.HandleAsync(Command, CancellationToken.None);
+        result.Value.HasPendingDoctorFirstAccess.ShouldBeFalse();
+        result.Value.RequiresTwoFactor.ShouldBeTrue();
+        result.Value.Tokens.ShouldBeNull();
+        _sessionService.ReceivedCalls().ShouldBeEmpty();
+    }
+
     private async Task ShouldFailWithInvalidCredentialsAsync(LoginCommand command)
     {
         var result = await _handler.HandleAsync(command, CancellationToken.None);
