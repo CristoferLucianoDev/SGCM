@@ -2,6 +2,7 @@
 using SGCM.Data.Infrastructure.Persistence;
 using SGCM.Data.Domain.Identity.Users;
 using System.Text.Json;
+using SGCM.Data.Domain.People.Specialties;
 
 namespace SGCM.Test.Common.Database;
 
@@ -12,6 +13,111 @@ namespace SGCM.Test.Common.Database;
 internal static class TestDataSeeder
 {
     private static readonly DateOnly PatientBirthDate = new(1990, 5, 20);
+
+    internal sealed record DoctorSpecialtyData(int DoctorAId, int DoctorBId, int[] SpecialtyIds)
+    {
+        public int[] DoctorIds => [DoctorAId, DoctorBId];
+    }
+
+    internal sealed record DoctorSpecialtySnapshot(
+        string[] Doctors, string[] Links, string[] Specialties, string[] Appointments, string[] Availability);
+
+    // No cambia InsertDoctorProfileAsync: otras pruebas necesitan el perfil legado vacío.
+    public static async Task<DoctorSpecialtyData> InsertDoctorSpecialtyDataAsync(
+        AppDbContext context, int userAId, int userBId)
+    {
+        // Sin esta precondición, los GUID permitirían aprobar aun si reset.sql dejara
+        // filas de otro caso. Solo deben existir las dos cuentas recién preparadas.
+        var hasResidualData = await context.Database.SqlQuery<bool>(
+            $"""
+            SELECT (
+                EXISTS (SELECT 1 FROM app."user" WHERE id <> {userAId} AND id <> {userBId})
+                OR EXISTS (SELECT 1 FROM people.doctor)
+                OR EXISTS (SELECT 1 FROM people.patient)
+                OR EXISTS (SELECT 1 FROM people.specialty)
+                OR EXISTS (SELECT 1 FROM people.doctor_specialty)
+                OR EXISTS (SELECT 1 FROM scheduling.appointment)
+                OR EXISTS (SELECT 1 FROM scheduling.doctor_availability)
+            ) AS "Value"
+            """).SingleAsync();
+        if (hasResidualData)
+            throw new InvalidOperationException("La preparación de asociaciones requiere la base reiniciada, sin datos de pruebas anteriores.");
+
+        var specialties = Enumerable.Range(0, 4)
+            .Select(index => Specialty.Create($"Especialidad {index} {Guid.NewGuid():N}", "Descripción de prueba.").Value)
+            .ToArray();
+        specialties[3].Deactivate();
+        context.Specialties.AddRange(specialties);
+        await context.SaveChangesAsync();
+        int[] userIds = [userAId, userBId];
+        var a = await InsertDistinctDoctorAsync(context, userAId, userIds);
+        var b = await InsertDistinctDoctorAsync(context, userBId, userIds);
+        await InsertDoctorSpecialtyAsync(context, a, specialties[0].Id);
+        await InsertDoctorSpecialtyAsync(context, a, specialties[1].Id);
+        await InsertDoctorSpecialtyAsync(context, b, specialties[0].Id);
+        await InsertDoctorSpecialtyAsync(context, b, specialties[2].Id);
+        return new(a, b, specialties.Select(value => value.Id).ToArray());
+    }
+
+    private static async Task<int> InsertDistinctDoctorAsync(AppDbContext context, int userId, int[] userIds)
+    {
+        var doctorId = await InsertDoctorProfileAsync(context, userId);
+        while (userIds.Contains(doctorId))
+        {
+            // Ningún DoctorId debe coincidir con ninguno de los UserId: una coincidencia
+            // cruzada podría ocultar una selección de propietario incorrecta en HTTP.
+            // El perfil aún está vacío y sin referencias; PostgreSQL genera el siguiente ID.
+            await context.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM people.doctor WHERE id = {doctorId}");
+            doctorId = await InsertDoctorProfileAsync(context, userId);
+        }
+        return doctorId;
+    }
+
+    public static async Task<DoctorSpecialtySnapshot> ReadDoctorSpecialtySnapshotAsync(
+        AppDbContext context, int[] doctorIds) => new(
+            await ReadDoctorsAsync(context, doctorIds),
+            await ReadDoctorSpecialtiesAsync(context, doctorIds),
+            (await context.Database.SqlQuery<string>(
+                $"SELECT to_jsonb(s)::text AS \"Value\" FROM people.specialty s ORDER BY s.id").ToListAsync()).ToArray(),
+            await ReadAppointmentsAsync(context, doctorIds),
+            (await context.Database.SqlQuery<string>(
+                $"""
+                SELECT to_jsonb(b)::text AS "Value" FROM scheduling.doctor_availability b
+                WHERE b.doctor_id = ANY({doctorIds}) ORDER BY b.id
+                """).ToListAsync()).ToArray());
+
+    public static async Task<string[]> ReadAppointmentsAsync(AppDbContext context, int[] doctorIds) =>
+        (await context.Database.SqlQuery<string>(
+            $"""
+            SELECT to_jsonb(a)::text AS "Value" FROM scheduling.appointment a
+            WHERE a.doctor_id = ANY({doctorIds}) ORDER BY a.id
+            """).ToListAsync()).ToArray();
+
+    public static async Task<int> InsertAppointmentAsync(
+        AppDbContext context, int patientUserId, int doctorId, int specialtyId, string status)
+    {
+        if (status is not ("pending" or "confirmed")) throw new ArgumentOutOfRangeException(nameof(status));
+        await InsertPatientProfileAsync(context, patientUserId);
+        var patientId = await context.Patients.Where(patient => patient.UserId == patientUserId)
+            .Select(patient => patient.Id).SingleAsync();
+        var start = new DateTimeOffset(DateTime.UtcNow.Date.AddDays(5).AddHours(8), TimeSpan.Zero);
+        var end = start.AddHours(2);
+        var blockEnd = start.AddHours(6);
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO scheduling.doctor_availability (doctor_id, series_id, starts_at, ends_at, is_available)
+            VALUES ({doctorId}, NULL, {start}, {blockEnd}, true)
+            """);
+        return (await context.Database.SqlQuery<int>(
+            $"""
+            INSERT INTO scheduling.appointment
+                (patient_id, doctor_id, specialty_id, starts_at, ends_at, status,
+                 reason_for_visit, status_reason, created_by)
+            VALUES ({patientId}, {doctorId}, {specialtyId}, {start}, {end}, {status},
+                    'Consulta previamente agendada', 'Reserva de prueba', {patientUserId})
+            RETURNING id AS "Value"
+            """).ToListAsync()).Single();
+    }
 
     public static async Task<int> InsertDoctorProfileAsync(AppDbContext context, int userId)
     {
