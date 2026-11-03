@@ -383,6 +383,44 @@ public sealed class User : ActivatableAggregateRoot
     }
 
     /// <summary>
+    /// Sustituye la contraseña temporal, cumple ese paso y revoca las demás sesiones activas
+    /// con PasswordReset. Conserva íntegra la sesión actual y los tokens de recuperación.
+    /// </summary>
+    /// <param name="newPasswordHash">
+    /// Hash preparado por aplicación después de validar la candidata y comprobar que es distinta.
+    /// El agregado no recibe contraseñas en claro ni realiza hashing.
+    /// </param>
+    /// <param name="currentSessionId">Id de una sesión activa de este usuario.</param>
+    /// <param name="now">Momento de la operación y de las revocaciones.</param>
+    /// <returns>AccountInactive, TemporaryPasswordChangeNotRequired o SessionInvalid ante un rechazo sin cambios.</returns>
+    /// <exception cref="DomainException">Si falta el hash de la contraseña nueva.</exception>
+    public Result ChangeTemporaryPassword(string newPasswordHash, int currentSessionId, DateTimeOffset now)
+    {
+        if (!IsActive)
+        {
+            return UserErrors.AccountInactive;
+        }
+
+        if (!MustChangePassword)
+        {
+            return UserErrors.TemporaryPasswordChangeNotRequired;
+        }
+
+        EnsurePasswordHash(newPasswordHash);
+
+        // El revocador valida la sesión antes de modificar nada. Después de él solo quedan asignaciones.
+        var revoked = RevokeOtherSessions(currentSessionId, SessionRevocationReason.PasswordReset, now);
+        if (revoked.IsFailure)
+        {
+            return revoked;
+        }
+
+        PasswordHash = newPasswordHash;
+        MustChangePassword = false;
+        return Result.Success();
+    }
+
+    /// <summary>
     /// Abre una sesión nueva en un dispositivo. Si el usuario ya tiene el máximo de sesiones
     /// activas, revoca con <see cref="SessionRevocationReason.SessionLimit"/> las usadas hace
     /// más tiempo hasta dejar lugar para la nueva.
@@ -541,6 +579,28 @@ public sealed class User : ActivatableAggregateRoot
     }
 
     /// <summary>
+    /// Revoca las demás sesiones activas de este usuario y conserva íntegra la sesión actual.
+    /// No depende de la marca de contraseña temporal: también sirve para cambios desde el perfil.
+    /// </summary>
+    /// <returns>SessionInvalid si el id no es positivo, la sesión es ajena o ya no está activa.</returns>
+    /// <exception cref="DomainException">Si el motivo no es un valor definido.</exception>
+    public Result RevokeOtherSessions(int currentSessionId, SessionRevocationReason reason, DateTimeOffset now)
+    {
+        if (currentSessionId <= 0 || !_sessions.Any(session => session.Id == currentSessionId && session.IsActiveAt(now)))
+        {
+            return UserErrors.SessionInvalid;
+        }
+
+        if (!Enum.IsDefined(reason))
+        {
+            throw new DomainException("El motivo de revocación no es válido.");
+        }
+
+        RevokeActiveSessions(reason, now, currentSessionId);
+        return Result.Success();
+    }
+
+    /// <summary>
     /// Indica el paso que el usuario debe completar antes de usar el resto del sistema.
     /// La contraseña temporal va primero, porque el médico la cambia antes de completar su
     /// perfil. El administrador no tiene paso de perfil.
@@ -606,9 +666,11 @@ public sealed class User : ActivatableAggregateRoot
     }
 
     // Las sesiones ya revocadas conservan su fecha y motivo originales.
-    private void RevokeActiveSessions(SessionRevocationReason reason, DateTimeOffset now)
+    // Sin exclusión, recuperación y detección de reutilización siguen revocando todas las activas.
+    private void RevokeActiveSessions(SessionRevocationReason reason, DateTimeOffset now, int? exceptSessionId = null)
     {
-        foreach (var session in _sessions.Where(session => session.IsActiveAt(now)))
+        foreach (var session in _sessions.Where(session => session.IsActiveAt(now)
+            && (!exceptSessionId.HasValue || session.Id != exceptSessionId.Value)))
         {
             session.Revoke(reason, now);
         }
