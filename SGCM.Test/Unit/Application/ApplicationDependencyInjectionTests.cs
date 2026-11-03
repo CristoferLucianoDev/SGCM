@@ -11,6 +11,8 @@ using SGCM.Data.Application.Abstractions.Services;
 using SGCM.Data.Application.Behaviors;
 using SGCM.Data.Application.Identity;
 using SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
+using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
+using SGCM.Test.Unit.Domain.Identity.Users;
 using SGCM.Data.Application.People.Commands.ActivateSpecialty;
 using SGCM.Data.Application.People.Commands.AssociateDoctorSpecialty;
 using SGCM.Data.Application.People.Commands.DisassociateDoctorSpecialty;
@@ -725,6 +727,49 @@ public sealed class ApplicationDependencyInjectionTests
         IServiceProvider provider, bool associate, int id, CancellationToken token) => associate
         ? provider.GetRequiredService<ICommandHandler<AssociateDoctorSpecialtyCommand, Unit>>().HandleAsync(new(id), token)
         : provider.GetRequiredService<ICommandHandler<DisassociateDoctorSpecialtyCommand, Unit>>().HandleAsync(new(id), token);
+
+    [Theory]
+    [InlineData("success")]
+    [InlineData("validation")]
+    [InlineData("unchanged")]
+    [InlineData("renewal")]
+    [InlineData("save")]
+    public async Task Cambio_temporal_se_resuelve_con_validacion_y_transaccion(string kind)
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var data = new PasswordSessionScenario();
+        scope.ServiceProvider.GetRequiredService<ICurrentUser>()
+            .TryGetSessionIdentity(out Arg.Any<int>(), out Arg.Any<int>()).Returns(call =>
+            { call[0] = data.Owner.Id; call[1] = data.Current.Id; return true; });
+        _userRepository.GetByIdForUpdateAsync(data.Owner.Id, CancellationToken.None).Returns(data.Owner);
+        var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+        hasher.Verify(Arg.Any<string>(), Arg.Any<string>()).Returns(kind == "unchanged");
+        hasher.Hash(Arg.Any<Password>()).Returns("nuevo-hash");
+        var sessionService = scope.ServiceProvider.GetRequiredService<ISessionService>();
+        var tokens = new SessionTokens(new("jwt", UserMother.Now.AddMinutes(15)), "refresh", UserMother.Now.AddDays(7), PendingStep.DoctorProfile);
+        sessionService.RenewCurrentAsync(data.Owner, data.Current.Id, UserMother.Now, CancellationToken.None)
+            .Returns(kind == "renewal" ? Result<SessionTokens>.Failure(UserErrors.SessionInvalid) : tokens);
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(CancellationToken.None).Returns(transaction);
+        if (kind == "save") _unitOfWork.SaveChangesAsync(CancellationToken.None)
+            .Returns(Task.FromException(new InvalidOperationException("Fallo de persistencia")));
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<ChangeTemporaryPasswordCommand, SessionTokens>>();
+        if (kind == "save")
+            await Should.ThrowAsync<InvalidOperationException>(() => handler.HandleAsync(new("NuevaClave123"), CancellationToken.None));
+        else
+        {
+            var result = await handler.HandleAsync(new(kind == "validation" ? "corta" : "NuevaClave123"), CancellationToken.None);
+            if (kind == "success") result.Value.ShouldBe(tokens);
+            else result.Error.ShouldBe(kind == "validation" ? UserErrors.PasswordTooShort
+                : kind == "unchanged" ? UserErrors.PasswordUnchanged : UserErrors.SessionInvalid);
+        }
+        await transaction.Received(kind == "success" ? 1 : 0).CommitAsync(CancellationToken.None);
+        await transaction.Received(kind is "unchanged" or "renewal" ? 1 : 0).RollbackAsync(CancellationToken.None);
+        await transaction.Received(kind == "validation" ? 0 : 1).DisposeAsync();
+        await _unitOfWork.Received(kind is "success" or "save" ? 1 : 0).SaveChangesAsync(CancellationToken.None);
+        if (kind == "validation") _userRepository.ReceivedCalls().ShouldBeEmpty();
+    }
 
     private ServiceProvider BuildProvider()
     {

@@ -396,15 +396,8 @@ public sealed class User : ActivatableAggregateRoot
     /// <exception cref="DomainException">Si falta el hash de la contraseña nueva.</exception>
     public Result ChangeTemporaryPassword(string newPasswordHash, int currentSessionId, DateTimeOffset now)
     {
-        if (!IsActive)
-        {
-            return UserErrors.AccountInactive;
-        }
-
-        if (!MustChangePassword)
-        {
-            return UserErrors.TemporaryPasswordChangeNotRequired;
-        }
+        var allowed = CanChangeTemporaryPasswordState();
+        if (allowed.IsFailure) return allowed;
 
         EnsurePasswordHash(newPasswordHash);
 
@@ -419,6 +412,28 @@ public sealed class User : ActivatableAggregateRoot
         MustChangePassword = false;
         return Result.Success();
     }
+
+    /// <summary>
+    /// Comprueba cuenta, marca temporal y sesión sin modificar el agregado. Permite descartar
+    /// rechazos antes de verificar y calcular hashes, una vez bloqueado el usuario.
+    /// </summary>
+    public Result CanChangeTemporaryPassword(int currentSessionId, DateTimeOffset now)
+    {
+        var allowed = CanChangeTemporaryPasswordState();
+        return allowed.IsFailure ? allowed : CanUseSession(currentSessionId, now);
+    }
+
+    private Result CanChangeTemporaryPasswordState()
+    {
+        if (!IsActive) return UserErrors.AccountInactive;
+        if (!MustChangePassword) return UserErrors.TemporaryPasswordChangeNotRequired;
+        return Result.Success();
+    }
+
+    private Result CanUseSession(int sessionId, DateTimeOffset now) =>
+        sessionId > 0 && _sessions.Any(session => session.Id == sessionId && session.IsActiveAt(now))
+            ? Result.Success()
+            : UserErrors.SessionInvalid;
 
     /// <summary>
     /// Abre una sesión nueva en un dispositivo. Si el usuario ya tiene el máximo de sesiones
@@ -586,10 +601,8 @@ public sealed class User : ActivatableAggregateRoot
     /// <exception cref="DomainException">Si el motivo no es un valor definido.</exception>
     public Result RevokeOtherSessions(int currentSessionId, SessionRevocationReason reason, DateTimeOffset now)
     {
-        if (currentSessionId <= 0 || !_sessions.Any(session => session.Id == currentSessionId && session.IsActiveAt(now)))
-        {
-            return UserErrors.SessionInvalid;
-        }
+        var allowed = CanUseSession(currentSessionId, now);
+        if (allowed.IsFailure) return allowed;
 
         if (!Enum.IsDefined(reason))
         {

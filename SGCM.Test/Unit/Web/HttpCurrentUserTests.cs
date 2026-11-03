@@ -136,6 +136,76 @@ public sealed class HttpCurrentUserTests
         Should.Throw<InvalidOperationException>(() => user.UserId);
     }
 
+    [Fact]
+    public void Identidad_de_sesion_lee_ambos_ids_de_la_misma_identidad_autenticada()
+    {
+        var user = CreateUser(new ClaimsIdentity(
+            [new Claim(AppClaims.UserId, "7"), new Claim(AppClaims.SessionId, "42")], "Bearer"));
+        user.TryGetSessionIdentity(out var userId, out var sessionId).ShouldBeTrue();
+        userId.ShouldBe(7);
+        sessionId.ShouldBe(42);
+    }
+
+    [Theory]
+    [InlineData(null, "42")]
+    [InlineData("7", null)]
+    [InlineData("x", "42")]
+    [InlineData("7", "x")]
+    [InlineData("0", "42")]
+    [InlineData("-1", "42")]
+    [InlineData("7", "0")]
+    [InlineData("7", "-1")]
+    [InlineData("2147483648", "42")]
+    [InlineData("7", "2147483648")]
+    public void Identidad_de_sesion_rechaza_ids_ausentes_o_invalidos(string? sub, string? sid)
+    {
+        var claims = new List<Claim>();
+        if (sub is not null) claims.Add(new Claim(AppClaims.UserId, sub));
+        if (sid is not null) claims.Add(new Claim(AppClaims.SessionId, sid));
+        var user = CreateUser(new ClaimsIdentity(claims, "Bearer"));
+        AssertInvalidSessionIdentity(user);
+    }
+
+    [Theory]
+    [InlineData(AppClaims.UserId)]
+    [InlineData(AppClaims.SessionId)]
+    public void Identidad_de_sesion_rechaza_claims_duplicados_incluso_iguales(string type)
+    {
+        var user = CreateUser(new ClaimsIdentity(
+            [new Claim(AppClaims.UserId, "7"), new Claim(AppClaims.SessionId, "42"),
+             new Claim(type, type == AppClaims.UserId ? "7" : "42")], "Bearer"));
+        AssertInvalidSessionIdentity(user);
+    }
+
+    [Fact]
+    public void Identidad_de_sesion_no_mezcla_identidades_y_rechaza_ambiguedad()
+    {
+        AssertInvalidSessionIdentity(CreateUser(
+            new ClaimsIdentity([new Claim(AppClaims.UserId, "7")], "Bearer"),
+            new ClaimsIdentity([new Claim(AppClaims.SessionId, "42")], "Bearer")));
+        AssertInvalidSessionIdentity(CreateUser(
+            new ClaimsIdentity([new Claim(AppClaims.UserId, "7"), new Claim(AppClaims.SessionId, "42")], "Bearer"),
+            new ClaimsIdentity([new Claim(AppClaims.UserId, "8"), new Claim(AppClaims.SessionId, "43")], "Other")));
+    }
+
+    [Fact]
+    public void Identidad_de_sesion_ignora_claims_no_autenticados_y_rechaza_anonimos()
+    {
+        Claim[] claims = [new Claim(AppClaims.UserId, "7"), new Claim(AppClaims.SessionId, "42")];
+        AssertInvalidSessionIdentity(new HttpCurrentUser(new HttpContextAccessor()));
+        AssertInvalidSessionIdentity(CreateUser(new ClaimsIdentity(claims)));
+        AssertInvalidSessionIdentity(CreateUser(new ClaimsIdentity([], "Bearer"), new ClaimsIdentity(claims)));
+        CreateUser(new ClaimsIdentity(claims, "Bearer"), new ClaimsIdentity(claims))
+            .TryGetSessionIdentity(out _, out _).ShouldBeTrue();
+    }
+
+    private static void AssertInvalidSessionIdentity(HttpCurrentUser user)
+    {
+        user.TryGetSessionIdentity(out var userId, out var sessionId).ShouldBeFalse();
+        userId.ShouldBe(0);
+        sessionId.ShouldBe(0);
+    }
+
     private static HttpCurrentUser CreateUser(params ClaimsIdentity[] identities) => new(new HttpContextAccessor
     {
         HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(identities) }

@@ -61,6 +61,23 @@ internal sealed class SessionService(
         return await IssueTokensAsync(user, session, refreshToken.Value, cancellationToken);
     }
 
+    public async Task<Result<SessionTokens>> RenewCurrentAsync(
+        User user, int currentSessionId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var session = user.Sessions.FirstOrDefault(session => session.Id == currentSessionId);
+        if (!user.IsActive || currentSessionId <= 0 || session is null || !session.IsActiveAt(now))
+            return UserErrors.SessionInvalid;
+
+        var refreshToken = tokenGenerator.Generate(RefreshTokenSizeInBytes);
+        var renewed = user.RefreshSession(session.RefreshTokenHash, refreshToken.Hash, now,
+            TimeSpan.FromDays(_options.RefreshTokenDays), TimeSpan.FromSeconds(_options.RefreshReuseGraceSeconds));
+        if (renewed.IsFailure) return renewed.Error;
+
+        // Ya tiene id: no se guarda ni se vuelve a cargar el agregado. El decorador confirma
+        // contraseña, revocaciones y rotación juntos antes de que el controlador reciba el resultado.
+        return await IssueTokensAsync(user, renewed.Value, refreshToken.Value, cancellationToken);
+    }
+
     public async Task<Result<SessionTokens>> RefreshAsync(string refreshToken, CancellationToken cancellationToken)
     {
         var presentedHash = tokenGenerator.Hash(refreshToken);

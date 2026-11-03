@@ -12,6 +12,19 @@ namespace SGCM.Test.Unit.Web;
 
 public sealed class AuthMapperTests
 {
+    [Fact]
+    public void Cambio_temporal_mapea_solo_la_contrasena_y_oculta_los_secretos()
+    {
+        const string password = "  NuevaClave123  ";
+        var request = new ChangeTemporaryPasswordRequest(password);
+        var command = request.ToCommand();
+        command.NewPassword.ShouldBe(password);
+        command.GetType().GetProperties().Select(p => p.Name).ShouldBe(["NewPassword"]);
+        request.GetType().GetProperties().Select(p => p.Name).ShouldBe(["NewPassword"]);
+        request.ToString().ShouldNotContain(password);
+        command.ToString().ShouldNotContain(password);
+    }
+
     private static readonly DateTimeOffset AccessTokenExpiresAt = UserMother.Now.AddMinutes(15);
     private static readonly DateTimeOffset RefreshTokenExpiresAt = UserMother.Now.AddDays(7);
 
