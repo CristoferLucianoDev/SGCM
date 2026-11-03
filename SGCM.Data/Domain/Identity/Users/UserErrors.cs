@@ -26,6 +26,14 @@ public static class UserErrors
     );
 
     /// <summary>
+    /// La cuenta no tiene pendiente un cambio de contraseña temporal.
+    /// </summary>
+    public static readonly Error TemporaryPasswordChangeNotRequired = Error.Conflict(
+        code: "User.TemporaryPasswordChangeNotRequired",
+        description: "El usuario no tiene pendiente un cambio de contraseña temporal."
+    );
+
+    /// <summary>
     /// Ya existe una cuenta confirmada con ese correo.
     /// </summary>
     public static readonly Error EmailAlreadyInUse = Error.Conflict(
