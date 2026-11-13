@@ -63,7 +63,7 @@ jobs:
 
       - name: Unificar cobertura
         if: always()
-        uses: danielpalme/ReportGenerator-GitHub-Action@5
+        uses: danielpalme/reportgenerator-github-action@5f3701a41d14548c9b8e575a5c235230e515cbc0 # v5.6.0
         with:
           reports: TestResults/**/coverage.cobertura.xml
           targetdir: TestResults/CoverageReport
