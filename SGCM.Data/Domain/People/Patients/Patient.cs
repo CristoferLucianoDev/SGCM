@@ -38,6 +38,81 @@ public sealed class Patient : ActivatableAggregateRoot
     }
 
     /// <summary>
+    /// Actualiza el teléfono, la dirección y el contacto de emergencia con las mismas reglas
+    /// de <see cref="Create"/>. Si un dato no es válido, el perfil no cambia.
+    /// </summary>
+    public Result UpdateContact(
+        string? phoneNumber,
+        string? address,
+        string? emergencyContactName,
+        string? emergencyContactPhone)
+    {
+        var candidate = Revalidate(
+            phoneNumber, address, emergencyContactName, emergencyContactPhone,
+            InsuranceProviderId, PolicyNumber);
+
+        if (candidate.IsFailure)
+            return candidate.Error;
+
+        PhoneNumber = candidate.Value.PhoneNumber;
+        Address = candidate.Value.Address;
+        EmergencyContact = candidate.Value.EmergencyContact;
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Asigna o cambia el seguro con las mismas reglas de <see cref="Create"/>: el proveedor
+    /// debe ser válido y la póliza es obligatoria. Que el proveedor exista y esté activo lo
+    /// verifica la capa de aplicación. Si un dato no es válido, el perfil no cambia.
+    /// </summary>
+    public Result ChangeInsurance(int insuranceProviderId, string? policyNumber)
+    {
+        var candidate = Revalidate(
+            PhoneNumber, Address, EmergencyContact?.Name, EmergencyContact?.PhoneNumber,
+            insuranceProviderId, policyNumber);
+
+        if (candidate.IsFailure)
+            return candidate.Error;
+
+        InsuranceProviderId = candidate.Value.InsuranceProviderId;
+        PolicyNumber = candidate.Value.PolicyNumber;
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Quita el seguro: el perfil queda sin proveedor ni póliza.
+    /// </summary>
+    public void RemoveInsurance()
+    {
+        InsuranceProviderId = null;
+        PolicyNumber = null;
+    }
+
+    // Valida los datos editables pasándolos por Create junto con la identidad actual, que no
+    // cambia. Se usa CreatedAt como "ahora" porque la fecha de nacimiento ya se validó contra él.
+    private Result<Patient> Revalidate(
+        string? phoneNumber,
+        string? address,
+        string? emergencyContactName,
+        string? emergencyContactPhone,
+        int? insuranceProviderId,
+        string? policyNumber) =>
+        Create(
+            UserId,
+            FirstName,
+            LastName,
+            BirthDate,
+            phoneNumber,
+            address,
+            emergencyContactName,
+            emergencyContactPhone,
+            insuranceProviderId,
+            policyNumber,
+            CreatedAt);
+
+    /// <summary>
     /// Crea un perfil de paciente validando sus datos obligatorios,
     /// las longitudes permitidas y las reglas del seguro médico.
     /// </summary>
