@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Reqnroll;
 using Shouldly;
@@ -9,6 +10,7 @@ using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Test.Common.Mothers;
 using SGCM.Test.Common.Web;
+using SGCM.Web.Contracts.Common;
 using SGCM.Web.Contracts.Identity;
 
 namespace SGCM.Test.Acceptance.Steps;
@@ -20,6 +22,7 @@ public sealed class InicioDeSesionSteps(ApiScenario scenario)
     private const string RegisterUrl = "/api/accounts/register";
     private const string ConfirmUrl = "/api/accounts/confirm-email";
     private const string WrongPassword = "ClaveIncorrecta999";
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     [Given("que existe un paciente confirmado con el correo {string} y la contraseña {string}")]
     public async Task DadoUnPacienteConfirmado(string email, string password)
@@ -79,7 +82,8 @@ public sealed class InicioDeSesionSteps(ApiScenario scenario)
     public async Task ElInicioDeSesionEsRechazado(string errorCode)
     {
         scenario.Response!.StatusCode.ShouldBe(ExpectedStatus(errorCode));
-        (await scenario.Response.ReadErrorCodeAsync()).ShouldBe(errorCode);
+        string.Equals(await scenario.Response.ReadErrorCodeAsync(), errorCode, StringComparison.Ordinal)
+            .ShouldBeTrue($"Se esperaba el código de error {errorCode}.");
     }
 
     [Then("se pide el segundo factor sin entregar tokens")]
@@ -117,18 +121,29 @@ public sealed class InicioDeSesionSteps(ApiScenario scenario)
             Email.Create(email).Value,
             scenario.Factory.HashPassword(password)));
 
-    private async Task LoginAsync(string email, string password) =>
-        scenario.Response = await scenario.Client.PostAsJsonAsync(LoginUrl, new { email, password });
+    internal async Task LoginAsync(string email, string password, string? clientType = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, LoginUrl)
+        {
+            Content = JsonContent.Create(new LoginRequest(email, password))
+        };
+        if (clientType is not null)
+            request.Headers.Add(ClientTypeHeader.Name, clientType);
 
-    private async Task<LoginResponse> ReadSuccessfulLoginAsync()
+        scenario.Response?.Dispose();
+        scenario.Response = await scenario.Client.SendAsync(request);
+    }
+
+    internal async Task<LoginResponse> ReadSuccessfulLoginAsync()
     {
         scenario.Response!.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        return (await scenario.Response.Content.ReadFromJsonAsync<LoginResponse>())
-            ?? throw new InvalidOperationException("La respuesta del inicio de sesión vino vacía.");
+        var json = await scenario.Response.Content.ReadAsStringAsync();
+        return JsonSerializer.Deserialize<LoginResponse>(json, JsonOptions)
+            ?? throw new InvalidOperationException("La respuesta de autenticación vino vacía.");
     }
 
-    private static JsonWebToken ReadAccessToken(LoginResponse login) =>
+    internal static JsonWebToken ReadAccessToken(LoginResponse login) =>
         new JsonWebTokenHandler().ReadJsonWebToken(
             login.AccessToken ?? throw new InvalidOperationException("La respuesta no trae access token."));
 
