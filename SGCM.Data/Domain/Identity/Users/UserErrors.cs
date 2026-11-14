@@ -13,6 +13,18 @@ public static class UserErrors
     public static readonly Error PasswordUnchanged = Error.Validation(
         "User.PasswordUnchanged", "La contraseña nueva debe ser distinta de la contraseña temporal.");
 
+    /// <summary>No se envió la contraseña actual al cambiar la contraseña.</summary>
+    public static readonly Error CurrentPasswordRequired = Error.Validation(
+        "User.CurrentPasswordRequired", "La contraseña actual es obligatoria.");
+
+    /// <summary>La contraseña actual enviada no coincide con la vigente.</summary>
+    public static readonly Error CurrentPasswordIncorrect = Error.Validation(
+        "User.CurrentPasswordIncorrect", "La contraseña actual es incorrecta.");
+
+    /// <summary>La contraseña nueva es igual a la actual.</summary>
+    public static readonly Error NewPasswordSameAsCurrent = Error.Validation(
+        "User.NewPasswordSameAsCurrent", "La contraseña nueva debe ser distinta de la actual.");
+
     /// <summary>
     /// La contraseña no alcanza la longitud mínima.
     /// </summary>

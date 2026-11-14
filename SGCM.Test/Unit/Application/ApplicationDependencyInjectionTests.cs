@@ -11,6 +11,7 @@ using SGCM.Data.Application.Abstractions.Services;
 using SGCM.Data.Application.Behaviors;
 using SGCM.Data.Application.Identity;
 using SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
+using SGCM.Data.Application.Identity.Commands.ChangePassword;
 using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
 using SGCM.Test.Unit.Domain.Identity.Users;
 using SGCM.Data.Application.People.Commands.ActivateSpecialty;
@@ -785,6 +786,38 @@ public sealed class ApplicationDependencyInjectionTests
         await transaction.Received(kind is "unchanged" or "renewal" ? 1 : 0).RollbackAsync(CancellationToken.None);
         await transaction.Received(kind == "validation" ? 0 : 1).DisposeAsync();
         await _unitOfWork.Received(kind is "success" or "save" ? 1 : 0).SaveChangesAsync(CancellationToken.None);
+        if (kind == "validation") _userRepository.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("success")]
+    [InlineData("validation")]
+    [InlineData("incorrect")]
+    public async Task Cambio_de_contraseña_se_resuelve_con_validacion_y_transaccion(string kind)
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var data = new PasswordSessionScenario(mustChangePassword: false);
+        scope.ServiceProvider.GetRequiredService<ICurrentUser>()
+            .TryGetSessionIdentity(out Arg.Any<int>(), out Arg.Any<int>()).Returns(call =>
+            { call[0] = data.Owner.Id; call[1] = data.Current.Id; return true; });
+        _userRepository.GetByIdForUpdateAsync(data.Owner.Id, CancellationToken.None).Returns(data.Owner);
+        var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+        hasher.Verify(Arg.Any<string>(), Arg.Any<string>()).Returns(kind != "incorrect");
+        hasher.Hash(Arg.Any<Password>()).Returns("nuevo-hash");
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(CancellationToken.None).Returns(transaction);
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<ChangePasswordCommand, Unit>>();
+
+        handler.ShouldBeOfType<ValidationDecorator<ChangePasswordCommand, Unit>>();
+        var result = await handler.HandleAsync(
+            new("ClaveActual123", kind == "validation" ? "corta" : "ClaveNueva123"), CancellationToken.None);
+
+        if (kind == "success") result.IsSuccess.ShouldBeTrue();
+        else result.Error.ShouldBe(kind == "validation" ? UserErrors.PasswordTooShort : UserErrors.CurrentPasswordIncorrect);
+        await transaction.Received(kind == "success" ? 1 : 0).CommitAsync(CancellationToken.None);
+        await transaction.Received(kind == "incorrect" ? 1 : 0).RollbackAsync(CancellationToken.None);
+        await _unitOfWork.Received(kind == "success" ? 1 : 0).SaveChangesAsync(CancellationToken.None);
         if (kind == "validation") _userRepository.ReceivedCalls().ShouldBeEmpty();
     }
 

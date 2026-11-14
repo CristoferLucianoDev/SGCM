@@ -4,6 +4,7 @@ using Microsoft.Extensions.Primitives;
 using SGCM.Data.Application.Identity.Commands.Login;
 using SGCM.Web.Contracts.Common;
 using Microsoft.AspNetCore.Authorization;
+using SGCM.Data.Application.Identity.Commands.ChangePassword;
 using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
 using SGCM.Web.Api.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
@@ -162,6 +163,53 @@ public sealed class AuthControllerTests
         controller.GetCustomAttribute<AllowAnonymousAttribute>().ShouldBeNull();
         controller.GetCustomAttribute<AllowPendingStepAttribute>().ShouldBeNull();
         ShouldForbidStoringResponse(nameof(AuthController.ChangeTemporaryPassword));
+    }
+
+    [Fact]
+    public async Task Cambio_de_contraseña_mapea_el_comando_y_responde_204()
+    {
+        var handler = Substitute.For<ICommandHandler<ChangePasswordCommand, Unit>>();
+        handler.HandleAsync(Arg.Any<ChangePasswordCommand>(), Arg.Any<CancellationToken>()).Returns(Unit.Value);
+        using var cancellation = new CancellationTokenSource();
+
+        var result = await new AuthController().ChangePassword(
+            new("ClaveActual123", "ClaveNueva123"), handler, cancellation.Token);
+
+        result.ShouldBeOfType<NoContentResult>();
+        await handler.Received(1).HandleAsync(new("ClaveActual123", "ClaveNueva123"), cancellation.Token);
+    }
+
+    [Theory]
+    [InlineData(400)]
+    [InlineData(401)]
+    [InlineData(403)]
+    public async Task Cambio_de_contraseña_conserva_codigo_y_http_del_error(int status)
+    {
+        var error = status switch
+        {
+            400 => UserErrors.CurrentPasswordIncorrect,
+            401 => UserErrors.SessionInvalid,
+            _ => UserErrors.AccountInactive
+        };
+        var handler = Substitute.For<ICommandHandler<ChangePasswordCommand, Unit>>();
+        handler.HandleAsync(Arg.Any<ChangePasswordCommand>(), Arg.Any<CancellationToken>()).Returns(error);
+
+        var result = await new AuthController().ChangePassword(
+            new("ClaveActual123", "ClaveNueva123"), handler, CancellationToken.None);
+
+        ShouldBeProblem(result, status).Extensions["code"].ShouldBe(error.Code);
+    }
+
+    [Fact]
+    public void Cambio_de_contraseña_solo_permite_Patient_sin_paso_pendiente()
+    {
+        var controller = typeof(AuthController);
+        var action = controller.GetMethod(nameof(AuthController.ChangePassword))!;
+        action.GetCustomAttribute<HttpPostAttribute>()!.Template.ShouldBe("change-password");
+        action.GetCustomAttribute<AuthorizeAttribute>()!.Roles.ShouldBe(nameof(UserRole.Patient));
+        action.GetCustomAttribute<AllowPendingStepAttribute>().ShouldBeNull();
+        action.GetCustomAttribute<AllowAnonymousAttribute>().ShouldBeNull();
+        ShouldForbidStoringResponse(nameof(AuthController.ChangePassword));
     }
 
     private const string RefreshToken = "refresh-en-claro";
