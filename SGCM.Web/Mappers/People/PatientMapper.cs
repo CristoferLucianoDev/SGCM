@@ -1,4 +1,5 @@
 using SGCM.Data.Application.People.Commands.CompletePatientProfile;
+using SGCM.Data.Application.People.Commands.UpdatePatientProfile;
 using SGCM.Web.Contracts.People;
 
 namespace SGCM.Web.Mappers.People;
@@ -21,4 +22,13 @@ public static class PatientMapper
             request.PolicyNumber,
             deviceName,
             ipAddress);
+
+    public static UpdatePatientProfileCommand ToCommand(this UpdatePatientProfileRequest request) =>
+        new(
+            request.PhoneNumber,
+            request.Address,
+            request.EmergencyContactName,
+            request.EmergencyContactPhone,
+            request.InsuranceProviderId,
+            request.PolicyNumber);
 }
