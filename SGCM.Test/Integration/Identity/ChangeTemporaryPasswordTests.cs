@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
@@ -18,6 +19,7 @@ using SGCM.Data.Application.Abstractions.Services;
 using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
+using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Infrastructure.Persistence;
 using SGCM.Data.Infrastructure.Security;
 using SGCM.Test.Common.Database;
@@ -127,7 +129,7 @@ public sealed class ChangeTemporaryPasswordTests(PostgresFixture database) : Api
     [Theory]
     [InlineData(null, "User.PasswordTooShort")]
     [InlineData("", "User.PasswordTooShort")]
-    [InlineData("1234567", "User.PasswordTooShort")]
+    [InlineData("C\"ñ1234", "User.PasswordTooShort")]
     [InlineData("long", "User.PasswordTooLong")]
     [InlineData(Temporary, "User.PasswordUnchanged")]
     public async Task Entrada_rechazada_no_persiste_cambios(string? password, string error)
@@ -137,6 +139,12 @@ public sealed class ChangeTemporaryPasswordTests(PostgresFixture database) : Api
         if (password == "long") password = new string('x', 129);
         using var response = await ChangeAsync(seed.Current.AccessToken, password);
         await AssertErrorAsync(response, HttpStatusCode.BadRequest, error);
+        if (!string.IsNullOrEmpty(password))
+        {
+            var payload = await response.Content.ReadAsByteArrayAsync();
+            ContainsJsonText(payload, password)
+                .ShouldBeFalse("La respuesta de rechazo no debe reproducir la contraseña candidata.");
+        }
         AssertSnapshotUnchanged(await SnapshotAsync(), before);
     }
 
@@ -214,6 +222,72 @@ public sealed class ChangeTemporaryPasswordTests(PostgresFixture database) : Api
         using var profileBlocked = await ChangeAsync(tokens.AccessToken);
         AssertStatus(profileBlocked, HttpStatusCode.Forbidden);
         AssertSnapshotUnchanged(await SnapshotAsync(), before);
+    }
+
+    [Fact]
+    public async Task Refresh_antes_del_cambio_conserva_el_paso_y_el_bloqueo()
+    {
+        Clock.UtcNow = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        await SaveUserAsync(UserRole.Doctor, Email, Temporary, mustChangePassword: true);
+        var userId = (await FindUserAsync(Email)).ShouldNotBeNull().Id;
+        await using var scope = Factory.Services.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var asociada = Specialty.Create("Especialidad asociada 205", "Especialidad inicial.").Value;
+        var disponible = Specialty.Create("Especialidad disponible 205", "Disponible para asociar.").Value;
+        int doctorId;
+        await using (var transaction = await context.Database.BeginTransactionAsync())
+        {
+            context.Specialties.AddRange(asociada, disponible);
+            await context.SaveChangesAsync();
+            doctorId = await TestDataSeeder.InsertDoctorProfileAsync(context, userId);
+            (await TestDataSeeder.InsertDoctorSpecialtyAsync(context, doctorId, asociada.Id)).ShouldBe(1);
+            await transaction.CommitAsync();
+        }
+
+        using var loginResponse = await LoginAsync(Email, Temporary);
+        AssertStatus(loginResponse, HttpStatusCode.OK);
+        var login = await loginResponse.ReadLoginAsync();
+        login.PendingStep.ShouldBe(PendingStepClaimValues.ChangeTemporaryPassword);
+        login.RefreshToken.ShouldNotBeNullOrWhiteSpace();
+        var original = Read(login);
+        original.GetClaim(AppClaims.PendingStep).Value.ShouldBe(PendingStepClaimValues.ChangeTemporaryPassword);
+        var beforeRefresh = (await FindUserAsync(Email)).ShouldNotBeNull().Sessions.ShouldHaveSingleItem();
+        original.GetClaim(AppClaims.SessionId).Value.ShouldBe(beforeRefresh.Id.ToString(CultureInfo.InvariantCulture));
+
+        using var refreshed = await Client.PostAsJsonAsync("/api/auth/refresh", new RefreshSessionRequest(login.RefreshToken));
+        AssertStatus(refreshed, HttpStatusCode.OK);
+        var tokens = (await refreshed.Content.ReadFromJsonAsync<RefreshSessionResponse>()).ShouldNotBeNull();
+        tokens.PendingStep.ShouldBe(PendingStepClaimValues.ChangeTemporaryPassword);
+        tokens.RefreshToken.ShouldNotBeNullOrWhiteSpace();
+        string.Equals(tokens.RefreshToken, login.RefreshToken, StringComparison.Ordinal).ShouldBeFalse();
+        (await ValidateJwtAsync(tokens.AccessToken)).ShouldBeTrue();
+        var jwt = new JsonWebTokenHandler().ReadJsonWebToken(tokens.AccessToken);
+        jwt.GetClaim(AppClaims.TokenId).Value.ShouldNotBe(original.GetClaim(AppClaims.TokenId).Value);
+        jwt.GetClaim(AppClaims.UserId).Value.ShouldBe(userId.ToString(CultureInfo.InvariantCulture));
+        jwt.GetClaim(AppClaims.Role).Value.ShouldBe(nameof(UserRole.Doctor));
+        jwt.GetClaim(AppClaims.SessionId).Value.ShouldBe(beforeRefresh.Id.ToString(CultureInfo.InvariantCulture));
+        jwt.GetClaim(AppClaims.PendingStep).Value.ShouldBe(PendingStepClaimValues.ChangeTemporaryPassword);
+
+        var user = (await FindUserAsync(Email)).ShouldNotBeNull();
+        user.MustChangePassword.ShouldBeTrue();
+        var current = user.Sessions.ShouldHaveSingleItem();
+        current.Id.ShouldBe(beforeRefresh.Id);
+        current.IsActiveAt(Clock.UtcNow).ShouldBeTrue();
+        current.ExpiresAt.ShouldBe(tokens.RefreshTokenExpiresAt);
+        var tokenGenerator = Factory.Services.GetRequiredService<ISecureTokenGenerator>();
+        string.Equals(current.RefreshTokenHash, tokenGenerator.Hash(tokens.RefreshToken), StringComparison.Ordinal).ShouldBeTrue();
+        string.Equals(current.PreviousRefreshTokenHash, beforeRefresh.RefreshTokenHash, StringComparison.Ordinal).ShouldBeTrue();
+
+        var before = await SnapshotAsync(Email);
+        var profileBefore = await TestDataSeeder.ReadDoctorsAsync(context, [doctorId]);
+        var associationsBefore = await TestDataSeeder.ReadDoctorSpecialtiesAsync(context, [doctorId]);
+        associationsBefore.ShouldHaveSingleItem();
+        using var blocked = await SendAsync(Client, HttpMethod.Post,
+            $"/api/doctors/me/specialties/{disponible.Id}", tokens.AccessToken);
+        AssertStatus(blocked, HttpStatusCode.Forbidden);
+        AssertSnapshotUnchanged(await SnapshotAsync(Email), before);
+        (await TestDataSeeder.ReadDoctorsAsync(context, [doctorId])).ShouldBe(profileBefore);
+        (await TestDataSeeder.ReadDoctorSpecialtiesAsync(context, [doctorId])).ShouldBe(associationsBefore);
     }
 
     [Fact]
@@ -429,10 +503,27 @@ public sealed class ChangeTemporaryPasswordTests(PostgresFixture database) : Api
     private static async Task AssertErrorAsync(HttpResponseMessage response, HttpStatusCode status, string code)
     {
         AssertStatus(response, status);
-        var body = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
-        body.GetProperty("code").GetString().ShouldBe(code);
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var body = payload.RootElement;
+        string.Equals(body.GetProperty("code").GetString(), code, StringComparison.Ordinal)
+            .ShouldBeTrue($"Se esperaba el código de error {code}.");
         body.TryGetProperty("accessToken", out _).ShouldBeFalse();
         body.TryGetProperty("refreshToken", out _).ShouldBeFalse();
+    }
+
+    private static bool ContainsJsonText(ReadOnlySpan<byte> payload, string text)
+    {
+        var reader = new Utf8JsonReader(payload);
+        while (reader.Read())
+        {
+            if (reader.TokenType is JsonTokenType.String or JsonTokenType.PropertyName
+                && reader.GetString()!.Contains(text, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // Snapshot de todas las columnas persistidas, sin comparar referencias a entidades tracking.
