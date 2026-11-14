@@ -58,19 +58,34 @@ public sealed class CompletarPerfilDelPacienteSteps(ApiScenario scenario) : IDis
         UseAccessToken((await ReadNewTokensAsync()).AccessToken);
     }
 
+    [Given("que completé mi perfil con el proveedor {string}")]
+    public async Task DadoQueCompleteMiPerfilConElProveedor(string providerName)
+    {
+        await SendProfileAsync(CompletePatientProfileRequestMother.WithAllData(InsuranceProviderIdOf(providerName)));
+        UseAccessToken((await ReadNewTokensAsync()).AccessToken);
+    }
+
+    [Given("que el proveedor de seguros {string} fue desactivado")]
+    public async Task DadoQueElProveedorFueDesactivado(string providerName)
+    {
+        using var scope = scenario.Factory.Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE people.insurance_provider SET is_active = false WHERE id = {InsuranceProviderIdOf(providerName)}");
+    }
+
     [When("envío mi perfil con solo los datos obligatorios")]
     public Task EnvioMiPerfilConLosDatosObligatorios() =>
         SendProfileAsync(CompletePatientProfileRequestMother.WithRequiredData());
 
     [When("envío mi perfil con todos los datos y el proveedor {string}")]
     public Task EnvioMiPerfilConTodosLosDatos(string providerName) =>
-        SendProfileAsync(CompletePatientProfileRequestMother.WithAllData(_insuranceProviderIds[providerName]));
+        SendProfileAsync(CompletePatientProfileRequestMother.WithAllData(InsuranceProviderIdOf(providerName)));
 
     [When("envío mi perfil con el proveedor {string} y sin número de póliza")]
     public Task EnvioMiPerfilSinPoliza(string providerName) =>
         SendProfileAsync(CompletePatientProfileRequestMother.WithRequiredData() with
         {
-            InsuranceProviderId = _insuranceProviderIds[providerName]
+            InsuranceProviderId = InsuranceProviderIdOf(providerName)
         });
 
     [When("envío mi perfil con fecha de nacimiento de mañana")]
@@ -149,7 +164,7 @@ public sealed class CompletarPerfilDelPacienteSteps(ApiScenario scenario) : IDis
     {
         var patient = await FindMyPatientAsync();
 
-        patient.InsuranceProviderId.ShouldBe(_insuranceProviderIds[providerName]);
+        patient.InsuranceProviderId.ShouldBe(InsuranceProviderIdOf(providerName));
         patient.PolicyNumber.ShouldBe(PatientMother.DefaultPolicyNumber);
         patient.EmergencyContact.ShouldNotBeNull();
         patient.EmergencyContact.Name.ShouldBe(PatientMother.DefaultEmergencyContactName);
@@ -231,7 +246,17 @@ public sealed class CompletarPerfilDelPacienteSteps(ApiScenario scenario) : IDis
         _insuranceProviderIds[name] = id;
     }
 
-    private async Task<Patient> FindMyPatientAsync()
+    /// <summary>Correo del paciente que inició sesión en este escenario.</summary>
+    public string Email => _email ?? throw new InvalidOperationException("Ningún paciente inició sesión.");
+
+    /// <summary>Refresh token de la sesión actual, emitido al completar el perfil.</summary>
+    public string? CurrentRefreshToken => _newTokens?.RefreshToken;
+
+    /// <summary>Id del proveedor de seguros creado en este escenario con ese nombre.</summary>
+    public int InsuranceProviderIdOf(string name) => _insuranceProviderIds[name];
+
+    /// <summary>Perfil del paciente que inició sesión en este escenario, tal como quedó en la base.</summary>
+    public async Task<Patient> FindMyPatientAsync()
     {
         var user = await scenario.Factory.FindUserAsync(_email!)
             ?? throw new InvalidOperationException($"No hay un usuario con el correo {_email}.");
