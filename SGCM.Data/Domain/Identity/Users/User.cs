@@ -430,6 +430,42 @@ public sealed class User : ActivatableAggregateRoot
         return Result.Success();
     }
 
+    /// <summary>
+    /// Cambia la contraseña del usuario y revoca con PasswordReset las demás sesiones activas.
+    /// La sesión actual se conserva, así que el usuario sigue conectado en el dispositivo
+    /// desde el que hizo el cambio.
+    /// </summary>
+    /// <param name="newPasswordHash">
+    /// Hash preparado por aplicación después de comprobar la contraseña actual y que la nueva es distinta.
+    /// </param>
+    /// <param name="currentSessionId">Id de una sesión activa de este usuario.</param>
+    /// <param name="now">Momento de la operación y de las revocaciones.</param>
+    /// <returns>AccountInactive o SessionInvalid ante un rechazo sin cambios.</returns>
+    /// <exception cref="DomainException">Si falta el hash de la contraseña nueva.</exception>
+    public Result ChangePassword(string newPasswordHash, int currentSessionId, DateTimeOffset now)
+    {
+        if (!IsActive) return UserErrors.AccountInactive;
+
+        EnsurePasswordHash(newPasswordHash);
+
+        // El revocador valida la sesión antes de modificar nada. Después de él solo queda la asignación.
+        var revoked = RevokeOtherSessions(currentSessionId, SessionRevocationReason.PasswordReset, now);
+        if (revoked.IsFailure)
+        {
+            return revoked;
+        }
+
+        PasswordHash = newPasswordHash;
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Comprueba cuenta y sesión sin modificar el agregado, para descartar rechazos antes de
+    /// verificar y calcular hashes.
+    /// </summary>
+    public Result CanChangePassword(int currentSessionId, DateTimeOffset now) =>
+        IsActive ? CanUseSession(currentSessionId, now) : UserErrors.AccountInactive;
+
     private Result CanUseSession(int sessionId, DateTimeOffset now) =>
         sessionId > 0 && _sessions.Any(session => session.Id == sessionId && session.IsActiveAt(now))
             ? Result.Success()

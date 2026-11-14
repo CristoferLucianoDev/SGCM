@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Identity.Commands.Login;
+using SGCM.Data.Application.Identity.Commands.ChangePassword;
 using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
 using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.Identity.Commands.Logout;
@@ -40,6 +41,27 @@ public sealed class AuthController : ApiControllerBase
     {
         var result = await handler.HandleAsync(request.ToCommand(), cancellationToken);
         return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
+    }
+
+    /// <summary>Cambia la contraseña del paciente autenticado.</summary>
+    /// <remarks>
+    /// Exige la contraseña actual. La sesión actual sigue activa con sus mismos tokens y las
+    /// demás sesiones del paciente quedan revocadas.
+    /// </remarks>
+    [HttpPost("change-password")]
+    [Authorize(Roles = nameof(UserRole.Patient))]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ChangePassword(
+        ChangePasswordRequest request,
+        [FromServices] ICommandHandler<ChangePasswordCommand, Unit> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToCommand(), cancellationToken);
+        return result.IsSuccess ? NoContent() : ErrorResult(result.Error);
     }
 
     /// <summary>

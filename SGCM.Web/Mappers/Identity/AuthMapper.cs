@@ -1,5 +1,6 @@
 ﻿using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.Identity.Commands.Login;
+using SGCM.Data.Application.Identity.Commands.ChangePassword;
 using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
 using SGCM.Data.Application.Identity.Commands.Logout;
 using SGCM.Data.Application.Identity.Commands.RefreshSession;
@@ -14,6 +15,9 @@ public static class AuthMapper
 {
     public static ChangeTemporaryPasswordCommand ToCommand(this ChangeTemporaryPasswordRequest request) =>
         new(request.NewPassword);
+
+    public static ChangePasswordCommand ToCommand(this ChangePasswordRequest request) =>
+        new(request.CurrentPassword, request.NewPassword);
 
     /// <summary>
     /// Arma el comando de inicio de sesión con las credenciales del cuerpo y los datos de la petición.

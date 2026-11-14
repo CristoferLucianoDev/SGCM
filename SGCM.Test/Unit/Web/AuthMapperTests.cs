@@ -82,6 +82,23 @@ public sealed class AuthMapperTests
         command.ToString().ShouldNotContain(password);
     }
 
+    [Fact]
+    public void Cambio_de_contrasena_mapea_ambas_contrasenas_sin_normalizar_y_oculta_los_secretos()
+    {
+        const string current = "  ClaveActual123  ";
+        const string password = "  ClaveNueva123  ";
+        var request = new ChangePasswordRequest(current, password);
+
+        var command = request.ToCommand();
+
+        command.CurrentPassword.ShouldBe(current);
+        command.NewPassword.ShouldBe(password);
+        request.ToString().ShouldNotContain(current);
+        request.ToString().ShouldNotContain(password);
+        command.ToString().ShouldNotContain(current);
+        command.ToString().ShouldNotContain(password);
+    }
+
     private static readonly DateTimeOffset AccessTokenExpiresAt = UserMother.Now.AddMinutes(15);
     private static readonly DateTimeOffset RefreshTokenExpiresAt = UserMother.Now.AddDays(7);
 
