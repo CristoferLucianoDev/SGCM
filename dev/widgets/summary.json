@@ -1,1 +1,1 @@
-{"reportName":"SGCM - dev","testRuns":[],"statistic":{"failed":0,"broken":0,"skipped":0,"passed":1811,"unknown":0,"total":1811},"time":{"start":1794625173036,"stop":1794625209005,"duration":35969,"minDuration":0,"maxDuration":1261,"sumDuration":39617}}
+{"reportName":"SGCM - dev","testRuns":[],"statistic":{"failed":0,"broken":0,"skipped":0,"passed":1838,"unknown":0,"total":1838},"time":{"start":1794625910423,"stop":1794625961881,"duration":51458,"minDuration":0,"maxDuration":1915,"sumDuration":58539}}
