@@ -7,6 +7,7 @@ using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.People.Commands.CompletePatientProfile;
+using SGCM.Data.Application.People.Commands.UpdatePatientProfile;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Patients;
@@ -18,6 +19,8 @@ using SGCM.Web.Contracts.People;
 using Shouldly;
 
 namespace SGCM.Test.Unit.Web;
+
+using Unit = SGCM.Data.Domain.Common.Unit;
 
 public class PatientsControllerTests
 {
@@ -72,6 +75,55 @@ public class PatientsControllerTests
 
         method.GetCustomAttribute<AuthorizeAttribute>()!.Roles.ShouldBe(nameof(UserRole.Patient));
         method.GetCustomAttribute<AllowPendingStepAttribute>()!.Step.ShouldBe(PendingStep.PatientProfile);
+    }
+
+    [Fact]
+    public async Task UpdateMyProfile_mapea_la_solicitud_y_responde_204()
+    {
+        var handler = Substitute.For<ICommandHandler<UpdatePatientProfileCommand, Unit>>();
+        handler.HandleAsync(Arg.Any<UpdatePatientProfileCommand>(), Arg.Any<CancellationToken>()).Returns(Unit.Value);
+        using var cancellation = new CancellationTokenSource();
+        var request = new UpdatePatientProfileRequest(
+            UpdatePatientProfileCommandMother.NewPhoneNumber,
+            UpdatePatientProfileCommandMother.NewAddress,
+            UpdatePatientProfileCommandMother.NewEmergencyContactName,
+            UpdatePatientProfileCommandMother.NewEmergencyContactPhone,
+            InsuranceProviderId: 3,
+            UpdatePatientProfileCommandMother.NewPolicyNumber);
+
+        var result = await CreateController().UpdateMyProfile(request, handler, cancellation.Token);
+
+        result.ShouldBeOfType<NoContentResult>();
+        await handler.Received(1).HandleAsync(
+            UpdatePatientProfileCommandMother.WithAllData(insuranceProviderId: 3), cancellation.Token);
+    }
+
+    [Theory]
+    [InlineData(false, 400)]
+    [InlineData(true, 404)]
+    public async Task UpdateMyProfile_devuelve_errores_mediante_ApiControllerBase(bool withoutProfile, int expectedStatus)
+    {
+        var error = withoutProfile ? PatientErrors.ProfileNotFound : PatientErrors.PhoneTooLong;
+        var handler = Substitute.For<ICommandHandler<UpdatePatientProfileCommand, Unit>>();
+        handler.HandleAsync(Arg.Any<UpdatePatientProfileCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Failure(error));
+        var request = new UpdatePatientProfileRequest(
+            UpdatePatientProfileCommandMother.NewPhoneNumber, null, null, null, null, null);
+
+        var result = await CreateController().UpdateMyProfile(request, handler, CancellationToken.None);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(expectedStatus);
+        response.Value.ShouldBeOfType<ProblemDetails>().Extensions["code"].ShouldBe(error.Code);
+    }
+
+    [Fact]
+    public void UpdateMyProfile_es_solo_para_pacientes_y_no_admite_pasos_pendientes()
+    {
+        var method = typeof(PatientsController).GetMethod(nameof(PatientsController.UpdateMyProfile))!;
+
+        method.GetCustomAttribute<AuthorizeAttribute>()!.Roles.ShouldBe(nameof(UserRole.Patient));
+        method.GetCustomAttribute<AllowPendingStepAttribute>().ShouldBeNull();
     }
 
     private static CompletePatientProfileRequest Request() => new(

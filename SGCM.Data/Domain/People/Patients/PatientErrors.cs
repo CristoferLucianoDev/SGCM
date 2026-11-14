@@ -13,6 +13,11 @@ public static class PatientErrors
             "Patient.ProfileAlreadyExists",
             "El usuario ya tiene un perfil de paciente.");
 
+    public static readonly Error ProfileNotFound =
+        Error.NotFound(
+            "Patient.ProfileNotFound",
+            "El usuario todavía no ha completado su perfil de paciente.");
+
     public static readonly Error InvalidUserId =
         Error.Validation(
             "Patient.InvalidUserId",

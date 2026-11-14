@@ -76,6 +76,52 @@ public class PatientRepositoryTests(PostgresFixture database) : IntegrationTestB
     }
 
     [Fact]
+    public async Task GetByUserIdAsync_devuelve_el_perfil_rastreado_y_UnitOfWork_guarda_sus_cambios()
+    {
+        var userId = await SaveUserAsync();
+        await using var provider = CreateProvider();
+        await using (var setup = provider.CreateAsyncScope())
+        {
+            var (_, repository, unitOfWork) = Resolve(setup.ServiceProvider);
+            repository.Add(PatientMother.WithAllData(userId, await InsertInsuranceProviderAsync(setup.ServiceProvider)));
+            await unitOfWork.SaveChangesAsync(CancellationToken.None);
+        }
+
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var (_, repository, unitOfWork) = Resolve(scope.ServiceProvider);
+            var patient = await repository.GetByUserIdAsync(userId, CancellationToken.None);
+
+            patient.ShouldNotBeNull();
+            patient.UpdateContact("8295550111", null, "María Gómez", "8495550122").IsSuccess.ShouldBeTrue();
+            patient.RemoveInsurance();
+            await unitOfWork.SaveChangesAsync(CancellationToken.None);
+        }
+
+        await using var check = provider.CreateAsyncScope();
+        var (checkContext, _, _) = Resolve(check.ServiceProvider);
+        var saved = await checkContext.Patients.AsNoTracking().SingleAsync(value => value.UserId == userId);
+        saved.PhoneNumber.ShouldBe("8295550111");
+        saved.Address.ShouldBeNull();
+        saved.EmergencyContact.ShouldNotBeNull();
+        saved.EmergencyContact.Name.ShouldBe("María Gómez");
+        saved.EmergencyContact.PhoneNumber.ShouldBe("8495550122");
+        saved.InsuranceProviderId.ShouldBeNull();
+        saved.PolicyNumber.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetByUserIdAsync_sin_perfil_devuelve_null()
+    {
+        var userId = await SaveUserAsync();
+        await using var provider = CreateProvider();
+        await using var scope = provider.CreateAsyncScope();
+        var (_, repository, _) = Resolve(scope.ServiceProvider);
+
+        (await repository.GetByUserIdAsync(userId, CancellationToken.None)).ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Add_deja_el_agregado_pendiente_y_UnitOfWork_lo_persiste()
     {
         var userId = await SaveUserAsync();
@@ -143,6 +189,9 @@ public class PatientRepositoryTests(PostgresFixture database) : IntegrationTestB
         await context.SaveChangesAsync();
         return user.Id;
     }
+
+    private static Task<int> InsertInsuranceProviderAsync(IServiceProvider services) =>
+        TestDataSeeder.InsertInsuranceProviderAsync(services.GetRequiredService<AppDbContext>());
 
     private ServiceProvider CreateProvider()
     {

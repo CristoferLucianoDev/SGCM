@@ -17,6 +17,7 @@ using SGCM.Data.Application.People.Commands.ActivateSpecialty;
 using SGCM.Data.Application.People.Commands.AssociateDoctorSpecialty;
 using SGCM.Data.Application.People.Commands.DisassociateDoctorSpecialty;
 using SGCM.Data.Application.People.Commands.CompletePatientProfile;
+using SGCM.Data.Application.People.Commands.UpdatePatientProfile;
 using SGCM.Data.Application.People.Commands.CreateSpecialty;
 using SGCM.Data.Application.People.Commands.DeactivateSpecialty;
 using SGCM.Data.Application.People.Commands.UpdateSpecialty;
@@ -153,6 +154,22 @@ public sealed class ApplicationDependencyInjectionTests
         var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<CompletePatientProfileCommand, SessionTokens>>();
 
         handler.ShouldBeOfType<ValidationDecorator<CompletePatientProfileCommand, SessionTokens>>();
+    }
+
+    [Fact]
+    public async Task AddApplication_InvalidPatientProfileUpdate_IsRejectedBeforeOpeningTransaction()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<UpdatePatientProfileCommand, Unit>>();
+        var command = UpdatePatientProfileCommandMother.WithRequiredData() with { PhoneNumber = "" };
+
+        handler.ShouldBeOfType<ValidationDecorator<UpdatePatientProfileCommand, Unit>>();
+        var result = await handler.HandleAsync(command, CancellationToken.None);
+
+        result.Error.Code.ShouldBe(PatientErrors.PhoneRequired.Code);
+        await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+        await _patientRepository.DidNotReceive().GetByUserIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

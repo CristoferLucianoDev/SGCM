@@ -14,4 +14,12 @@ public interface IPatientRepository : IRepository<Patient>
     /// <param name="cancellationToken">Token de cancelación.</param>
     /// <returns><c>true</c> si el perfil existe.</returns>
     Task<bool> ExistsByUserIdAsync(int userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Busca el perfil del usuario para modificarlo, activo o inactivo.
+    /// </summary>
+    /// <param name="userId">Id del usuario.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
+    /// <returns>El perfil, o <c>null</c> si el usuario no lo ha completado.</returns>
+    Task<Patient?> GetByUserIdAsync(int userId, CancellationToken cancellationToken);
 }
