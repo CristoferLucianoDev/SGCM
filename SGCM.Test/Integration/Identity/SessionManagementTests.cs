@@ -90,8 +90,10 @@ public sealed class SessionManagementTests(PostgresFixture database) : ApiIntegr
         using var response = await RefreshAsync(presented);
 
         await ShouldBeSessionInvalidAsync(response);
-        // La sesión sigue sin rotar ni revocar: el rechazo viene de la cuenta inactiva.
-        ShouldBeActive(await FindSessionAsync(presented));
+        // El trigger de la base revoca las sesiones al desactivar la cuenta (Modelo de Datos, sección 8).
+        var session = await FindSessionAsync(presented);
+        session.RevokedAt.ShouldNotBeNull();
+        session.RevocationReason.ShouldBe(SessionRevocationReason.AccountDeactivated);
     }
 
     [Fact]
