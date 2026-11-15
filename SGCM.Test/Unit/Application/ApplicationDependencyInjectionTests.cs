@@ -21,6 +21,7 @@ using SGCM.Data.Application.People.Commands.CompletePatientProfile;
 using SGCM.Data.Application.People.Commands.UpdatePatientProfile;
 using SGCM.Data.Application.People.Commands.CreateSpecialty;
 using SGCM.Data.Application.People.Commands.DeactivateSpecialty;
+using SGCM.Data.Application.People.Commands.RegisterInsuranceProvider;
 using SGCM.Data.Application.People.Commands.UpdateSpecialty;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Data.Application.Common;
@@ -28,6 +29,7 @@ using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Doctors;
+using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Test.Common.Fakes;
@@ -47,6 +49,7 @@ public sealed class ApplicationDependencyInjectionTests
     private readonly ISpecialtyListReader _specialtyListReader = Substitute.For<ISpecialtyListReader>();
     private readonly IPatientRepository _patientRepository = Substitute.For<IPatientRepository>();
     private readonly IDoctorRepository _doctorRepository = Substitute.For<IDoctorRepository>();
+    private readonly IInsuranceProviderRepository _insuranceProviderRepository = Substitute.For<IInsuranceProviderRepository>();
 
     [Theory]
     [InlineData(1, true)]
@@ -125,6 +128,39 @@ public sealed class ApplicationDependencyInjectionTests
         await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
         await _specialtyRepository.DidNotReceive().ExistsByNameAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
         _specialtyRepository.DidNotReceive().Add(Arg.Any<Specialty>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void AddApplication_ResolvesRegisterInsuranceProviderWithValidation()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<RegisterInsuranceProviderCommand, int>>();
+
+        handler.ShouldBeOfType<ValidationDecorator<RegisterInsuranceProviderCommand, int>>();
+    }
+
+    [Theory]
+    [InlineData("", "contacto@seguros.com", "InsuranceProvider.NameRequired")]
+    [InlineData("Seguros Universal", "sin-arroba", "Common.InvalidEmail")]
+    public async Task AddApplication_InvalidInsuranceProvider_IsRejectedBeforeOpeningTransaction(
+        string name, string contactEmail, string errorCode)
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<RegisterInsuranceProviderCommand, int>>();
+
+        var result = await handler.HandleAsync(
+            new RegisterInsuranceProviderCommand(name, "8095550200", contactEmail, "Av. Winston Churchill 100", null),
+            CancellationToken.None);
+
+        result.Error.Code.ShouldBe(errorCode);
+        await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+        await _insuranceProviderRepository.DidNotReceive()
+            .ExistsByNameAsync(Arg.Any<string>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+        _insuranceProviderRepository.DidNotReceive().Add(Arg.Any<InsuranceProvider>());
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 
@@ -845,6 +881,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(_patientRepository);
         services.AddSingleton(_doctorRepository);
         services.AddSingleton(Substitute.For<IInsuranceProviderReader>());
+        services.AddSingleton(_insuranceProviderRepository);
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
     }

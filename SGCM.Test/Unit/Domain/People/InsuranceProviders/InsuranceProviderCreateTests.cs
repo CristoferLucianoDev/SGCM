@@ -148,12 +148,51 @@ public class InsuranceProviderCreateTests
         var name = $"  {new string('a', InsuranceProvider.MaxNameLength)}  ";
         var phone = new string('1', InsuranceProvider.MaxContactPhoneLength);
         var address = new string('b', InsuranceProvider.MaxAddressLength);
-        var website = new string('c', InsuranceProvider.MaxWebsiteLength);
+        var website = HttpsUrlOfLength(InsuranceProvider.MaxWebsiteLength);
 
         var result = InsuranceProvider.Create(name, phone, ValidEmail, address, website);
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.Name.Length.ShouldBe(InsuranceProvider.MaxNameLength);
+        result.Value.Website.ShouldBe(website);
+    }
+
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("ftp://seguros.com")]
+    [InlineData("www.seguros.com")]
+    [InlineData("seguros")]
+    [InlineData("/ruta/relativa")]
+    [InlineData("data:text/html,hola")]
+    [InlineData("mailto:contacto@seguros.com")]
+    public void Create_con_sitio_web_que_no_es_una_url_http_devuelve_error(string website)
+    {
+        var result = InsuranceProvider.Create(ValidName, ValidPhone, ValidEmail, ValidAddress, website);
+
+        result.Error.ShouldBe(InsuranceProviderErrors.WebsiteInvalid);
+        result.Error.Type.ShouldBe(ErrorType.Validation);
+    }
+
+    [Theory]
+    [InlineData("http://seguros.com", "http://seguros.com")]
+    [InlineData("https://www.universal.com.do", "https://www.universal.com.do")]
+    [InlineData("  https://seguros.com/planes  ", "https://seguros.com/planes")]
+    public void Create_acepta_un_sitio_web_http_o_https_y_lo_guarda_recortado(string website, string expected)
+    {
+        var result = InsuranceProvider.Create(ValidName, ValidPhone, ValidEmail, ValidAddress, website);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Website.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void Create_valida_la_longitud_del_sitio_web_antes_que_su_formato()
+    {
+        var website = "javascript:" + new string('a', InsuranceProvider.MaxWebsiteLength);
+
+        var result = InsuranceProvider.Create(ValidName, ValidPhone, ValidEmail, ValidAddress, website);
+
+        result.Error.ShouldBe(InsuranceProviderErrors.WebsiteTooLong);
     }
 
     [Fact]
@@ -162,5 +201,13 @@ public class InsuranceProviderCreateTests
         var result = InsuranceProvider.Create(null, null, null, null, null);
 
         result.Error.ShouldBe(InsuranceProviderErrors.NameRequired);
+    }
+
+    // URL https válida con exactamente la longitud indicada. El relleno va en la ruta para no
+    // depender de cómo Uri trata un nombre de host muy largo.
+    private static string HttpsUrlOfLength(int length)
+    {
+        const string prefix = "https://seguros.com/";
+        return prefix + new string('c', length - prefix.Length);
     }
 }

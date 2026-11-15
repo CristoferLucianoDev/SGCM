@@ -45,7 +45,8 @@ public sealed class InsuranceProvider : ActivatableAggregateRoot
 
     /// <summary>
     /// Crea un proveedor activo. Los textos se guardan sin espacios en los extremos y las
-    /// longitudes se validan sobre esos valores; un sitio web vacío se trata como ausente.
+    /// longitudes se validan sobre esos valores; un sitio web vacío se trata como ausente y,
+    /// si viene, debe ser una URL absoluta http o https.
     /// La unicidad del nombre no se comprueba aquí porque depende de los demás proveedores.
     /// </summary>
     /// <param name="name">Nombre del proveedor.</param>
@@ -93,6 +94,11 @@ public sealed class InsuranceProvider : ActivatableAggregateRoot
             return InsuranceProviderErrors.WebsiteTooLong;
         }
 
+        if (normalizedWebsite is not null && !IsHttpUrl(normalizedWebsite))
+        {
+            return InsuranceProviderErrors.WebsiteInvalid;
+        }
+
         return new InsuranceProvider
         {
             Name = nameResult.Value,
@@ -102,6 +108,12 @@ public sealed class InsuranceProvider : ActivatableAggregateRoot
             Website = normalizedWebsite
         };
     }
+
+    // Solo http y https: otros esquemas, como javascript: o data:, serían XSS almacenado
+    // cuando una vista use el sitio como enlace.
+    private static bool IsHttpUrl(string value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
     private static Result<string> RequiredText(string? value, int maxLength, Error required, Error tooLong)
     {

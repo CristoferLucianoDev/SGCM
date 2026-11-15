@@ -55,4 +55,10 @@ public static class InsuranceProviderErrors
         code: "InsuranceProvider.WebsiteTooLong",
         description: $"El sitio web no puede superar {InsuranceProvider.MaxWebsiteLength} caracteres."
     );
+
+    /// <summary>El sitio web no es una URL absoluta http o https.</summary>
+    public static readonly Error WebsiteInvalid = Error.Validation(
+        code: "InsuranceProvider.WebsiteInvalid",
+        description: "El sitio web debe ser una dirección completa que empiece con http:// o https://."
+    );
 }
