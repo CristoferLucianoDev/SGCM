@@ -71,6 +71,15 @@ public sealed class UserToken : Entity
         IsPending && ExpiresAt > now;
 
     /// <summary>
+    /// Indica si el token terminó (venció, se usó o se invalidó) antes de <paramref name="cutoff"/>.
+    /// La comparación es estricta: un token que terminó justo en el corte no cuenta. Es la misma
+    /// regla que aplica <c>UserRepository.DeleteEndedCredentialsAsync</c> en la base.
+    /// </summary>
+    /// <param name="cutoff">Momento de corte.</param>
+    /// <returns><c>true</c> si el token terminó antes del corte.</returns>
+    public bool EndedBefore(DateTimeOffset cutoff) => ExpiresAt < cutoff || UsedAt < cutoff || InvalidatedAt < cutoff;
+
+    /// <summary>
     /// Invalida el token. Si ya estaba invalidado, conserva la fecha original.
     /// </summary>
     internal void Invalidate(DateTimeOffset now) => InvalidatedAt ??= now;

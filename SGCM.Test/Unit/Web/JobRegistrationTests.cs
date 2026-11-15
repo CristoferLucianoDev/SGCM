@@ -18,4 +18,16 @@ public sealed class JobRegistrationTests
             descriptor.ServiceType == typeof(IHostedService)
             && descriptor.ImplementationType == typeof(PurgeUnconfirmedAccountsJob));
     }
+
+    [Fact]
+    public void AddSgcmJobs_RegistersPurgeExpiredCredentialsJobAsHostedService()
+    {
+        var services = new ServiceCollection();
+
+        services.AddSgcmJobs();
+
+        services.ShouldContain(descriptor =>
+            descriptor.ServiceType == typeof(IHostedService)
+            && descriptor.ImplementationType == typeof(PurgeExpiredCredentialsJob));
+    }
 }

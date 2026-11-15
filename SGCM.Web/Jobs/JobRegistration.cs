@@ -13,6 +13,7 @@ public static class JobRegistration
     public static IServiceCollection AddSgcmJobs(this IServiceCollection services)
     {
         services.AddRecurringJob<PurgeUnconfirmedAccountsJob>();
+        services.AddRecurringJob<PurgeExpiredCredentialsJob>();
 
         return services;
     }

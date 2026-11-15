@@ -28,6 +28,9 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
     private static readonly TimeSpan SessionLifetime = TimeSpan.FromDays(7);
     private const int MaxSessions = 5;
 
+    // Con este máximo, abrir una sesión revoca las demás activas por límite de sesiones.
+    private const int SingleSession = 1;
+
     private const string SessionHash = "hash-sesion";
     private const string DeviceName = "Chrome en Windows";
     private const string IpAddress = "203.0.113.10";
@@ -496,6 +499,113 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         user.Sessions.ShouldHaveSingleItem().RefreshTokenHash.ShouldBe(SessionHash);
     }
 
+    [Fact]
+    public async Task DeleteEndedCredentialsAsync_borra_el_token_terminado_de_una_cuenta_confirmada_y_conserva_el_vigente()
+    {
+        var user = UserMother.Confirmed(Email.Create("confirmada@correo.com").Value);
+        var issuedAt = Now + UserMother.ConfirmationLifetime;
+        user.IssueToken(UserTokenType.PasswordReset, "raw-reset", "hash-reset", issuedAt, PasswordResetLifetime);
+        await SaveAsync(user);
+        // El token de confirmación venció antes del corte; el de recuperación sigue vigente.
+        var cutoff = issuedAt.AddMinutes(1);
+
+        (await PurgeCredentialsAsync(cutoff)).ShouldBe(1);
+
+        await using var verification = CreateContext();
+        var remaining = await verification.Set<UserToken>().ToListAsync();
+        remaining.ShouldHaveSingleItem().TokenHash.ShouldBe("hash-reset");
+    }
+
+    [Fact]
+    public async Task DeleteEndedCredentialsAsync_borra_la_sesion_vencida_y_la_revocada_y_conserva_la_activa()
+    {
+        var user = UserMother.Confirmed(Email.Create("sesiones@correo.com").Value);
+        StartSession(user, "hash-vencida", Now);
+        // La primera ya venció cuando se abren las otras dos, así que el límite de una sola
+        // sesión revoca únicamente la segunda.
+        var afterExpiry = Now + SessionLifetime + TimeSpan.FromDays(1);
+        StartSession(user, "hash-revocada", afterExpiry);
+        user.StartSession("hash-activa", DeviceName, IpAddress, afterExpiry.AddDays(1), SessionLifetime, SingleSession)
+            .IsSuccess.ShouldBeTrue();
+        await SaveAsync(user);
+        var cutoff = afterExpiry.AddDays(2);
+
+        await PurgeCredentialsAsync(cutoff);
+
+        await using var verification = CreateContext();
+        var remaining = await verification.Set<UserSession>().ToListAsync();
+        remaining.ShouldHaveSingleItem().RefreshTokenHash.ShouldBe("hash-activa");
+    }
+
+    [Fact]
+    public async Task DeleteEndedCredentialsAsync_no_borra_los_tokens_de_una_cuenta_sin_confirmar()
+    {
+        await SaveAsync(UserMother.Pending(Email.Create("pendiente@correo.com").Value));
+        var cutoff = Now.AddDays(1);
+
+        (await PurgeCredentialsAsync(cutoff)).ShouldBe(0);
+
+        await using var verification = CreateContext();
+        (await verification.Set<UserToken>().CountAsync()).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task DeleteEndedCredentialsAsync_devuelve_la_suma_de_tokens_y_sesiones_borrados()
+    {
+        var user = UserMother.Confirmed(Email.Create("suma@correo.com").Value);
+        StartSession(user, SessionHash, Now);
+        await SaveAsync(user);
+        await SaveAsync(UserMother.Pending(Email.Create("pendiente@correo.com").Value));
+        var cutoff = Now + SessionLifetime + TimeSpan.FromDays(1);
+
+        (await PurgeCredentialsAsync(cutoff)).ShouldBe(2);
+
+        await using var verification = CreateContext();
+        (await verification.Set<UserSession>().CountAsync()).ShouldBe(0);
+        (await verification.Set<UserToken>().CountAsync()).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task DeleteEndedCredentialsAsync_sin_transaccion_lanza_excepcion()
+    {
+        await using var context = CreateContext();
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            new UserRepository(context).DeleteEndedCredentialsAsync(UserMother.Now, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteEndedCredentialsAsync_salta_el_usuario_bloqueado_por_otra_transaccion()
+    {
+        var lockedEmail = Email.Create("bloqueado@correo.com").Value;
+        var locked = UserMother.Confirmed(lockedEmail);
+        var free = UserMother.Confirmed(Email.Create("libre@correo.com").Value);
+        await SaveAsync(locked);
+        await SaveAsync(free);
+        var cutoff = Now.AddDays(1);
+
+        await using (var commandContext = CreateContext())
+        {
+            await using var commandTransaction = await commandContext.Database.BeginTransactionAsync();
+            (await new UserRepository(commandContext).GetByEmailForUpdateAsync(lockedEmail, CancellationToken.None)).ShouldNotBeNull();
+
+            (await PurgeCredentialsWithTimeoutAsync(cutoff)).ShouldBe(1);
+
+            await using (var verification = CreateContext())
+            {
+                (await CountTokensAsync(verification, free.Id)).ShouldBe(0);
+                (await CountTokensAsync(verification, locked.Id)).ShouldBe(1);
+            }
+
+            await commandTransaction.RollbackAsync();
+        }
+
+        (await PurgeCredentialsAsync(cutoff)).ShouldBe(1);
+
+        await using var finalVerification = CreateContext();
+        (await CountTokensAsync(finalVerification, locked.Id)).ShouldBe(0);
+    }
+
     private static void StartSession(User user, string refreshTokenHash, DateTimeOffset at) =>
         user.StartSession(refreshTokenHash, DeviceName, IpAddress, at, SessionLifetime, MaxSessions).IsSuccess.ShouldBeTrue();
 
@@ -526,6 +636,30 @@ public class UserRepositoryTests(PostgresFixture database) : IntegrationTestBase
         await transaction.CommitAsync(timeout.Token);
         return deleted;
     }
+
+    private async Task<int> PurgeCredentialsAsync(DateTimeOffset cutoff)
+    {
+        await using var context = CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var deleted = await new UserRepository(context).DeleteEndedCredentialsAsync(cutoff, CancellationToken.None);
+        await transaction.CommitAsync();
+        return deleted;
+    }
+
+    // Igual que PurgeWithTimeoutAsync: si la limpieza esperara el bloqueo, el límite la hace
+    // fallar por cancelación en vez de colgar la prueba.
+    private async Task<int> PurgeCredentialsWithTimeoutAsync(DateTimeOffset cutoff)
+    {
+        using var timeout = new CancellationTokenSource(LockWaitTimeout);
+        await using var context = CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync(timeout.Token);
+        var deleted = await new UserRepository(context).DeleteEndedCredentialsAsync(cutoff, timeout.Token);
+        await transaction.CommitAsync(timeout.Token);
+        return deleted;
+    }
+
+    private static Task<int> CountTokensAsync(AppDbContext context, int userId) =>
+        context.Set<UserToken>().CountAsync(token => EF.Property<int>(token, "UserId") == userId);
 
     // Consulta pg_locks hasta que la conexión indicada espera un bloqueo; se filtra por su pid
     // para no confundirla con otras sesiones del servidor. El límite de la prueba la hace

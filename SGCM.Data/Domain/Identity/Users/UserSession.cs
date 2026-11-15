@@ -88,6 +88,15 @@ public sealed class UserSession : Entity
     public bool IsActiveAt(DateTimeOffset now) => RevokedAt is null && ExpiresAt > now;
 
     /// <summary>
+    /// Indica si la sesión terminó (venció o se revocó) antes de <paramref name="cutoff"/>.
+    /// La comparación es estricta: una sesión que terminó justo en el corte no cuenta. Es la misma
+    /// regla que aplica <c>UserRepository.DeleteEndedCredentialsAsync</c> en la base.
+    /// </summary>
+    /// <param name="cutoff">Momento de corte.</param>
+    /// <returns><c>true</c> si la sesión terminó antes del corte.</returns>
+    public bool EndedBefore(DateTimeOffset cutoff) => ExpiresAt < cutoff || RevokedAt < cutoff;
+
+    /// <summary>
     /// Reemplaza el refresh token y renueva la vigencia desde <paramref name="now"/> durante
     /// <paramref name="lifetime"/>. Solo se conserva el hash inmediatamente anterior.
     /// Fija <see cref="LastUsedAt"/> en el momento de la rotación porque desde ahí se mide el

@@ -7,6 +7,9 @@ namespace SGCM.Data.Infrastructure.Persistence.Repositories.Identity;
 
 internal sealed class UserRepository(AppDbContext context) : IUserRepository
 {
+    // Clave foránea sombra de tokens y sesiones; debe coincidir con HasForeignKey en UserConfiguration.
+    private const string UserIdProperty = "UserId";
+
     public Task<User?> GetByEmailAsync(Email email, CancellationToken cancellationToken) =>
         UsersWithChildren()
             .SingleOrDefaultAsync(user => user.Email == email, cancellationToken);
@@ -127,12 +130,61 @@ internal sealed class UserRepository(AppDbContext context) : IUserRepository
             .ExecuteDeleteAsync(cancellationToken);
     }
 
+    public async Task<int> DeleteEndedCredentialsAsync(DateTimeOffset cutoff, CancellationToken cancellationToken)
+    {
+        EnsureTransaction();
+
+        var tokenOwners = context.Set<UserToken>()
+            .Where(TokenEndedBefore(cutoff))
+            .Select(token => EF.Property<int>(token, UserIdProperty));
+        var sessionOwners = context.Set<UserSession>()
+            .Where(SessionEndedBefore(cutoff))
+            .Select(session => EF.Property<int>(session, UserIdProperty));
+
+        var candidateIds = await context.Users
+            .Where(user => user.IsEmailConfirmed && (tokenOwners.Contains(user.Id) || sessionOwners.Contains(user.Id)))
+            .Select(user => user.Id)
+            .ToListAsync(cancellationToken);
+
+        if (candidateIds.Count == 0)
+        {
+            return 0;
+        }
+
+        // Se bloquea al usuario porque un comando que lo tiene tomado puede invalidar un token o
+        // revocar una sesión ya terminada; si este proceso borrara esa fila, su UPDATE fallaría
+        // por concurrencia.
+        // Los usuarios bloqueados quedan tomados solo mientras corren los dos DELETE. No se procesa
+        // por lotes porque el job corre una vez al día y el volumen es bajo; los filtros con OR
+        // recorren ambas tablas completas, lo que se acepta por la misma razón. Si el volumen crece,
+        // la salida es procesar por lotes e indexar expires_at.
+        var lockedIds = await LockSkippingLockedAsync(candidateIds.ToArray(), cancellationToken);
+
+        if (lockedIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var deletedTokens = await context.Set<UserToken>()
+            .Where(token => lockedIds.Contains(EF.Property<int>(token, UserIdProperty)))
+            .Where(TokenEndedBefore(cutoff))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        var deletedSessions = await context.Set<UserSession>()
+            .Where(session => lockedIds.Contains(EF.Property<int>(session, UserIdProperty)))
+            .Where(SessionEndedBefore(cutoff))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        return deletedTokens + deletedSessions;
+    }
+
     public void Add(User user) => context.Users.Add(user);
 
     // El agregado se carga completo porque sus reglas (límite de sesiones, invalidar tokens)
     // necesitan ver todos sus hijos. AsSplitQuery evita el producto cartesiano de dos
     // colecciones en un mismo JOIN. El volumen de sesiones queda acotado porque un proceso
-    // periódico borra las vencidas o revocadas con más de 30 días (modelo de datos, sección 8).
+    // periódico borra las vencidas o revocadas con más del período de retención
+    // (Accounts:CredentialRetentionDays, 30 días por defecto) (modelo de datos, sección 8).
     private IQueryable<User> UsersWithChildren() =>
         context.Users
             .Include(user => user.Tokens)
@@ -153,6 +205,14 @@ internal sealed class UserRepository(AppDbContext context) : IUserRepository
                 && token.UsedAt == null
                 && token.InvalidatedAt == null
                 && token.ExpiresAt > now);
+
+    // Misma regla que UserToken.EndedBefore y UserSession.EndedBefore, escrita como expresión
+    // para que EF la traduzca a SQL.
+    private static Expression<Func<UserToken, bool>> TokenEndedBefore(DateTimeOffset cutoff) =>
+        token => token.ExpiresAt < cutoff || token.UsedAt < cutoff || token.InvalidatedAt < cutoff;
+
+    private static Expression<Func<UserSession, bool>> SessionEndedBefore(DateTimeOffset cutoff) =>
+        session => session.ExpiresAt < cutoff || session.RevokedAt < cutoff;
 
     private void EnsureTransaction()
     {
