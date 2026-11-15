@@ -161,6 +161,33 @@ public sealed class SgcmApplicationFactory(
     }
 
     /// <summary>
+    /// Calcula el hash de un token en claro con el <see cref="ISecureTokenGenerator"/> de la app,
+    /// el mismo con que la base guarda los refresh tokens. Se resuelve desde la raíz porque es singleton.
+    /// </summary>
+    /// <param name="refreshToken">Token en claro, tal como lo recibió el cliente.</param>
+    /// <returns>El hash, comparable con los que guarda la base.</returns>
+    public string HashRefreshToken(string refreshToken) =>
+        Services.GetRequiredService<ISecureTokenGenerator>().Hash(refreshToken);
+
+    /// <summary>
+    /// Lee de la base la sesión cuyo refresh token vigente es <paramref name="refreshToken"/>.
+    /// </summary>
+    /// <param name="email">Correo del dueño de la sesión.</param>
+    /// <param name="refreshToken">Refresh token vigente en claro.</param>
+    /// <returns>La sesión tal como quedó en la base.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// Si no hay un usuario con ese correo o no hay exactamente una sesión con ese refresh token vigente.
+    /// </exception>
+    public async Task<UserSession> FindSessionAsync(string email, string refreshToken)
+    {
+        var user = await FindUserAsync(email)
+            ?? throw new InvalidOperationException($"No hay un usuario con el correo {email}.");
+        var hash = HashRefreshToken(refreshToken);
+
+        return user.Sessions.Single(session => session.RefreshTokenHash == hash);
+    }
+
+    /// <summary>
     /// Guarda un usuario preparado por la prueba, sin disparar sus eventos.
     /// </summary>
     public async Task SaveAsync(User user)
