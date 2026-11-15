@@ -29,11 +29,11 @@ public sealed class DoctorCreateTests
         doctor.FirstName.ShouldBe(DoctorMother.FirstName);
         doctor.LastName.ShouldBe(DoctorMother.LastName);
         doctor.LicenseNumber.ShouldBe(DoctorMother.LicenseNumber);
-        doctor.PhoneNumber.ShouldBe(DoctorMother.PhoneNumber);
+        doctor.PhoneNumber.Value.ShouldBe(DoctorMother.PhoneNumber);
         doctor.ProvinceId.ShouldBe(DoctorMother.ProvinceId);
         doctor.MunicipalityId.ShouldBe(DoctorMother.MunicipalityId);
         doctor.AddressLine.ShouldBe(DoctorMother.AddressLine);
-        doctor.ConsultationFee.ShouldBe(DoctorMother.ConsultationFee);
+        doctor.ConsultationFee.Value.ShouldBe(DoctorMother.ConsultationFee);
         doctor.YearsOfExperience.ShouldBe(DoctorMother.YearsOfExperience);
         doctor.Biography.ShouldBe(DoctorMother.Biography);
         doctor.IsActive.ShouldBeTrue();
@@ -176,6 +176,13 @@ public sealed class DoctorCreateTests
     }
 
     [Fact]
+    public void Create_rechaza_tarifa_con_fracciones_de_centavo()
+    {
+        AssertFailure(DoctorMother.Create([11], consultationFee: 12.345m), DoctorErrors.InvalidConsultationFee,
+            "Doctor.InvalidConsultationFee");
+    }
+
+    [Fact]
     public void Create_acepta_los_limites_del_perfil_despues_de_recortar_sin_alterar_su_contenido_interno()
     {
         var result = DoctorMother.Create([int.MaxValue], userId: int.MaxValue,
@@ -193,10 +200,10 @@ public sealed class DoctorCreateTests
         doctor.FirstName.ShouldBe(new string('a', 100));
         doctor.LastName.ShouldBe(new string('B', 100));
         doctor.LicenseNumber.ShouldBe(new string('L', 50));
-        doctor.PhoneNumber.ShouldBe(new string('1', 20));
+        doctor.PhoneNumber.Value.ShouldBe(new string('1', 20));
         doctor.AddressLine.ShouldBe(new string('d', 250));
         doctor.Biography.ShouldBe(new string('b', 1000));
-        doctor.ConsultationFee.ShouldBe(99999999.99m);
+        doctor.ConsultationFee.Value.ShouldBe(99999999.99m);
         doctor.YearsOfExperience.ShouldBe(int.MaxValue);
         doctor.Specialties.ShouldHaveSingleItem().SpecialtyId.ShouldBe(int.MaxValue);
     }
@@ -212,10 +219,10 @@ public sealed class DoctorCreateTests
         doctor.FirstName.ShouldBe("Luis  José");
         doctor.LastName.ShouldBe("PÉREZ");
         doctor.LicenseNumber.ShouldBe(DoctorMother.LicenseNumber);
-        doctor.PhoneNumber.ShouldBe(DoctorMother.PhoneNumber);
+        doctor.PhoneNumber.Value.ShouldBe(DoctorMother.PhoneNumber);
         doctor.AddressLine.ShouldBe("Calle  Principal");
         doctor.Biography.ShouldBe("Atención  MÉDICA.\nPara la niñez.");
-        doctor.ConsultationFee.ShouldBe(0m);
+        doctor.ConsultationFee.Value.ShouldBe(0m);
         doctor.YearsOfExperience.ShouldBe(0);
     }
 

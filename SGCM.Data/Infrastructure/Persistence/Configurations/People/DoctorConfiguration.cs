@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.Specialties;
@@ -16,10 +17,14 @@ internal sealed class DoctorConfiguration : IEntityTypeConfiguration<Doctor>
         builder.Property(doctor => doctor.FirstName).HasMaxLength(Doctor.MaxFirstNameLength).IsRequired();
         builder.Property(doctor => doctor.LastName).HasMaxLength(Doctor.MaxLastNameLength).IsRequired();
         builder.Property(doctor => doctor.LicenseNumber).HasMaxLength(Doctor.MaxLicenseNumberLength).IsRequired();
-        builder.Property(doctor => doctor.PhoneNumber).HasMaxLength(Doctor.MaxPhoneNumberLength).IsRequired();
+        builder.Property(doctor => doctor.PhoneNumber)
+            .HasConversion(phone => phone.Value, value => PhoneNumber.FromStoredValue(value))
+            .HasMaxLength(Doctor.MaxPhoneNumberLength).IsRequired();
         builder.Property(doctor => doctor.AddressLine).HasMaxLength(Doctor.MaxAddressLineLength).IsRequired();
         builder.Property(doctor => doctor.Biography).HasMaxLength(Doctor.MaxBiographyLength).IsRequired();
-        builder.Property(doctor => doctor.ConsultationFee).HasPrecision(10, 2);
+        builder.Property(doctor => doctor.ConsultationFee)
+            .HasConversion(fee => fee.Value, value => Money.FromStoredValue(value))
+            .HasPrecision(10, 2);
         builder.Property(doctor => doctor.IsActive).IsRequired().ValueGeneratedNever();
         builder.HasIndex(doctor => doctor.UserId).IsUnique().HasDatabaseName("uq_doctor_user_id");
         builder.HasIndex(doctor => doctor.LicenseNumber).IsUnique().HasDatabaseName("uq_doctor_license_number");
