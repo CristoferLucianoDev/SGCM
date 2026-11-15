@@ -13,7 +13,8 @@ public class AccountsOptionsValidatorTests
         ResendConfirmationCooldownSeconds = 30,
         PasswordResetTokenMinutes = 30,
         EmailConfirmationUrl = "https://localhost:7126/cuenta/confirmar",
-        PasswordResetUrl = "https://localhost:7126/cuenta/restablecer"
+        PasswordResetUrl = "https://localhost:7126/cuenta/restablecer",
+        CredentialRetentionDays = 30
     };
 
     [Fact]
@@ -79,5 +80,41 @@ public class AccountsOptionsValidatorTests
         result.Failed.ShouldBeTrue();
         result.FailureMessage.ShouldContain("Accounts__PasswordResetUrl");
         result.FailureMessage.ShouldContain("URL absoluta https");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Credential_retention_days_that_are_not_positive_fail(int days)
+    {
+        var options = ValidOptions();
+        options.CredentialRetentionDays = days;
+
+        var result = _validator.Validate(null, options);
+
+        result.Failed.ShouldBeTrue();
+        result.FailureMessage.ShouldContain("Accounts__CredentialRetentionDays");
+    }
+
+    [Fact]
+    public void Credential_retention_days_above_the_maximum_fail()
+    {
+        var options = ValidOptions();
+        options.CredentialRetentionDays = AccountsOptions.MaxCredentialRetentionDays + 1;
+
+        var result = _validator.Validate(null, options);
+
+        result.Failed.ShouldBeTrue();
+        result.FailureMessage.ShouldContain("Accounts__CredentialRetentionDays");
+        result.FailureMessage.ShouldContain("365");
+    }
+
+    [Fact]
+    public void Credential_retention_days_equal_to_the_maximum_pass()
+    {
+        var options = ValidOptions();
+        options.CredentialRetentionDays = AccountsOptions.MaxCredentialRetentionDays;
+
+        _validator.Validate(null, options).Succeeded.ShouldBeTrue();
     }
 }

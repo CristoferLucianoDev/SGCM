@@ -67,4 +67,15 @@ public interface IUserRepository : IRepository<User>
     /// <returns>La cantidad de cuentas borradas.</returns>
     /// <exception cref="InvalidOperationException">Si no hay una transacción activa.</exception>
     Task<int> DeleteExpiredPendingRegistrationsAsync(DateTimeOffset now, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Borra los tokens y las sesiones que terminaron antes de <paramref name="cutoff"/>, solo de
+    /// cuentas con el correo confirmado. Salta los usuarios cuya fila está bloqueada por otra
+    /// transacción; la siguiente pasada los vuelve a evaluar.
+    /// </summary>
+    /// <param name="cutoff">Momento de corte; se borra lo que terminó antes de él.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
+    /// <returns>La suma de tokens y sesiones borrados.</returns>
+    /// <exception cref="InvalidOperationException">Si no hay una transacción activa.</exception>
+    Task<int> DeleteEndedCredentialsAsync(DateTimeOffset cutoff, CancellationToken cancellationToken);
 }
