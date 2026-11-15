@@ -5,6 +5,7 @@ using Npgsql;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.People.Doctors;
+using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Infrastructure.Persistence;
@@ -45,7 +46,26 @@ public class UnitOfWorkConflictTests
         conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);
     }
 
+    [Fact]
+    public async Task SaveChangesAsync_traduce_el_nombre_de_proveedor_de_seguros_duplicado_y_conserva_la_causa()
+    {
+        var postgres = CreatePostgresException("23505", "uq_insurance_provider_name", "people", "insurance_provider");
+        var original = new DbUpdateException("Error de prueba.", postgres);
+
+        var conflict = await Should.ThrowAsync<PersistenceConflictException>(() => SaveThrowingAsync(original));
+
+        conflict.Error.ShouldBe(InsuranceProviderErrors.NameAlreadyInUse);
+        conflict.Error.Code.ShouldBe("InsuranceProvider.NameAlreadyInUse");
+        conflict.Error.Type.ShouldBe(ErrorType.Conflict);
+        conflict.InnerException.ShouldBeSameAs(original);
+        conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);
+    }
+
     [Theory]
+    [InlineData("23505", "uq_insurance_provider_name", "app", "insurance_provider")]
+    [InlineData("23505", "uq_insurance_provider_name", "people", "specialty")]
+    [InlineData("23503", "uq_insurance_provider_name", "people", "insurance_provider")]
+    [InlineData("23505", "uq_specialty_name", "people", "insurance_provider")]
     [InlineData("23505", "pk_doctor_specialty", "app", "doctor_specialty")]
     [InlineData("23505", "pk_doctor_specialty", "people", "doctor")]
     [InlineData("23503", "pk_doctor_specialty", "people", "doctor_specialty")]
