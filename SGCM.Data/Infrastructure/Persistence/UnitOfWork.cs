@@ -4,6 +4,7 @@ using Npgsql;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.People.Doctors;
+using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Infrastructure.Persistence.Interceptors;
@@ -28,13 +29,14 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
         }
     }
 
-    // Índices únicos que el dominio reconoce como conflicto. La clave exige esquema, tabla e índice
-    // para no traducir por error una violación de otra tabla.
+    // Índices y restricciones únicas que el dominio reconoce como conflicto. La clave exige esquema,
+    // tabla y nombre para no traducir por error una violación de otra tabla.
     private static readonly Dictionary<(string Schema, string Table, string Constraint), Error> UniqueConflicts = new()
     {
         [("people", "specialty", "uq_specialty_name")] = SpecialtyErrors.NameAlreadyInUse,
         [("people", "patient", "uq_patient_user_id")] = PatientErrors.ProfileAlreadyExists,
-        [("people", "doctor_specialty", "pk_doctor_specialty")] = DoctorErrors.SpecialtyAlreadyAssociated
+        [("people", "doctor_specialty", "pk_doctor_specialty")] = DoctorErrors.SpecialtyAlreadyAssociated,
+        [("people", "insurance_provider", "uq_insurance_provider_name")] = InsuranceProviderErrors.NameAlreadyInUse
     };
 
     private static bool TryGetUniqueConflict(DbUpdateException exception, out Error error)
