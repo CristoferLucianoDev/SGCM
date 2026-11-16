@@ -193,6 +193,9 @@ jobs:
           </html>
           HTML
 
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
       - name: Preparar artefacto de GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
