@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.Specialties;
@@ -61,6 +62,19 @@ public sealed class DoctorMappingTests
     }
 
     [Fact]
+    public void Doctor_mapea_las_claves_geograficas_en_el_orden_del_esquema()
+    {
+        using var context = Context();
+        var doctor = context.Model.FindEntityType(typeof(Doctor))!;
+        var province = doctor.GetForeignKeys().SingleOrDefault(key => key.GetConstraintName() == "fk_doctor_province");
+        var municipality = doctor.GetForeignKeys().SingleOrDefault(key => key.GetConstraintName() == "fk_doctor_municipality");
+
+        AssertGeographicForeignKey(province, "province", [nameof(Doctor.ProvinceId)], ["id"], "pk_province");
+        AssertGeographicForeignKey(municipality, "municipality", [nameof(Doctor.MunicipalityId), nameof(Doctor.ProvinceId)],
+            ["id", "province_id"], "uq_municipality_id_province_id");
+    }
+
+    [Fact]
     public void DoctorSpecialty_es_owned_con_clave_compuesta_real_y_acceso_por_campo()
     {
         using var context = Context();
@@ -85,6 +99,30 @@ public sealed class DoctorMappingTests
         specialty.DeleteBehavior.ShouldBe(DeleteBehavior.NoAction);
         doctor.FindProperty(nameof(Doctor.ConsultationFee))!.GetPrecision().ShouldBe(10);
         doctor.FindProperty(nameof(Doctor.ConsultationFee))!.GetScale().ShouldBe(2);
+        var fee = doctor.FindProperty(nameof(Doctor.ConsultationFee))!;
+        fee.ClrType.ShouldBe(typeof(Money));
+        fee.GetTypeMapping().Converter!.ProviderClrType.ShouldBe(typeof(decimal));
+        var phone = doctor.FindProperty(nameof(Doctor.PhoneNumber))!;
+        phone.ClrType.ShouldBe(typeof(PhoneNumber));
+        phone.GetTypeMapping().Converter!.ProviderClrType.ShouldBe(typeof(string));
+    }
+
+    private static void AssertGeographicForeignKey(IForeignKey? key, string table, string[] properties,
+        string[] principalColumns, string principalKey)
+    {
+        key.ShouldNotBeNull();
+        var principal = key.PrincipalEntityType;
+        principal.GetTableName().ShouldBe(table);
+        principal.GetSchema().ShouldBe("people");
+        key.DeleteBehavior.ShouldBe(DeleteBehavior.NoAction);
+        key.IsRequired.ShouldBeTrue();
+        key.Properties.Select(property => property.Name).ShouldBe(properties);
+        key.Properties.ShouldAllBe(property => !property.IsShadowProperty());
+        key.PrincipalKey.Properties.ShouldAllBe(property => !property.IsShadowProperty());
+        var principalTable = StoreObjectIdentifier.Table(table, "people");
+        key.PrincipalKey.Properties.Select(property => property.GetColumnName(principalTable))
+            .ShouldBe(principalColumns);
+        key.PrincipalKey.GetName().ShouldBe(principalKey);
     }
 
     private static AppDbContext Context() => new(new DbContextOptionsBuilder<AppDbContext>()

@@ -30,6 +30,12 @@ internal sealed class DoctorConfiguration : IEntityTypeConfiguration<Doctor>
         builder.HasIndex(doctor => doctor.LicenseNumber).IsUnique().HasDatabaseName("uq_doctor_license_number");
         builder.HasOne<User>().WithOne().HasForeignKey<Doctor>(doctor => doctor.UserId)
             .OnDelete(DeleteBehavior.NoAction).HasConstraintName("fk_doctor_user");
+        builder.HasOne<ProvinceReference>().WithMany().HasForeignKey(doctor => doctor.ProvinceId)
+            .OnDelete(DeleteBehavior.NoAction).HasConstraintName("fk_doctor_province");
+        builder.HasOne<MunicipalityReference>().WithMany()
+            .HasForeignKey(doctor => new { doctor.MunicipalityId, doctor.ProvinceId })
+            .HasPrincipalKey(municipality => new { municipality.Id, municipality.ProvinceId })
+            .OnDelete(DeleteBehavior.NoAction).HasConstraintName("fk_doctor_municipality");
         builder.Ignore(doctor => doctor.DomainEvents);
 
         builder.OwnsMany(doctor => doctor.Specialties, links =>

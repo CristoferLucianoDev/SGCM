@@ -5,6 +5,9 @@ namespace SGCM.Data.Infrastructure.Persistence.Repositories.People;
 
 internal sealed class DoctorRepository(AppDbContext context) : IDoctorRepository
 {
+    public Task<bool> ExistsByLicenseNumberAsync(string licenseNumber, CancellationToken cancellationToken) =>
+        context.Doctors.AnyAsync(doctor => doctor.LicenseNumber == licenseNumber, cancellationToken);
+
     public async Task<Doctor?> GetByUserIdForUpdateAsync(int userId, CancellationToken cancellationToken)
     {
         if (context.Database.CurrentTransaction is null)
