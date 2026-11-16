@@ -7,6 +7,7 @@ using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
+using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Data.Infrastructure.Persistence.Interceptors;
 
 namespace SGCM.Data.Infrastructure.Persistence;
@@ -23,7 +24,7 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
         {
             await context.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException exception) when (TryGetUniqueConflict(exception, out var error))
+        catch (DbUpdateException exception) when (TryGetConflict(exception, out var error))
         {
             throw new PersistenceConflictException(error, exception);
         }
@@ -41,16 +42,23 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
         [("people", "insurance_provider", "uq_insurance_provider_name")] = InsuranceProviderErrors.NameAlreadyInUse
     };
 
-    private static bool TryGetUniqueConflict(DbUpdateException exception, out Error error)
+    // Restricciones EXCLUDE que el dominio reconoce como conflicto, con la misma clave exacta.
+    private static readonly Dictionary<(string Schema, string Table, string Constraint), Error> ExclusionConflicts = new()
+    {
+        [("scheduling", "doctor_availability", "ex_doctor_availability_no_overlap")] = DoctorAvailabilityErrors.Overlap
+    };
+
+    private static bool TryGetConflict(DbUpdateException exception, out Error error)
     {
         if (exception.InnerException is PostgresException
             {
-                SqlState: PostgresErrorCodes.UniqueViolation,
+                SqlState: var sqlState,
                 SchemaName: { } schema,
                 TableName: { } table,
                 ConstraintName: { } constraint
             }
-            && UniqueConflicts.TryGetValue((schema, table, constraint), out var conflict))
+            && ConflictsFor(sqlState) is { } conflicts
+            && conflicts.TryGetValue((schema, table, constraint), out var conflict))
         {
             error = conflict;
             return true;
@@ -59,6 +67,14 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
         error = Error.None;
         return false;
     }
+
+    private static Dictionary<(string Schema, string Table, string Constraint), Error>? ConflictsFor(string sqlState) =>
+        sqlState switch
+        {
+            PostgresErrorCodes.UniqueViolation => UniqueConflicts,
+            PostgresErrorCodes.ExclusionViolation => ExclusionConflicts,
+            _ => null
+        };
 
     private sealed class EfTransaction(
         IDbContextTransaction transaction,

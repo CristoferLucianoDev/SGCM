@@ -8,6 +8,7 @@
 -- El trigger de disponibilidad impide borrar bloques con citas activas.
 DELETE FROM scheduling.appointment;
 DELETE FROM scheduling.doctor_availability;
+DELETE FROM scheduling.doctor_availability_series;
 DELETE FROM people.doctor_specialty;
 DELETE FROM people.patient;
 DELETE FROM people.doctor;
