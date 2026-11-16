@@ -55,6 +55,9 @@ public static class DoctorErrors
     public static readonly Error LicenseNumberTooLong = Error.Validation(
         "Doctor.LicenseNumberTooLong", $"El número de licencia no puede superar {Doctor.MaxLicenseNumberLength} caracteres.");
 
+    public static readonly Error LicenseNumberAlreadyInUse = Error.Conflict(
+        "Doctor.LicenseNumberAlreadyInUse", "El número de licencia profesional ya está registrado.");
+
     public static readonly Error PhoneNumberRequired = Error.Validation(
         "Doctor.PhoneNumberRequired", "El teléfono del médico es obligatorio.");
 

@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
+using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Doctors;
@@ -194,6 +196,8 @@ public sealed class DoctorRepositoryTests(PostgresFixture database) : Integratio
         loaded.UserId.ShouldBe(user.Id);
         loaded.IsActive.ShouldBeFalse();
         loaded.FirstName.ShouldBe(DoctorMother.FirstName);
+        loaded.ProvinceId.ShouldBe(source.ProvinceId);
+        loaded.MunicipalityId.ShouldBe(source.MunicipalityId);
         loaded.PhoneNumber.ShouldBe(doctor.PhoneNumber);
         loaded.ConsultationFee.ShouldBe(doctor.ConsultationFee);
         (await context.Database.SqlQuery<string>(
@@ -205,6 +209,246 @@ public sealed class DoctorRepositoryTests(PostgresFixture database) : Integratio
         loaded.Specialties.ShouldHaveSingleItem().SpecialtyId.ShouldBe(seed.SpecialtyIds[0]);
         (await context.Doctors.AsNoTracking().SingleAsync(value => value.Id == seed.DoctorId))
             .Specialties.Select(link => link.SpecialtyId).ShouldBe(seed.SpecialtyIds.Take(2), ignoreOrder: true);
+    }
+
+    [Theory]
+    [InlineData("provincia_incorrecta")]
+    [InlineData("municipio_inexistente")]
+    [InlineData("provincia_inexistente")]
+    public async Task Add_rechaza_ubicaciones_incompatibles_en_PostgreSQL(string scenario)
+    {
+        var seed = await SeedRegistrationAsync();
+        await using var context = Context();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var location = scenario switch
+        {
+            "provincia_incorrecta" => seed with
+            {
+                ProvinceId = await context.Database.SqlQuery<int>(
+                    $"""SELECT id AS "Value" FROM people.province WHERE id <> {seed.ProvinceId} ORDER BY id LIMIT 1""")
+                    .SingleAsync()
+            },
+            "municipio_inexistente" => seed with { MunicipalityId = int.MaxValue },
+            "provincia_inexistente" => seed with { ProvinceId = int.MaxValue },
+            _ => throw new ArgumentOutOfRangeException(nameof(scenario))
+        };
+
+        if (scenario == "provincia_inexistente")
+        {
+            (await context.Database.SqlQuery<bool>(
+                $"SELECT EXISTS (SELECT 1 FROM people.province WHERE id = {location.ProvinceId}) AS \"Value\"")
+                .SingleAsync()).ShouldBeFalse("La provincia de prueba debe estar ausente del catálogo.");
+        }
+        else if (scenario == "municipio_inexistente")
+        {
+            (await context.Database.SqlQuery<bool>(
+                $"SELECT EXISTS (SELECT 1 FROM people.municipality WHERE id = {location.MunicipalityId}) AS \"Value\"")
+                .SingleAsync()).ShouldBeFalse("El municipio de prueba debe estar ausente del catálogo.");
+        }
+
+        new DoctorRepository(context).Add(location.CreateDoctor(0, "LIC-251-GEO"));
+
+        var failure = await Should.ThrowAsync<DbUpdateException>(() => context.SaveChangesAsync());
+
+        var postgres = AssertPostgresFailure(failure, PostgresErrorCodes.ForeignKeyViolation);
+        if (scenario == "provincia_inexistente")
+        {
+            // Una provincia ausente también invalida la pareja de la FK compuesta.
+            string[] geographicKeys = ["fk_doctor_province", "fk_doctor_municipality"];
+            geographicKeys.ShouldContain(postgres.ConstraintName);
+        }
+        else
+        {
+            postgres.ConstraintName.ShouldBe("fk_doctor_municipality");
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SaveChanges_distingue_licencia_duplicada_de_usuario_duplicado(bool duplicateLicense)
+    {
+        var seed = await SeedRegistrationAsync(2);
+        await using var provider = DoctorPersistenceData.Provider(Database.ConnectionString);
+        await using var scope = provider.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IDoctorRepository>();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+        await using var transaction = await unitOfWork.BeginTransactionAsync(CancellationToken.None);
+        const string license = "LIC-251-DUP";
+        repository.Add(seed.CreateDoctor(0, license));
+        await unitOfWork.SaveChangesAsync(CancellationToken.None);
+        repository.Add(duplicateLicense ? seed.CreateDoctor(1, license) : seed.CreateDoctor(0, "LIC-251-OTRA"));
+
+        var failure = await Record.ExceptionAsync(() => unitOfWork.SaveChangesAsync(CancellationToken.None));
+
+        if (duplicateLicense)
+        {
+            var conflict = failure.ShouldBeOfType<PersistenceConflictException>();
+            AssertLicenseConflict(conflict);
+        }
+        else
+        {
+            var postgres = AssertPostgresFailure(failure.ShouldBeOfType<DbUpdateException>(), PostgresErrorCodes.UniqueViolation);
+            postgres.ConstraintName.ShouldBe("uq_doctor_user_id");
+        }
+
+        await transaction.RollbackAsync(CancellationToken.None);
+        await using var verification = Context();
+        (await verification.Doctors.AnyAsync(doctor => seed.UserIds.Contains(doctor.UserId))).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ExistsByLicenseNumber_compara_el_valor_persistido_sin_cargar_perfiles(bool active)
+    {
+        var seed = await SeedRegistrationAsync();
+        const string license = "LIC-251-Exacta";
+        await using (var setup = Context())
+        {
+            var doctor = seed.CreateDoctor(0, $" {license} ");
+            doctor.LicenseNumber.ShouldBe(license);
+            if (!active) doctor.Deactivate().IsSuccess.ShouldBeTrue();
+            new DoctorRepository(setup).Add(doctor);
+            await setup.SaveChangesAsync();
+        }
+
+        await using var context = Context();
+        IDoctorRepository repository = new DoctorRepository(context);
+
+        (await repository.ExistsByLicenseNumberAsync(license, CancellationToken.None)).ShouldBeTrue();
+        (await repository.ExistsByLicenseNumberAsync("LIC-251-Disponible", CancellationToken.None)).ShouldBeFalse();
+        (await repository.ExistsByLicenseNumberAsync("lic-251-exacta", CancellationToken.None)).ShouldBeFalse();
+        (await repository.ExistsByLicenseNumberAsync($"{license} ", CancellationToken.None)).ShouldBeFalse();
+        context.ChangeTracker.Entries().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ExistsByLicenseNumber_propaga_la_cancelacion()
+    {
+        await using var context = Context();
+        IDoctorRepository repository = new DoctorRepository(context);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var error = await Should.ThrowAsync<OperationCanceledException>(() =>
+            repository.ExistsByLicenseNumberAsync("LIC-251", cancellation.Token));
+
+        error.CancellationToken.ShouldBe(cancellation.Token);
+        context.ChangeTracker.Entries().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Dos_altas_con_la_misma_licencia_solo_confirman_un_perfil_y_sus_vinculos()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var seed = await SeedRegistrationAsync(2, timeout.Token);
+        await using var provider = DoctorPersistenceData.Provider(Database.ConnectionString);
+        await using var firstScope = provider.CreateAsyncScope();
+        await using var secondScope = provider.CreateAsyncScope();
+        var firstContext = firstScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var secondContext = secondScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var firstRepository = firstScope.ServiceProvider.GetRequiredService<IDoctorRepository>();
+        var secondRepository = secondScope.ServiceProvider.GetRequiredService<IDoctorRepository>();
+        var firstUnit = firstScope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+        var secondUnit = secondScope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+        await using var firstTransaction = await firstUnit.BeginTransactionAsync(timeout.Token);
+        await using var secondTransaction = await secondUnit.BeginTransactionAsync(timeout.Token);
+        const string license = "LIC-251-Concurrente";
+
+        (await firstRepository.ExistsByLicenseNumberAsync(license, timeout.Token)).ShouldBeFalse();
+        (await secondRepository.ExistsByLicenseNumberAsync(license, timeout.Token)).ShouldBeFalse();
+        var losingSpecialty = Specialty.Create("Especialidad del alta rechazada", "Verifica el rollback.").Value;
+        secondContext.Specialties.Add(losingSpecialty);
+        await secondUnit.SaveChangesAsync(timeout.Token);
+        firstRepository.Add(seed.CreateDoctor(0, license));
+        secondRepository.Add(seed.CreateDoctor(1, license, losingSpecialty.Id));
+        await firstUnit.SaveChangesAsync(timeout.Token);
+
+        var firstPid = await firstContext.Database.SqlQuery<int>($"SELECT pg_backend_pid() AS \"Value\"")
+            .SingleAsync(timeout.Token);
+        var secondPid = await secondContext.Database.SqlQuery<int>($"SELECT pg_backend_pid() AS \"Value\"")
+            .SingleAsync(timeout.Token);
+        var pendingSave = Record.ExceptionAsync(() => secondUnit.SaveChangesAsync(timeout.Token));
+        try
+        {
+            // Espera el bloqueo real de PostgreSQL antes de confirmar al ganador.
+            while (!pendingSave.IsCompleted && !await firstContext.Database.SqlQuery<bool>(
+                       $"SELECT {firstPid} = ANY(pg_blocking_pids({secondPid})) AS \"Value\"")
+                       .SingleAsync(timeout.Token))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(25), timeout.Token);
+            }
+
+            pendingSave.IsCompleted.ShouldBeFalse();
+            await firstTransaction.CommitAsync(timeout.Token);
+            AssertLicenseConflict((await pendingSave).ShouldBeOfType<PersistenceConflictException>());
+            await secondTransaction.RollbackAsync(CancellationToken.None);
+        }
+        finally
+        {
+            if (!pendingSave.IsCompleted)
+            {
+                await timeout.CancelAsync();
+                await pendingSave;
+            }
+        }
+
+        firstContext.Database.CurrentTransaction.ShouldBeNull();
+        secondContext.Database.CurrentTransaction.ShouldBeNull();
+        await using var verification = Context();
+        var winner = await verification.Doctors.AsNoTracking().Include(doctor => doctor.Specialties)
+            .SingleAsync(doctor => seed.UserIds.Contains(doctor.UserId), timeout.Token);
+        winner.UserId.ShouldBe(seed.UserIds[0]);
+        winner.LicenseNumber.ShouldBe(license);
+        winner.Specialties.ShouldHaveSingleItem().SpecialtyId.ShouldBe(seed.SpecialtyId);
+        (await verification.Specialties.AnyAsync(value => value.Id == losingSpecialty.Id, timeout.Token)).ShouldBeFalse();
+        (await verification.Database.SqlQuery<bool>(
+            $"SELECT EXISTS (SELECT 1 FROM people.doctor_specialty WHERE specialty_id = {losingSpecialty.Id}) AS \"Value\"")
+            .SingleAsync(timeout.Token)).ShouldBeFalse();
+    }
+
+    private async Task<DoctorRegistrationSeed> SeedRegistrationAsync(int userCount = 1,
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = Context();
+        var users = Enumerable.Range(0, userCount).Select(_ => UserMother.WithRole(UserRole.Doctor,
+            email: Email.Create($"registration-{Guid.NewGuid():N}@correo.com").Value)).ToArray();
+        var specialty = Specialty.Create($"Especialidad {Guid.NewGuid():N}", "Especialidad inicial del perfil.").Value;
+        context.Users.AddRange(users);
+        context.Specialties.Add(specialty);
+        await context.SaveChangesAsync(cancellationToken);
+        var location = await context.Database.SqlQueryRaw<DoctorLocation>(
+            "SELECT province_id, id AS municipality_id FROM people.municipality ORDER BY id LIMIT 1")
+            .SingleAsync(cancellationToken);
+
+        return new(users.Select(user => user.Id).ToArray(), specialty.Id, location.ProvinceId, location.MunicipalityId);
+    }
+
+    private static void AssertLicenseConflict(PersistenceConflictException conflict)
+    {
+        conflict.Error.ShouldBe(DoctorErrors.LicenseNumberAlreadyInUse);
+        var postgres = AssertPostgresFailure(conflict.InnerException.ShouldBeOfType<DbUpdateException>(),
+            PostgresErrorCodes.UniqueViolation);
+        postgres.ConstraintName.ShouldBe("uq_doctor_license_number");
+    }
+
+    private static PostgresException AssertPostgresFailure(DbUpdateException failure, string sqlState)
+    {
+        var postgres = failure.InnerException.ShouldBeOfType<PostgresException>();
+        postgres.SqlState.ShouldBe(sqlState);
+        postgres.SchemaName.ShouldBe("people");
+        postgres.TableName.ShouldBe("doctor");
+        return postgres;
+    }
+
+    private sealed record DoctorLocation(int ProvinceId, int MunicipalityId);
+
+    private sealed record DoctorRegistrationSeed(int[] UserIds, int SpecialtyId, int ProvinceId, int MunicipalityId)
+    {
+        public Doctor CreateDoctor(int userIndex, string licenseNumber, int? specialtyId = null) =>
+            DoctorMother.Create([specialtyId ?? SpecialtyId], userId: UserIds[userIndex], provinceId: ProvinceId,
+                municipalityId: MunicipalityId, licenseNumber: licenseNumber).Value;
     }
 
     private static Task<string> ReadProfileRowAsync(AppDbContext context, int doctorId) =>

@@ -62,6 +62,12 @@ public class UnitOfWorkConflictTests
     }
 
     [Theory]
+    [InlineData("23505", "uq_doctor_license_number", "app", "doctor")]
+    [InlineData("23505", "uq_doctor_license_number", "people", "patient")]
+    [InlineData("23505", "uq_doctor_user_id", "people", "doctor")]
+    [InlineData("23505", "otro_indice", "people", "doctor")]
+    [InlineData("23503", "uq_doctor_license_number", "people", "doctor")]
+    [InlineData("23503", "fk_doctor_municipality", "people", "doctor")]
     [InlineData("23505", "uq_insurance_provider_name", "app", "insurance_provider")]
     [InlineData("23505", "uq_insurance_provider_name", "people", "specialty")]
     [InlineData("23503", "uq_insurance_provider_name", "people", "insurance_provider")]
@@ -93,9 +99,25 @@ public class UnitOfWorkConflictTests
     }
 
     [Fact]
+    public async Task SaveChangesAsync_traduce_la_licencia_duplicada_y_conserva_la_causa()
+    {
+        var postgres = CreatePostgresException("23505", "uq_doctor_license_number", "people", "doctor");
+        var original = new DbUpdateException("Conflicto de licencia.", postgres);
+
+        var conflict = await Should.ThrowAsync<PersistenceConflictException>(() => SaveThrowingAsync(original));
+
+        conflict.Error.ShouldBe(DoctorErrors.LicenseNumberAlreadyInUse);
+        conflict.Error.Code.ShouldBe("Doctor.LicenseNumberAlreadyInUse");
+        conflict.Error.Type.ShouldBe(ErrorType.Conflict);
+        conflict.InnerException.ShouldBeSameAs(original);
+        conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);
+    }
+
+    [Fact]
     public async Task SaveChangesAsync_no_traduce_un_mensaje_que_menciona_el_indice()
     {
-        var original = new DbUpdateException("uq_specialty_name 23505 people specialty", new InvalidOperationException());
+        var original = new DbUpdateException("uq_specialty_name 23505 people specialty; uq_doctor_license_number 23505 people doctor",
+            new InvalidOperationException());
 
         var actual = await Should.ThrowAsync<DbUpdateException>(() => SaveThrowingAsync(original));
 
