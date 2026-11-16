@@ -19,6 +19,8 @@ using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.Abstractions.Services;
 using SGCM.Data.Infrastructure.Security;
 using SGCM.Data.Infrastructure.Services;
+using SGCM.Data.Domain.Scheduling.Availability;
+using SGCM.Data.Infrastructure.Persistence.Repositories.Scheduling;
 
 namespace SGCM.Data.Infrastructure;
 
@@ -64,6 +66,8 @@ public static class DependencyInjection
         services.AddScoped<IPatientRepository, PatientRepository>();
         services.AddScoped<IDoctorRepository, DoctorRepository>();
         services.AddScoped<IInsuranceProviderRepository, InsuranceProviderRepository>();
+        services.AddScoped<IDoctorAvailabilitySeriesRepository, DoctorAvailabilitySeriesRepository>();
+        services.AddScoped<IDoctorAvailabilityRepository, DoctorAvailabilityRepository>();
         services.AddScoped<IUserProfileReader, UserProfileReader>();
         services.AddScoped<IDoctorProfileCatalogReader, DoctorProfileCatalogReader>();
         services.AddScoped<ITwoFactorStatusReader, TwoFactorStatusReader>();

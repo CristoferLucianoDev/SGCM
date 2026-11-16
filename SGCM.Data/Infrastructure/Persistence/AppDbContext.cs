@@ -4,6 +4,7 @@ using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
+using SGCM.Data.Domain.Scheduling.Availability;
 
 namespace SGCM.Data.Infrastructure.Persistence;
 
@@ -14,6 +15,8 @@ internal sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbC
     public DbSet<Patient> Patients => Set<Patient>();
     public DbSet<Doctor> Doctors => Set<Doctor>();
     public DbSet<InsuranceProvider> InsuranceProviders => Set<InsuranceProvider>();
+    public DbSet<DoctorAvailabilitySeries> DoctorAvailabilitySeries => Set<DoctorAvailabilitySeries>();
+    public DbSet<DoctorAvailability> DoctorAvailabilities => Set<DoctorAvailability>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

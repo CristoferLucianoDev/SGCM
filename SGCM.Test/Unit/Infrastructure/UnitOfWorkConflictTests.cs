@@ -8,6 +8,7 @@ using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
+using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Data.Infrastructure.Persistence;
 using SGCM.Data.Infrastructure.Persistence.Interceptors;
 using Shouldly;
@@ -59,6 +60,40 @@ public class UnitOfWorkConflictTests
         conflict.Error.Type.ShouldBe(ErrorType.Conflict);
         conflict.InnerException.ShouldBeSameAs(original);
         conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_traduce_el_traslape_de_bloques_del_medico_y_conserva_la_causa()
+    {
+        var postgres = CreatePostgresException("23P01", "ex_doctor_availability_no_overlap", "scheduling", "doctor_availability");
+        var original = new DbUpdateException("Error de prueba.", postgres);
+
+        var conflict = await Should.ThrowAsync<PersistenceConflictException>(() => SaveThrowingAsync(original));
+
+        conflict.Error.ShouldBe(DoctorAvailabilityErrors.Overlap);
+        conflict.Error.Code.ShouldBe("Availability.Overlap");
+        conflict.Error.Type.ShouldBe(ErrorType.Conflict);
+        conflict.InnerException.ShouldBeSameAs(original);
+        conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);
+    }
+
+    [Theory]
+    [InlineData("23505", "ex_doctor_availability_no_overlap", "scheduling", "doctor_availability")]
+    [InlineData("23P01", "ex_doctor_availability_no_overlap", "people", "doctor_availability")]
+    [InlineData("23P01", "ex_doctor_availability_no_overlap", "scheduling", "appointment")]
+    [InlineData("23P01", "otra_exclusion", "scheduling", "doctor_availability")]
+    [InlineData("23P01", "uq_specialty_name", "people", "specialty")]
+    [InlineData("23514", "ck_doctor_availability_on_hour", "scheduling", "doctor_availability")]
+    [InlineData("23503", "fk_doctor_availability_doctor_availability_series", "scheduling", "doctor_availability")]
+    [InlineData("23P01", null, "scheduling", "doctor_availability")]
+    public async Task SaveChangesAsync_propaga_sin_traducir_otras_violaciones_de_disponibilidad(
+        string sqlState, string? constraint, string? schema, string? table)
+    {
+        var original = new DbUpdateException("Error de prueba.", CreatePostgresException(sqlState, constraint, schema, table));
+
+        var actual = await Should.ThrowAsync<DbUpdateException>(() => SaveThrowingAsync(original));
+
+        actual.ShouldBeSameAs(original);
     }
 
     [Theory]

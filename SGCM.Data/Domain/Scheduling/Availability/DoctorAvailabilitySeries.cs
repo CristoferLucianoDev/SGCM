@@ -9,12 +9,13 @@ namespace SGCM.Data.Domain.Scheduling.Availability;
 /// </summary>
 public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
 {
-    private List<DayOfWeek> _daysOfWeek = [];
+    // Días en formato ISO 8601 (1 = lunes ... 7 = domingo), ordenados y sin repetir, como los guarda la base.
+    private short[] _isoDaysOfWeek = [];
 
     public int DoctorId { get; private set; }
 
     /// <summary>Días en que se repite, sin duplicados y en orden de lunes a domingo.</summary>
-    public IReadOnlyList<DayOfWeek> DaysOfWeek => _daysOfWeek.AsReadOnly();
+    public IReadOnlyList<DayOfWeek> DaysOfWeek => Array.AsReadOnly(_isoDaysOfWeek.Select(FromIsoDayNumber).ToArray());
 
     public TimeOnly StartTime { get; private set; }
 
@@ -72,7 +73,7 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
         var series = new DoctorAvailabilitySeries
         {
             DoctorId = doctorId,
-            _daysOfWeek = days.OrderBy(IsoDayNumber).ToList(),
+            _isoDaysOfWeek = days.Select(day => (short)IsoDayNumber(day)).Order().ToArray(),
             StartTime = startTime,
             EndTime = endTime,
             StartDate = startDate,
@@ -96,13 +97,14 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
         var last = EndDate is { } end && end < to ? end : to;
         if (last < first) return [];
 
+        var days = DaysOfWeek;
         var zone = FindTimeZone(TimeZone)
             ?? throw new InvalidOperationException($"La zona horaria '{TimeZone}' de la serie no existe.");
         var occurrences = new List<AvailabilityOccurrence>();
 
         for (var date = first; date <= last; date = date.AddDays(1))
         {
-            if (!_daysOfWeek.Contains(date.DayOfWeek)) continue;
+            if (!days.Contains(date.DayOfWeek)) continue;
 
             var localStart = date.ToDateTime(StartTime, DateTimeKind.Unspecified);
             var localEnd = date.ToDateTime(EndTime, DateTimeKind.Unspecified);
@@ -119,6 +121,8 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
 
     /// <summary>Número ISO 8601 del día: 1 = lunes ... 7 = domingo, como lo guarda la base.</summary>
     public static int IsoDayNumber(DayOfWeek day) => day == DayOfWeek.Sunday ? 7 : (int)day;
+
+    private static DayOfWeek FromIsoDayNumber(short isoDay) => isoDay == 7 ? DayOfWeek.Sunday : (DayOfWeek)isoDay;
 
     private static bool IsOnHour(TimeOnly time) => time.Ticks % TimeSpan.TicksPerHour == 0;
 
