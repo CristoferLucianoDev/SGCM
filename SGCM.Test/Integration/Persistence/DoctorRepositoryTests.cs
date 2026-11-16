@@ -37,11 +37,11 @@ public sealed class DoctorRepositoryTests(PostgresFixture database) : Integratio
         doctor.FirstName.ShouldBe("Luis");
         doctor.LastName.ShouldBe("Pérez");
         doctor.LicenseNumber.ShouldStartWith("TASK226-");
-        doctor.PhoneNumber.ShouldBe("8095550200");
+        doctor.PhoneNumber.ShouldBe(PhoneNumber.Create("8095550200").Value);
         doctor.ProvinceId.ShouldBeGreaterThan(0);
         doctor.MunicipalityId.ShouldBeGreaterThan(0);
         doctor.AddressLine.ShouldBe("Calle de pruebas 226");
-        doctor.ConsultationFee.ShouldBe(1500m);
+        doctor.ConsultationFee.ShouldBe(Money.Create(1500m).Value);
         doctor.YearsOfExperience.ShouldBe(10);
         doctor.Biography.ShouldBe("Perfil médico de prueba.");
         doctor.Specialties.Select(link => link.SpecialtyId).ShouldBe(seed.SpecialtyIds.Take(2), ignoreOrder: true);
@@ -65,6 +65,33 @@ public sealed class DoctorRepositoryTests(PostgresFixture database) : Integratio
         legacy.ShouldNotBeNull();
         legacy.Specialties.ShouldBeEmpty();
         context.ChangeTracker.HasChanges().ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" \t  ")]
+    [InlineData(" 8095550200 ")]
+    public async Task GetByUserId_conserva_el_telefono_legado_al_guardar_un_vinculo(string storedPhone)
+    {
+        await using var context = Context();
+        var seed = await DoctorPersistenceData.SeedAsync(context);
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE people.doctor SET phone_number = {storedPhone} WHERE id = {seed.DoctorId}");
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var before = await ReadProfileRowAsync(context, seed.DoctorId);
+        var doctor = await new DoctorRepository(context).GetByUserIdForUpdateAsync(seed.UserId, CancellationToken.None);
+
+        doctor.ShouldNotBeNull();
+        doctor.PhoneNumber.Value.ShouldBe(storedPhone);
+        doctor.AssociateSpecialty(seed.SpecialtyIds[2]).IsSuccess.ShouldBeTrue();
+
+        context.Entry(doctor).State.ShouldBe(EntityState.Unchanged);
+        await context.SaveChangesAsync();
+        (await ReadProfileRowAsync(context, seed.DoctorId)).ShouldBe(before);
+        context.ChangeTracker.Clear();
+        var loaded = await context.Doctors.Include(value => value.Specialties).SingleAsync(value => value.Id == seed.DoctorId);
+        loaded.PhoneNumber.Value.ShouldBe(storedPhone);
+        loaded.Specialties.Select(link => link.SpecialtyId).ShouldBe(seed.SpecialtyIds, ignoreOrder: true);
     }
 
     [Fact]
@@ -148,7 +175,8 @@ public sealed class DoctorRepositoryTests(PostgresFixture database) : Integratio
         await context.SaveChangesAsync();
         var doctor = DoctorMother.Create([seed.SpecialtyIds[0]], userId: user.Id,
             provinceId: source.ProvinceId, municipalityId: source.MunicipalityId,
-            licenseNumber: $"LIC-{Guid.NewGuid():N}").Value;
+            licenseNumber: $"LIC-{Guid.NewGuid():N}", phoneNumber: " 809-555-0100 ",
+            consultationFee: 99999999.990m).Value;
         doctor.Deactivate().IsSuccess.ShouldBeTrue();
         var repository = new DoctorRepository(context);
 
@@ -166,11 +194,22 @@ public sealed class DoctorRepositoryTests(PostgresFixture database) : Integratio
         loaded.UserId.ShouldBe(user.Id);
         loaded.IsActive.ShouldBeFalse();
         loaded.FirstName.ShouldBe(DoctorMother.FirstName);
-        loaded.ConsultationFee.ShouldBe(DoctorMother.ConsultationFee);
+        loaded.PhoneNumber.ShouldBe(doctor.PhoneNumber);
+        loaded.ConsultationFee.ShouldBe(doctor.ConsultationFee);
+        (await context.Database.SqlQuery<string>(
+            $"""SELECT phone_number AS "Value" FROM people.doctor WHERE id = {doctor.Id}""").SingleAsync())
+            .ShouldBe("809-555-0100");
+        (await context.Database.SqlQuery<string>(
+            $"""SELECT consultation_fee::text AS "Value" FROM people.doctor WHERE id = {doctor.Id}""").SingleAsync())
+            .ShouldBe("99999999.99");
         loaded.Specialties.ShouldHaveSingleItem().SpecialtyId.ShouldBe(seed.SpecialtyIds[0]);
         (await context.Doctors.AsNoTracking().SingleAsync(value => value.Id == seed.DoctorId))
             .Specialties.Select(link => link.SpecialtyId).ShouldBe(seed.SpecialtyIds.Take(2), ignoreOrder: true);
     }
+
+    private static Task<string> ReadProfileRowAsync(AppDbContext context, int doctorId) =>
+        context.Database.SqlQuery<string>(
+            $"""SELECT row_to_json(d)::text AS "Value" FROM people.doctor d WHERE id = {doctorId}""").SingleAsync();
 
     private AppDbContext Context() => DoctorPersistenceData.Context(Database.ConnectionString);
 }

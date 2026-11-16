@@ -450,9 +450,15 @@ public sealed class ChangeTemporaryPasswordTests(PostgresFixture database) : Api
         var foreign = await LoginSuccessfullyAsync(ForeignEmail, Temporary);
         var other = await LoginSuccessfullyAsync(Email, Temporary);
         var current = await LoginSuccessfullyAsync(Email, Temporary);
-        current.PendingStep.ShouldBe("change_password");
         var userId = int.Parse(Read(current).GetClaim(AppClaims.UserId).Value, CultureInfo.InvariantCulture);
         var sessionId = int.Parse(Read(current).GetClaim(AppClaims.SessionId).Value, CultureInfo.InvariantCulture);
+        // Las secuencias son independientes. Cualquiera de las dos sesiones sirve como sesión actual.
+        if (userId == sessionId)
+        {
+            (current, other) = (other, current);
+            sessionId = int.Parse(Read(current).GetClaim(AppClaims.SessionId).Value, CultureInfo.InvariantCulture);
+        }
+        current.PendingStep.ShouldBe("change_password");
         var foreignSessionId = int.Parse(Read(foreign).GetClaim(AppClaims.SessionId).Value, CultureInfo.InvariantCulture);
         var foreignUserId = int.Parse(Read(foreign).GetClaim(AppClaims.UserId).Value, CultureInfo.InvariantCulture);
         userId.ShouldNotBe(sessionId);

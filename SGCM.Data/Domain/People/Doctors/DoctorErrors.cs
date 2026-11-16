@@ -32,7 +32,7 @@ public static class DoctorErrors
         "Doctor.InvalidMunicipalityId", "El identificador del municipio debe ser mayor que cero.");
 
     public static readonly Error InvalidConsultationFee = Error.Validation(
-        "Doctor.InvalidConsultationFee", "La tarifa debe estar entre 0 y 99999999.99.");
+        "Doctor.InvalidConsultationFee", "La tarifa debe estar entre 0 y 99999999.99 y ser representable con hasta dos decimales.");
 
     public static readonly Error InvalidYearsOfExperience = Error.Validation(
         "Doctor.InvalidYearsOfExperience", "Los años de experiencia no pueden ser negativos.");
