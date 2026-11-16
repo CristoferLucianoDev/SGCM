@@ -129,9 +129,15 @@ jobs:
           name: allure-results
           path: allure-results
 
-      # Trae los reportes anteriores para conservar el historial (tendencia).
-      # En el primer run la rama gh-pages no existe y el paso se omite.
-      - name: Obtener historial
+      # Se configura antes de generar el reporte porque su base_url se usa
+      # para descargar el sitio publicado anteriormente.
+      - name: Configurar GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      # Respaldo para la primera publicacion con deploy-pages: el sitio previo
+      # solo existe en la rama gh-pages. Si la rama no existe, el paso se omite.
+      - name: Obtener historial de gh-pages
         uses: actions/checkout@v4
         continue-on-error: true
         with:
@@ -147,18 +153,26 @@ jobs:
       - name: Instalar Allure
         run: npm install -g allure-commandline@2
 
-      # Copia el sitio actual, recupera el historial de la rama y genera el
-      # reporte nuevo en <rama>/. El historial es lo que alimenta la tendencia.
+      # deploy-pages reemplaza el sitio completo en cada despliegue, por eso se
+      # restaura el sitio publicado (reportes de todas las ramas y su historial)
+      # desde site.tar.gz antes de generar el reporte nuevo en <rama>/.
       - name: Generar reporte Allure
         env:
           BRANCH: ${{ github.ref_name }}
           RUN_NUMBER: ${{ github.run_number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PAGES_URL: ${{ steps.pages.outputs.base_url }}
+          SITE_ARCHIVE: site.tar.gz
         run: |
           mkdir -p site
-          if [ -d gh-pages ]; then
+          # El parametro evita recibir una copia vieja desde la cache del CDN de Pages.
+          if curl -fsSL --retry 3 -o "$RUNNER_TEMP/$SITE_ARCHIVE" "$PAGES_URL/$SITE_ARCHIVE?run=$GITHUB_RUN_ID"; then
+            tar -xzf "$RUNNER_TEMP/$SITE_ARCHIVE" -C site
+          elif [ -d gh-pages ]; then
             cp -r gh-pages/. site/
             rm -rf site/.git
+          else
+            echo "No hay sitio previo; se genera el reporte sin historial"
           fi
 
           if [ -d "site/$BRANCH/history" ]; then
@@ -193,8 +207,10 @@ jobs:
           </html>
           HTML
 
-      - name: Configurar GitHub Pages
-        uses: actions/configure-pages@v5
+          # Copia del sitio completo que la siguiente ejecucion descarga para no
+          # perder los reportes de las demas ramas.
+          tar -czf "$RUNNER_TEMP/$SITE_ARCHIVE" -C site --exclude="./$SITE_ARCHIVE" .
+          mv "$RUNNER_TEMP/$SITE_ARCHIVE" "site/$SITE_ARCHIVE"
 
       - name: Preparar artefacto de GitHub Pages
         uses: actions/upload-pages-artifact@v3
