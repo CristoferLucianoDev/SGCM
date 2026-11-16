@@ -280,15 +280,17 @@ public sealed class DoctorRepositoryTests(PostgresFixture database) : Integratio
         repository.Add(duplicateLicense ? seed.CreateDoctor(1, license) : seed.CreateDoctor(0, "LIC-251-OTRA"));
 
         var failure = await Record.ExceptionAsync(() => unitOfWork.SaveChangesAsync(CancellationToken.None));
+        var conflict = failure.ShouldBeOfType<PersistenceConflictException>();
 
         if (duplicateLicense)
         {
-            var conflict = failure.ShouldBeOfType<PersistenceConflictException>();
             AssertLicenseConflict(conflict);
         }
         else
         {
-            var postgres = AssertPostgresFailure(failure.ShouldBeOfType<DbUpdateException>(), PostgresErrorCodes.UniqueViolation);
+            conflict.Error.ShouldBe(DoctorErrors.ProfileAlreadyExists);
+            var postgres = AssertPostgresFailure(conflict.InnerException.ShouldBeOfType<DbUpdateException>(),
+                PostgresErrorCodes.UniqueViolation);
             postgres.ConstraintName.ShouldBe("uq_doctor_user_id");
         }
 

@@ -10,6 +10,15 @@ public static class DoctorErrors
     public static readonly Error ProfileIncomplete = Error.Conflict(
         "Doctor.ProfileIncomplete", "El perfil médico no tiene especialidades y requiere regularización.");
 
+    public static readonly Error ProfileAlreadyExists = Error.Conflict(
+        "Doctor.ProfileAlreadyExists", "El médico ya tiene un perfil registrado.");
+
+    public static readonly Error RoleRequired = Error.Forbidden(
+        "Doctor.RoleRequired", "Solo los médicos pueden completar un perfil médico.");
+
+    public static readonly Error TemporaryPasswordChangeRequired = Error.Forbidden(
+        "Doctor.TemporaryPasswordChangeRequired", "Debes cambiar la contraseña temporal antes de completar el perfil.");
+
     public static readonly Error SpecialtyAlreadyAssociated = Error.Conflict(
         "Doctor.SpecialtyAlreadyAssociated", "El médico ya tiene asociada esta especialidad.");
 
@@ -30,6 +39,15 @@ public static class DoctorErrors
 
     public static readonly Error InvalidMunicipalityId = Error.Validation(
         "Doctor.InvalidMunicipalityId", "El identificador del municipio debe ser mayor que cero.");
+
+    public static readonly Error ProvinceNotFound = Error.Validation(
+        "Doctor.ProvinceNotFound", "La provincia seleccionada no existe.");
+
+    public static readonly Error MunicipalityNotFound = Error.Validation(
+        "Doctor.MunicipalityNotFound", "El municipio seleccionado no existe.");
+
+    public static readonly Error MunicipalityProvinceMismatch = Error.Validation(
+        "Doctor.MunicipalityProvinceMismatch", "El municipio debe pertenecer a la provincia seleccionada.");
 
     public static readonly Error InvalidConsultationFee = Error.Validation(
         "Doctor.InvalidConsultationFee", "La tarifa debe estar entre 0 y 99999999.99 y ser representable con hasta dos decimales.");

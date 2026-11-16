@@ -880,6 +880,8 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<ITemporaryPasswordGenerator>());
         services.AddSingleton(_patientRepository);
         services.AddSingleton(_doctorRepository);
+        services.AddSingleton(Substitute.For<IUserProfileReader>());
+        services.AddSingleton(Substitute.For<IDoctorProfileCatalogReader>());
         services.AddSingleton(Substitute.For<IInsuranceProviderReader>());
         services.AddSingleton(_insuranceProviderRepository);
 
