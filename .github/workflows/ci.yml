@@ -112,7 +112,12 @@ jobs:
     if: always() && github.event_name != 'pull_request' && needs.build-and-test.result != 'skipped'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     concurrency:
       group: gh-pages
       cancel-in-progress: false
@@ -188,9 +193,14 @@ jobs:
           </html>
           HTML
 
-      - name: Publicar en GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Preparar artefacto de GitHub Pages
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: site
+          path: site
+
+      - name: Publicar en GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
