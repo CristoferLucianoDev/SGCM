@@ -64,7 +64,9 @@ public class UnitOfWorkConflictTests
     [Theory]
     [InlineData("23505", "uq_doctor_license_number", "app", "doctor")]
     [InlineData("23505", "uq_doctor_license_number", "people", "patient")]
-    [InlineData("23505", "uq_doctor_user_id", "people", "doctor")]
+    [InlineData("23505", "uq_doctor_user_id", "app", "doctor")]
+    [InlineData("23505", "uq_doctor_user_id", "people", "patient")]
+    [InlineData("23503", "uq_doctor_user_id", "people", "doctor")]
     [InlineData("23505", "otro_indice", "people", "doctor")]
     [InlineData("23503", "uq_doctor_license_number", "people", "doctor")]
     [InlineData("23503", "fk_doctor_municipality", "people", "doctor")]
@@ -108,6 +110,21 @@ public class UnitOfWorkConflictTests
 
         conflict.Error.ShouldBe(DoctorErrors.LicenseNumberAlreadyInUse);
         conflict.Error.Code.ShouldBe("Doctor.LicenseNumberAlreadyInUse");
+        conflict.Error.Type.ShouldBe(ErrorType.Conflict);
+        conflict.InnerException.ShouldBeSameAs(original);
+        conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_traduce_el_perfil_medico_duplicado_por_usuario()
+    {
+        var postgres = CreatePostgresException("23505", "uq_doctor_user_id", "people", "doctor");
+        var original = new DbUpdateException("Conflicto de perfil.", postgres);
+
+        var conflict = await Should.ThrowAsync<PersistenceConflictException>(() => SaveThrowingAsync(original));
+
+        conflict.Error.ShouldBe(DoctorErrors.ProfileAlreadyExists);
+        conflict.Error.Code.ShouldBe("Doctor.ProfileAlreadyExists");
         conflict.Error.Type.ShouldBe(ErrorType.Conflict);
         conflict.InnerException.ShouldBeSameAs(original);
         conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);

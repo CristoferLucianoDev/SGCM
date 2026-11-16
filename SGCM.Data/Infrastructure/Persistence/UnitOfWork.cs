@@ -35,6 +35,7 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
     {
         [("people", "specialty", "uq_specialty_name")] = SpecialtyErrors.NameAlreadyInUse,
         [("people", "patient", "uq_patient_user_id")] = PatientErrors.ProfileAlreadyExists,
+        [("people", "doctor", "uq_doctor_user_id")] = DoctorErrors.ProfileAlreadyExists,
         [("people", "doctor", "uq_doctor_license_number")] = DoctorErrors.LicenseNumberAlreadyInUse,
         [("people", "doctor_specialty", "pk_doctor_specialty")] = DoctorErrors.SpecialtyAlreadyAssociated,
         [("people", "insurance_provider", "uq_insurance_provider_name")] = InsuranceProviderErrors.NameAlreadyInUse
