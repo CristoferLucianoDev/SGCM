@@ -8,5 +8,12 @@ internal sealed class DoctorAvailabilitySeriesRepository(AppDbContext context) :
     public Task<DoctorAvailabilitySeries?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
         context.DoctorAvailabilitySeries.AsTracking().SingleOrDefaultAsync(series => series.Id == id, cancellationToken);
 
+    public async Task<IReadOnlyList<DoctorAvailabilitySeries>> ListActiveByDoctorAsync(
+        int doctorId, CancellationToken cancellationToken) =>
+        await context.DoctorAvailabilitySeries.AsNoTracking()
+            .Where(series => series.DoctorId == doctorId && series.IsActive)
+            .OrderBy(series => series.Id)
+            .ToListAsync(cancellationToken);
+
     public void Add(DoctorAvailabilitySeries series) => context.DoctorAvailabilitySeries.Add(series);
 }

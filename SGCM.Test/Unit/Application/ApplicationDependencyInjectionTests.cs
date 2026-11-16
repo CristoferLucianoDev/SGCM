@@ -24,6 +24,8 @@ using SGCM.Data.Application.People.Commands.DeactivateSpecialty;
 using SGCM.Data.Application.People.Commands.RegisterInsuranceProvider;
 using SGCM.Data.Application.People.Commands.UpdateSpecialty;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
+using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.ValueObjects;
@@ -32,6 +34,7 @@ using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
+using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Test.Common.Fakes;
 using SGCM.Test.Common.Mothers;
 using SGCM.Test.Unit.Application.People;
@@ -50,6 +53,8 @@ public sealed class ApplicationDependencyInjectionTests
     private readonly IPatientRepository _patientRepository = Substitute.For<IPatientRepository>();
     private readonly IDoctorRepository _doctorRepository = Substitute.For<IDoctorRepository>();
     private readonly IInsuranceProviderRepository _insuranceProviderRepository = Substitute.For<IInsuranceProviderRepository>();
+    private readonly IDoctorAvailabilitySeriesRepository _seriesRepository = Substitute.For<IDoctorAvailabilitySeriesRepository>();
+    private readonly IDoctorAvailabilityRepository _availabilityRepository = Substitute.For<IDoctorAvailabilityRepository>();
 
     [Theory]
     [InlineData(1, true)]
@@ -857,6 +862,58 @@ public sealed class ApplicationDependencyInjectionTests
         if (kind == "validation") _userRepository.ReceivedCalls().ShouldBeEmpty();
     }
 
+    [Theory]
+    [InlineData("success")]
+    [InlineData("validation")]
+    [InlineData("overlap")]
+    public async Task Crear_serie_se_resuelve_con_validacion_y_transaccion(string kind)
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ICurrentUser>().UserId.Returns(42);
+        var doctor = DoctorMother.Create([1]).Value;
+        typeof(Entity).GetProperty(nameof(Entity.Id))!.SetValue(doctor, 7);
+        _doctorRepository.GetByUserIdForUpdateAsync(42, CancellationToken.None).Returns(doctor);
+        _seriesRepository.ListActiveByDoctorAsync(Arg.Any<int>(), CancellationToken.None).Returns(
+            kind == "overlap"
+                ? new List<DoctorAvailabilitySeries> { DoctorAvailabilitySeriesMother.Valid() }
+                : new List<DoctorAvailabilitySeries>());
+        _availabilityRepository.ListByDoctorAsync(
+                Arg.Any<int>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset?>(), CancellationToken.None)
+            .Returns(new List<DoctorAvailability>());
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(CancellationToken.None).Returns(transaction);
+        var clock = (FakeDateTimeProvider)scope.ServiceProvider.GetRequiredService<IDateTimeProvider>();
+        clock.UtcNow = new DateTimeOffset(2027, 1, 1, 12, 0, 0, TimeSpan.Zero);
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<CreateAvailabilitySeriesCommand, int>>();
+        var command = kind == "validation"
+            ? CreateAvailabilitySeriesCommandMother.Valid() with { StartTime = new TimeOnly(8, 30) }
+            : CreateAvailabilitySeriesCommandMother.Valid();
+
+        handler.ShouldBeOfType<ValidationDecorator<CreateAvailabilitySeriesCommand, int>>();
+        var result = await handler.HandleAsync(command, CancellationToken.None);
+
+        switch (kind)
+        {
+            case "success":
+                result.IsSuccess.ShouldBeTrue();
+                _seriesRepository.Received(1).Add(Arg.Is<DoctorAvailabilitySeries>(series => series.DoctorId == doctor.Id));
+                await transaction.Received(1).CommitAsync(CancellationToken.None);
+                break;
+            case "validation":
+                result.Error.Code.ShouldBe(DoctorAvailabilitySeriesErrors.TimeNotOnHour.Code);
+                _doctorRepository.ReceivedCalls().ShouldBeEmpty();
+                await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+                break;
+            default:
+                result.Error.ShouldBe(DoctorAvailabilitySeriesErrors.Overlap);
+                _seriesRepository.DidNotReceive().Add(Arg.Any<DoctorAvailabilitySeries>());
+                await transaction.Received(1).RollbackAsync(CancellationToken.None);
+                await transaction.DidNotReceive().CommitAsync(Arg.Any<CancellationToken>());
+                break;
+        }
+    }
+
     private ServiceProvider BuildProvider()
     {
         var services = new ServiceCollection();
@@ -884,6 +941,9 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<IDoctorProfileCatalogReader>());
         services.AddSingleton(Substitute.For<IInsuranceProviderReader>());
         services.AddSingleton(_insuranceProviderRepository);
+        services.AddSingleton(_seriesRepository);
+        services.AddSingleton(_availabilityRepository);
+        services.AddSingleton(Options.Create(CreateAvailabilitySeriesCommandMother.Options()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
     }

@@ -30,4 +30,11 @@ public static class DoctorAvailabilitySeriesErrors
 
     public static readonly Error InvalidTimeZone = Error.Validation(
         "AvailabilitySeries.InvalidTimeZone", "La zona horaria de la serie no es válida.");
+
+    public static readonly Error StartDateInPast = Error.Validation(
+        "AvailabilitySeries.StartDateInPast", "La fecha desde no puede ser una fecha pasada.");
+
+    /// <summary>La serie se cruza con un bloque existente o con otra serie activa del mismo médico.</summary>
+    public static readonly Error Overlap = Error.Conflict(
+        "AvailabilitySeries.Overlap", "La serie se traslapa con otro horario del mismo médico.");
 }
