@@ -6,6 +6,7 @@ using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.People.Doctors;
+using SGCM.Data.Domain.Scheduling;
 using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Test.Common.Fakes;
 using SGCM.Test.Common.Mothers;
@@ -210,7 +211,8 @@ public sealed class CreateAvailabilitySeriesCommandHandlerTests
 
     private Task<Result<int>> Handle(CreateAvailabilitySeriesCommand command) =>
         new CreateAvailabilitySeriesCommandHandler(
-                _currentUser, _doctors, _series, _blocks, _unitOfWork, _clock, Options.Create(_options))
+                _currentUser, _doctors, _series, _blocks, _unitOfWork, _clock,
+                BusinessCalendar.ForTimeZone(_options.TimeZone), Options.Create(_options))
             .HandleAsync(command, CancellationToken.None);
 
     private static DoctorAvailabilitySeries OtherSeries(DayOfWeek[] days, TimeOnly start, TimeOnly end) =>

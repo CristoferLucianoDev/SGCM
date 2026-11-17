@@ -12,4 +12,7 @@ public static class SchedulingErrors
 
     public static readonly Error InvalidTimeRange = Error.Validation(
         "Scheduling.InvalidTimeRange", "El fin del rango debe ser posterior a su inicio.");
+
+    public static readonly Error InvalidTimeZone = Error.Validation(
+        "Scheduling.InvalidTimeZone", "La zona horaria no es válida.");
 }

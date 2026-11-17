@@ -36,6 +36,7 @@ using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
+using SGCM.Data.Domain.Scheduling;
 using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Data.Domain.Scheduling.Availability.Events;
 using SGCM.Test.Common.Fakes;
@@ -915,6 +916,19 @@ public sealed class ApplicationDependencyInjectionTests
                 await transaction.DidNotReceive().CommitAsync(Arg.Any<CancellationToken>());
                 break;
         }
+    }
+
+    [Fact]
+    public void El_calendario_de_la_agenda_es_unico_y_usa_la_zona_de_la_configuracion()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var calendar = first.ServiceProvider.GetRequiredService<BusinessCalendar>();
+
+        calendar.TimeZoneId.ShouldBe(CreateAvailabilitySeriesCommandMother.Options().TimeZone);
+        calendar.ShouldBeSameAs(second.ServiceProvider.GetRequiredService<BusinessCalendar>());
     }
 
     [Fact]

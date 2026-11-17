@@ -1,10 +1,12 @@
 ﻿using System.Reflection;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Behaviors;
 using SGCM.Data.Application.Identity.EventHandlers;
 using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Domain.Scheduling;
 
 namespace SGCM.Data.Application;
 
@@ -22,6 +24,9 @@ public static class DependencyInjection
         services.AddQueryHandlers();
         services.AddDomainEventHandlers();
         services.AddScoped<AvailabilityBlockGenerator>();
+        // La zona horaria de la agenda se valida al arrancar, así que el calendario se crea una sola vez.
+        services.AddSingleton(provider =>
+            BusinessCalendar.ForTimeZone(provider.GetRequiredService<IOptions<SchedulingOptions>>().Value.TimeZone));
 
         return services;
     }

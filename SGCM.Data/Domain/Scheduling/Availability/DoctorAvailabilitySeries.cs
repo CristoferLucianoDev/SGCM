@@ -68,8 +68,8 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
 
         if (endDate < startDate) return DoctorAvailabilitySeriesErrors.InvalidDateRange;
 
-        var trimmedTimeZone = timeZone?.Trim();
-        if (FindTimeZone(trimmedTimeZone) is null) return DoctorAvailabilitySeriesErrors.InvalidTimeZone;
+        var calendar = BusinessCalendar.Create(timeZone);
+        if (calendar.IsFailure) return DoctorAvailabilitySeriesErrors.InvalidTimeZone;
 
         var series = new DoctorAvailabilitySeries
         {
@@ -79,7 +79,7 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
             EndTime = endTime,
             StartDate = startDate,
             EndDate = endDate,
-            TimeZone = trimmedTimeZone!
+            TimeZone = calendar.Value.TimeZoneId
         };
 
         series.Raise(new DoctorAvailabilitySeriesCreatedEvent(series));
@@ -99,22 +99,17 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
         if (last < first) return [];
 
         var days = DaysOfWeek;
-        var zone = FindTimeZone(TimeZone)
-            ?? throw new InvalidOperationException($"La zona horaria '{TimeZone}' de la serie no existe.");
+        var calendar = Calendar();
         var occurrences = new List<AvailabilityOccurrence>();
 
         for (var date = first; date <= last; date = date.AddDays(1))
         {
             if (!days.Contains(date.DayOfWeek)) continue;
 
-            var localStart = date.ToDateTime(StartTime, DateTimeKind.Unspecified);
-            var localEnd = date.ToDateTime(EndTime, DateTimeKind.Unspecified);
-            if (zone.IsInvalidTime(localStart) || zone.IsInvalidTime(localEnd)) continue;
+            if (!calendar.TryToUtc(date, StartTime, out var startsAt) || !calendar.TryToUtc(date, EndTime, out var endsAt))
+                continue;
 
-            occurrences.Add(new AvailabilityOccurrence(
-                date,
-                new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localStart, zone)),
-                new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localEnd, zone))));
+            occurrences.Add(new AvailabilityOccurrence(date, startsAt, endsAt));
         }
 
         return occurrences;
@@ -157,13 +152,7 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
     }
 
     /// <summary>Fecha local de un instante en la zona horaria de la serie.</summary>
-    public DateOnly LocalDateOf(DateTimeOffset instant)
-    {
-        var zone = FindTimeZone(TimeZone)
-            ?? throw new InvalidOperationException($"La zona horaria '{TimeZone}' de la serie no existe.");
-
-        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, zone).DateTime);
-    }
+    public DateOnly LocalDateOf(DateTimeOffset instant) => Calendar().ToLocalDate(instant);
 
     /// <summary>
     /// Convierte un número ISO 8601 (1 = lunes ... 7 = domingo) en el día de la semana.
@@ -184,17 +173,6 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
     private static bool Overlaps(AvailabilityOccurrence occurrence, DateTimeOffset startsAt, DateTimeOffset endsAt) =>
         occurrence.Range.Overlaps(startsAt, endsAt);
 
-    private static TimeZoneInfo? FindTimeZone(string? id)
-    {
-        if (string.IsNullOrWhiteSpace(id)) return null;
-
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById(id);
-        }
-        catch (Exception exception) when (exception is TimeZoneNotFoundException or InvalidTimeZoneException)
-        {
-            return null;
-        }
-    }
+    // La zona se validó al crear la serie.
+    private BusinessCalendar Calendar() => BusinessCalendar.ForTimeZone(TimeZone);
 }

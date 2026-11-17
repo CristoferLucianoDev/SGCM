@@ -5,6 +5,7 @@ using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.Abstractions.Services;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.People.Doctors;
+using SGCM.Data.Domain.Scheduling;
 using SGCM.Data.Domain.Scheduling.Availability;
 
 namespace SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
@@ -21,6 +22,7 @@ internal sealed class CreateAvailabilitySeriesCommandHandler(
     IDoctorAvailabilityRepository availabilityRepository,
     IUnitOfWork unitOfWork,
     IDateTimeProvider clock,
+    BusinessCalendar calendar,
     IOptions<SchedulingOptions> schedulingOptions) : ICommandHandler<CreateAvailabilitySeriesCommand, int>
 {
     public async Task<Result<int>> HandleAsync(CreateAvailabilitySeriesCommand command, CancellationToken cancellationToken)
@@ -30,7 +32,8 @@ internal sealed class CreateAvailabilitySeriesCommandHandler(
         var days = ToDaysOfWeek(command.DaysOfWeek);
         if (days.IsFailure) return days.Error;
 
-        if (command.StartDate < Today(options.TimeZone)) return DoctorAvailabilitySeriesErrors.StartDateInPast;
+        // Hoy en la zona de la agenda, no en UTC: a las 21:00 de Santo Domingo ya es mañana en UTC.
+        if (command.StartDate < calendar.Today(clock.UtcNow)) return DoctorAvailabilitySeriesErrors.StartDateInPast;
 
         var doctor = await doctorRepository.GetByUserIdForUpdateAsync(currentUser.UserId, cancellationToken);
         if (doctor is null) return DoctorErrors.NotFound;
@@ -81,8 +84,4 @@ internal sealed class CreateAvailabilitySeriesCommandHandler(
 
         return days.ToArray();
     }
-
-    // La fecha de hoy en la zona horaria de la agenda, no en UTC: a las 21:00 de Santo Domingo ya es mañana en UTC.
-    private DateOnly Today(string timeZone) =>
-        DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(clock.UtcNow, TimeZoneInfo.FindSystemTimeZoneById(timeZone)).DateTime);
 }
