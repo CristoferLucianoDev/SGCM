@@ -217,6 +217,28 @@ public sealed class DoctorAvailabilityRepositoryTests(PostgresFixture database) 
     }
 
     [Fact]
+    public async Task ListActiveFromAsync_devuelve_las_series_activas_vigentes_de_todos_los_medicos()
+    {
+        await using var provider = CreateProvider();
+        var doctorId = await InsertDoctorAsync(provider);
+        var otherDoctorId = await InsertDoctorAsync(provider);
+        var withoutEnd = await SaveSeriesAsync(provider, DoctorAvailabilitySeriesMother.Create(doctorId: doctorId).Value);
+        var endsOnDate = await SaveSeriesAsync(provider, DoctorAvailabilitySeriesMother.Create(
+            [DayOfWeek.Tuesday], endDate: new DateOnly(2027, 2, 1), doctorId: otherDoctorId).Value);
+        await SaveSeriesAsync(provider, DoctorAvailabilitySeriesMother.Create(
+            [DayOfWeek.Thursday], endDate: new DateOnly(2027, 1, 31), doctorId: doctorId).Value);
+        var inactive = DoctorAvailabilitySeriesMother.Create([DayOfWeek.Saturday], doctorId: otherDoctorId).Value;
+        inactive.Deactivate().IsSuccess.ShouldBeTrue();
+        await SaveSeriesAsync(provider, inactive);
+
+        await using var scope = provider.CreateAsyncScope();
+        var series = await scope.ServiceProvider.GetRequiredService<IDoctorAvailabilitySeriesRepository>()
+            .ListActiveFromAsync(new DateOnly(2027, 2, 1), CancellationToken.None);
+
+        series.Select(value => value.Id).ShouldBe(new[] { withoutEnd, endsOnDate });
+    }
+
+    [Fact]
     public async Task ListByDoctorAsync_devuelve_los_bloques_del_medico_que_tocan_el_rango_abiertos_o_cerrados()
     {
         await using var provider = CreateProvider();

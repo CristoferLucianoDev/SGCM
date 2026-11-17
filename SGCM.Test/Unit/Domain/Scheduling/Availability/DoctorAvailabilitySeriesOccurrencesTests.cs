@@ -82,6 +82,16 @@ public sealed class DoctorAvailabilitySeriesOccurrencesTests
     }
 
     [Fact]
+    public void La_fecha_local_de_un_instante_se_cuenta_en_la_zona_de_la_serie()
+    {
+        var series = DoctorAvailabilitySeriesMother.Valid();
+
+        // 5 de enero a las 03:00 UTC todavía es 4 de enero a las 23:00 en Santo Domingo.
+        series.LocalDateOf(new DateTimeOffset(2027, 1, 5, 3, 0, 0, TimeSpan.Zero)).ShouldBe(Monday);
+        series.LocalDateOf(new DateTimeOffset(2027, 1, 5, 4, 0, 0, TimeSpan.Zero)).ShouldBe(Monday.AddDays(1));
+    }
+
+    [Fact]
     public void El_domingo_se_reconoce_como_dia_de_la_serie()
     {
         var series = DoctorAvailabilitySeriesMother.Valid([DayOfWeek.Sunday]);

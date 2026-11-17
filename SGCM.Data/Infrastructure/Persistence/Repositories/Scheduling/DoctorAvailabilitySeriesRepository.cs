@@ -15,5 +15,12 @@ internal sealed class DoctorAvailabilitySeriesRepository(AppDbContext context) :
             .OrderBy(series => series.Id)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<DoctorAvailabilitySeries>> ListActiveFromAsync(
+        DateOnly date, CancellationToken cancellationToken) =>
+        await context.DoctorAvailabilitySeries.AsNoTracking()
+            .Where(series => series.IsActive && (series.EndDate == null || series.EndDate >= date))
+            .OrderBy(series => series.Id)
+            .ToListAsync(cancellationToken);
+
     public void Add(DoctorAvailabilitySeries series) => context.DoctorAvailabilitySeries.Add(series);
 }
