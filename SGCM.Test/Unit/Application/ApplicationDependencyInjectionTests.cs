@@ -25,6 +25,7 @@ using SGCM.Data.Application.People.Commands.RegisterInsuranceProvider;
 using SGCM.Data.Application.People.Commands.UpdateSpecialty;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAvailabilityBlocks;
 using SGCM.Data.Application.Scheduling.EventHandlers;
@@ -970,6 +971,59 @@ public sealed class ApplicationDependencyInjectionTests
         result.Value.ShouldBe(39);
         await _unitOfWork.Received(1).SaveChangesAsync(CancellationToken.None);
         await transaction.Received(1).CommitAsync(CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData("success")]
+    [InlineData("validation")]
+    [InlineData("overlap")]
+    public async Task Crear_bloque_se_resuelve_con_validacion_y_transaccion(string kind)
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<ICurrentUser>().UserId.Returns(42);
+        var doctor = DoctorMother.Create([1]).Value;
+        typeof(Entity).GetProperty(nameof(Entity.Id))!.SetValue(doctor, 7);
+        _doctorRepository.GetByUserIdForUpdateAsync(42, CancellationToken.None).Returns(doctor);
+        _availabilityRepository.ListByDoctorAsync(
+                Arg.Any<int>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset?>(), CancellationToken.None)
+            .Returns(kind == "overlap"
+                ? new List<DoctorAvailability>
+                {
+                    DoctorAvailability.Create(7, null, CreateAvailabilityBlockCommandMother.StartsAtUtc,
+                        CreateAvailabilityBlockCommandMother.EndsAtUtc, 6).Value
+                }
+                : new List<DoctorAvailability>());
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(CancellationToken.None).Returns(transaction);
+        var clock = (FakeDateTimeProvider)scope.ServiceProvider.GetRequiredService<IDateTimeProvider>();
+        clock.UtcNow = new DateTimeOffset(2027, 1, 4, 12, 0, 0, TimeSpan.Zero);
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<CreateAvailabilityBlockCommand, int>>();
+        var command = kind == "validation"
+            ? CreateAvailabilityBlockCommandMother.Valid() with { StartTime = new TimeOnly(8, 30) }
+            : CreateAvailabilityBlockCommandMother.Valid();
+
+        handler.ShouldBeOfType<ValidationDecorator<CreateAvailabilityBlockCommand, int>>();
+        var result = await handler.HandleAsync(command, CancellationToken.None);
+
+        switch (kind)
+        {
+            case "success":
+                result.IsSuccess.ShouldBeTrue();
+                _availabilityRepository.Received(1).Add(Arg.Is<DoctorAvailability>(block => block.DoctorId == 7 && block.SeriesId == null));
+                await transaction.Received(1).CommitAsync(CancellationToken.None);
+                break;
+            case "validation":
+                result.Error.Code.ShouldBe(DoctorAvailabilityErrors.NotOnHour.Code);
+                _doctorRepository.ReceivedCalls().ShouldBeEmpty();
+                await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+                break;
+            default:
+                result.Error.ShouldBe(DoctorAvailabilityErrors.Overlap);
+                _availabilityRepository.DidNotReceive().Add(Arg.Any<DoctorAvailability>());
+                await transaction.Received(1).RollbackAsync(CancellationToken.None);
+                break;
+        }
     }
 
     private ServiceProvider BuildProvider()
