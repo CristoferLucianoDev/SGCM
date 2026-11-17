@@ -155,6 +155,15 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
         return GetOccurrences(from, to).Any(occurrence => Overlaps(occurrence, startsAt, endsAt));
     }
 
+    /// <summary>Fecha local de un instante en la zona horaria de la serie.</summary>
+    public DateOnly LocalDateOf(DateTimeOffset instant)
+    {
+        var zone = FindTimeZone(TimeZone)
+            ?? throw new InvalidOperationException($"La zona horaria '{TimeZone}' de la serie no existe.");
+
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, zone).DateTime);
+    }
+
     /// <summary>
     /// Convierte un número ISO 8601 (1 = lunes ... 7 = domingo) en el día de la semana.
     /// </summary>

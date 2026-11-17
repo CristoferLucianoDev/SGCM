@@ -26,6 +26,8 @@ using SGCM.Data.Application.People.Commands.UpdateSpecialty;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
+using SGCM.Data.Application.Scheduling.Commands.GenerateAvailabilityBlocks;
+using SGCM.Data.Application.Scheduling.EventHandlers;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.ValueObjects;
@@ -35,6 +37,7 @@ using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Domain.Scheduling.Availability;
+using SGCM.Data.Domain.Scheduling.Availability.Events;
 using SGCM.Test.Common.Fakes;
 using SGCM.Test.Common.Mothers;
 using SGCM.Test.Unit.Application.People;
@@ -912,6 +915,47 @@ public sealed class ApplicationDependencyInjectionTests
                 await transaction.DidNotReceive().CommitAsync(Arg.Any<CancellationToken>());
                 break;
         }
+    }
+
+    [Fact]
+    public void El_generador_de_bloques_y_el_manejador_de_serie_creada_se_resuelven_por_scope()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var generator = first.ServiceProvider.GetRequiredService<AvailabilityBlockGenerator>();
+        var handlers = first.ServiceProvider.GetServices<IDomainEventHandler<DoctorAvailabilitySeriesCreatedEvent>>();
+
+        generator.ShouldBeSameAs(first.ServiceProvider.GetRequiredService<AvailabilityBlockGenerator>());
+        generator.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<AvailabilityBlockGenerator>());
+        handlers.ShouldHaveSingleItem().ShouldBeOfType<GenerateBlocksForCreatedSeries>();
+    }
+
+    [Fact]
+    public async Task Generar_bloques_se_resuelve_con_transaccion_y_confirma_lo_generado()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var series = DoctorAvailabilitySeriesMother.Valid();
+        typeof(Entity).GetProperty(nameof(Entity.Id))!.SetValue(series, 15);
+        _seriesRepository.ListActiveFromAsync(Arg.Any<DateOnly>(), CancellationToken.None)
+            .Returns(new List<DoctorAvailabilitySeries> { series });
+        _availabilityRepository.ListByDoctorAsync(
+                Arg.Any<int>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset?>(), CancellationToken.None)
+            .Returns(new List<DoctorAvailability>());
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(CancellationToken.None).Returns(transaction);
+        var clock = (FakeDateTimeProvider)scope.ServiceProvider.GetRequiredService<IDateTimeProvider>();
+        clock.UtcNow = new DateTimeOffset(2027, 1, 4, 10, 0, 0, TimeSpan.Zero);
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<GenerateAvailabilityBlocksCommand, int>>();
+
+        handler.ShouldBeOfType<ValidationDecorator<GenerateAvailabilityBlocksCommand, int>>();
+        var result = await handler.HandleAsync(new GenerateAvailabilityBlocksCommand(), CancellationToken.None);
+
+        result.Value.ShouldBe(39);
+        await _unitOfWork.Received(1).SaveChangesAsync(CancellationToken.None);
+        await transaction.Received(1).CommitAsync(CancellationToken.None);
     }
 
     private ServiceProvider BuildProvider()

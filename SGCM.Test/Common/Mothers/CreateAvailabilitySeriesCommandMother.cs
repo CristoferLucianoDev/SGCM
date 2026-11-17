@@ -12,11 +12,17 @@ public static class CreateAvailabilitySeriesCommandMother
     /// <summary>Lunes, miércoles y viernes en formato ISO 8601.</summary>
     public static readonly int[] IsoDaysOfWeek = [1, 3, 5];
 
-    /// <summary>Configuración de agenda de las pruebas: Santo Domingo y bloques de al menos 6 horas.</summary>
+    /// <summary>Días hacia adelante hasta los que se generan bloques, como en appsettings.json.</summary>
+    public const int BookingHorizonDays = 90;
+
+    /// <summary>
+    /// Configuración de agenda de las pruebas: Santo Domingo, bloques de al menos 6 horas y horizonte de 90 días.
+    /// </summary>
     public static SchedulingOptions Options() => new()
     {
         TimeZone = DoctorAvailabilitySeriesMother.TimeZone,
-        MinimumBlockDurationHours = DoctorAvailabilitySeriesMother.MinimumDurationHours
+        MinimumBlockDurationHours = DoctorAvailabilitySeriesMother.MinimumDurationHours,
+        BookingHorizonDays = BookingHorizonDays
     };
 
     public static CreateAvailabilitySeriesCommand Valid() => new(

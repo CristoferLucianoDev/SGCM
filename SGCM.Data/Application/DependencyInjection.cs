@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Behaviors;
 using SGCM.Data.Application.Identity.EventHandlers;
+using SGCM.Data.Application.Scheduling;
 
 namespace SGCM.Data.Application;
 
@@ -20,6 +21,7 @@ public static class DependencyInjection
         services.AddCommandHandlers();
         services.AddQueryHandlers();
         services.AddDomainEventHandlers();
+        services.AddScoped<AvailabilityBlockGenerator>();
 
         return services;
     }

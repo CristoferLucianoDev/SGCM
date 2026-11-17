@@ -14,6 +14,7 @@ public static class JobRegistration
     {
         services.AddRecurringJob<PurgeUnconfirmedAccountsJob>();
         services.AddRecurringJob<PurgeExpiredCredentialsJob>();
+        services.AddRecurringJob<GenerateAvailabilityBlocksJob>();
 
         return services;
     }
