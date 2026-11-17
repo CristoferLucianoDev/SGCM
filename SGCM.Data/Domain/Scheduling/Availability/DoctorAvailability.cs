@@ -1,5 +1,4 @@
 using SGCM.Data.Domain.Common;
-
 namespace SGCM.Data.Domain.Scheduling.Availability;
 
 /// <summary>
@@ -48,8 +47,9 @@ public sealed class DoctorAvailability : AggregateRoot
 
         if (doctorId <= 0) return DoctorAvailabilityErrors.InvalidDoctor;
         if (seriesId <= 0) return DoctorAvailabilityErrors.InvalidSeries;
-        if (!IsOnHour(startsAt) || !IsOnHour(endsAt)) return DoctorAvailabilityErrors.NotOnHour;
-        if (endsAt <= startsAt) return DoctorAvailabilityErrors.InvalidTimeRange;
+        if (!HourAlignedInstant.IsOnHour(startsAt) || !HourAlignedInstant.IsOnHour(endsAt))
+            return DoctorAvailabilityErrors.NotOnHour;
+        if (!TimeRange.IsValid(startsAt, endsAt)) return DoctorAvailabilityErrors.InvalidTimeRange;
         if (endsAt - startsAt < TimeSpan.FromHours(minimumDurationHours))
             return DoctorAvailabilityErrors.DurationTooShort;
 
@@ -78,7 +78,4 @@ public sealed class DoctorAvailability : AggregateRoot
 
         return Create(series.DoctorId, series.Id, occurrence.StartsAt, occurrence.EndsAt, minimumDurationHours);
     }
-
-    // Igual que la base: en punto respecto de la época Unix, sin importar el desfase.
-    private static bool IsOnHour(DateTimeOffset value) => value.UtcTicks % TimeSpan.TicksPerHour == 0;
 }

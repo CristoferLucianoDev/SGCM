@@ -36,7 +36,7 @@ internal sealed class AvailabilityBlockGenerator(
         foreach (var occurrence in occurrences)
         {
             if (generatedDays.Contains(occurrence.Date)) continue;
-            if (existing.Any(block => block.StartsAt < occurrence.EndsAt && occurrence.StartsAt < block.EndsAt)) continue;
+            if (existing.Any(block => occurrence.Range.Overlaps(block.StartsAt, block.EndsAt))) continue;
 
             var block = DoctorAvailability.CreateFromSeries(series, occurrence, options.MinimumBlockDurationHours);
             if (block.IsSuccess) blocks.Add(block.Value);
