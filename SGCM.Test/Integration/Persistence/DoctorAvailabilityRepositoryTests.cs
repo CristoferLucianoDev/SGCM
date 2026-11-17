@@ -195,6 +195,58 @@ public sealed class DoctorAvailabilityRepositoryTests(PostgresFixture database) 
         (await ReadBlocksAsync(provider, otherDoctorId)).ShouldHaveSingleItem();
     }
 
+    [Fact]
+    public async Task ListActiveByDoctorAsync_devuelve_solo_las_series_activas_del_medico()
+    {
+        await using var provider = CreateProvider();
+        var doctorId = await InsertDoctorAsync(provider);
+        var otherDoctorId = await InsertDoctorAsync(provider);
+        var activeId = await SaveSeriesAsync(provider, DoctorAvailabilitySeriesMother.Create(doctorId: doctorId).Value);
+        var inactive = DoctorAvailabilitySeriesMother.Create([DayOfWeek.Tuesday], doctorId: doctorId).Value;
+        inactive.Deactivate().IsSuccess.ShouldBeTrue();
+        await SaveSeriesAsync(provider, inactive);
+        await SaveSeriesAsync(provider, DoctorAvailabilitySeriesMother.Create(doctorId: otherDoctorId).Value);
+
+        await using var scope = provider.CreateAsyncScope();
+        var series = await scope.ServiceProvider.GetRequiredService<IDoctorAvailabilitySeriesRepository>()
+            .ListActiveByDoctorAsync(doctorId, CancellationToken.None);
+
+        var active = series.ShouldHaveSingleItem();
+        active.Id.ShouldBe(activeId);
+        active.DaysOfWeek.ShouldBe(new[] { DayOfWeek.Monday, DayOfWeek.Wednesday, DayOfWeek.Friday });
+    }
+
+    [Fact]
+    public async Task ListByDoctorAsync_devuelve_los_bloques_del_medico_que_tocan_el_rango_abiertos_o_cerrados()
+    {
+        await using var provider = CreateProvider();
+        var doctorId = await InsertDoctorAsync(provider);
+        var otherDoctorId = await InsertDoctorAsync(provider);
+        await SaveBlocksAsync(provider,
+        [
+            Block(doctorId, Start.AddDays(-2)),
+            Block(doctorId, Start),
+            Block(doctorId, Start.AddDays(2)),
+            Block(doctorId, Start.AddDays(10)),
+            Block(otherDoctorId, Start)
+        ]);
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE scheduling.doctor_availability SET is_available = false WHERE doctor_id = {doctorId} AND starts_at = {Start.AddDays(2)}");
+        }
+
+        await using var check = provider.CreateAsyncScope();
+        var repository = check.ServiceProvider.GetRequiredService<IDoctorAvailabilityRepository>();
+        // Desde la mitad del primer bloque del rango hasta el inicio del bloque del día 10, que queda fuera.
+        var bounded = await repository.ListByDoctorAsync(doctorId, Start.AddHours(3), Start.AddDays(10), CancellationToken.None);
+        var unbounded = await repository.ListByDoctorAsync(doctorId, Start.AddHours(3), null, CancellationToken.None);
+
+        bounded.Select(block => block.StartsAt).ShouldBe(new[] { Start, Start.AddDays(2) });
+        bounded.ShouldContain(block => !block.IsAvailable);
+        unbounded.Select(block => block.StartsAt).ShouldBe(new[] { Start, Start.AddDays(2), Start.AddDays(10) });
+    }
+
     private static DoctorAvailability Block(int doctorId, DateTimeOffset startsAt) =>
         DoctorAvailability.Create(doctorId, null, startsAt, startsAt.AddHours(MinimumHours), MinimumHours).Value;
 

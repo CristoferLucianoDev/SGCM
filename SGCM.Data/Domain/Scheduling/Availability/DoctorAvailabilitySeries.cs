@@ -119,10 +119,60 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
         return occurrences;
     }
 
+    /// <summary>
+    /// Indica si alguna ocurrencia de esta serie se cruza con alguna de otra serie. Basta revisar
+    /// una semana del tramo en que ambas están vigentes, porque el patrón se repite cada 7 días.
+    /// </summary>
+    public bool OverlapsWith(DoctorAvailabilitySeries other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+
+        var first = StartDate > other.StartDate ? StartDate : other.StartDate;
+        var last = (EndDate, other.EndDate) switch
+        {
+            ({ } mine, { } theirs) => mine < theirs ? mine : theirs,
+            ({ } mine, null) => mine,
+            (null, { } theirs) => theirs,
+            _ => first.AddDays(7)
+        };
+        if (last < first) return false;
+        if (last > first.AddDays(7)) last = first.AddDays(7);
+
+        // Un día de margen por si las zonas horarias de las series difieren.
+        var mineOccurrences = GetOccurrences(first.AddDays(-1), last.AddDays(1));
+        var theirOccurrences = other.GetOccurrences(first.AddDays(-1), last.AddDays(1));
+        return mineOccurrences.Any(occurrence =>
+            theirOccurrences.Any(their => Overlaps(occurrence, their.StartsAt, their.EndsAt)));
+    }
+
+    /// <summary>Indica si alguna ocurrencia de la serie se cruza con el intervalo [inicio, fin) dado.</summary>
+    public bool OverlapsWith(DateTimeOffset startsAt, DateTimeOffset endsAt)
+    {
+        // Un día de margen a cada lado cubre cualquier diferencia entre UTC y la zona de la serie.
+        var from = DateOnly.FromDateTime(startsAt.UtcDateTime).AddDays(-1);
+        var to = DateOnly.FromDateTime(endsAt.UtcDateTime).AddDays(1);
+
+        return GetOccurrences(from, to).Any(occurrence => Overlaps(occurrence, startsAt, endsAt));
+    }
+
+    /// <summary>
+    /// Convierte un número ISO 8601 (1 = lunes ... 7 = domingo) en el día de la semana.
+    /// </summary>
+    /// <returns><c>false</c> si el número no está entre 1 y 7.</returns>
+    public static bool TryFromIsoDayNumber(int isoDay, out DayOfWeek day)
+    {
+        day = isoDay == 7 ? DayOfWeek.Sunday : (DayOfWeek)isoDay;
+        return isoDay is >= 1 and <= 7;
+    }
+
     /// <summary>Número ISO 8601 del día: 1 = lunes ... 7 = domingo, como lo guarda la base.</summary>
     public static int IsoDayNumber(DayOfWeek day) => day == DayOfWeek.Sunday ? 7 : (int)day;
 
     private static DayOfWeek FromIsoDayNumber(short isoDay) => isoDay == 7 ? DayOfWeek.Sunday : (DayOfWeek)isoDay;
+
+    // Los intervalos son [inicio, fin): dos bloques contiguos no se traslapan, igual que en la base.
+    private static bool Overlaps(AvailabilityOccurrence occurrence, DateTimeOffset startsAt, DateTimeOffset endsAt) =>
+        occurrence.StartsAt < endsAt && startsAt < occurrence.EndsAt;
 
     private static bool IsOnHour(TimeOnly time) => time.Ticks % TimeSpan.TicksPerHour == 0;
 
