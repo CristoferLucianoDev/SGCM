@@ -60,7 +60,8 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
         if (days.Count == 0) return DoctorAvailabilitySeriesErrors.DaysRequired;
         if (days.Any(day => !Enum.IsDefined(day))) return DoctorAvailabilitySeriesErrors.InvalidDayOfWeek;
 
-        if (!IsOnHour(startTime) || !IsOnHour(endTime)) return DoctorAvailabilitySeriesErrors.TimeNotOnHour;
+        if (!HourAlignedInstant.IsOnHour(startTime) || !HourAlignedInstant.IsOnHour(endTime))
+            return DoctorAvailabilitySeriesErrors.TimeNotOnHour;
         if (endTime <= startTime) return DoctorAvailabilitySeriesErrors.InvalidTimeRange;
         if (endTime - startTime < TimeSpan.FromHours(minimumDurationHours))
             return DoctorAvailabilitySeriesErrors.DurationTooShort;
@@ -181,9 +182,7 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
 
     // Los intervalos son [inicio, fin): dos bloques contiguos no se traslapan, igual que en la base.
     private static bool Overlaps(AvailabilityOccurrence occurrence, DateTimeOffset startsAt, DateTimeOffset endsAt) =>
-        occurrence.StartsAt < endsAt && startsAt < occurrence.EndsAt;
-
-    private static bool IsOnHour(TimeOnly time) => time.Ticks % TimeSpan.TicksPerHour == 0;
+        occurrence.Range.Overlaps(startsAt, endsAt);
 
     private static TimeZoneInfo? FindTimeZone(string? id)
     {
