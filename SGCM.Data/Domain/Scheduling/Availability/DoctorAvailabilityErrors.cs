@@ -22,6 +22,10 @@ public static class DoctorAvailabilityErrors
     public static readonly Error DurationTooShort = Error.Validation(
         "Availability.DurationTooShort", "El bloque no cumple la duración mínima.");
 
+    /// <summary>Un bloque suelto solo puede crearse para un horario futuro.</summary>
+    public static readonly Error StartsInPast = Error.Validation(
+        "Availability.StartsInPast", "El bloque debe empezar en el futuro.");
+
     /// <summary>El bloque se cruza con otro del mismo médico, abierto o cerrado.</summary>
     public static readonly Error Overlap = Error.Conflict(
         "Availability.Overlap", "El horario se traslapa con otro horario del mismo médico.");

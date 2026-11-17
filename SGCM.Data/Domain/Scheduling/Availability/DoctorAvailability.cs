@@ -65,6 +65,27 @@ public sealed class DoctorAvailability : AggregateRoot
     }
 
     /// <summary>
+    /// Crea un bloque suelto, sin serie, para un horario puntual futuro: abierto, sin marca de modificado,
+    /// en hora en punto y con la duración mínima de la configuración.
+    /// </summary>
+    /// <param name="now">Instante actual; el bloque debe empezar después.</param>
+    /// <param name="minimumDurationHours">Duración mínima de un bloque, en horas, según la configuración.</param>
+    /// <returns>El bloque con las fechas en UTC, o el primer error de validación encontrado.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si la duración mínima no es positiva.</exception>
+    public static Result<DoctorAvailability> CreateLoose(
+        int doctorId,
+        DateTimeOffset startsAt,
+        DateTimeOffset endsAt,
+        int minimumDurationHours,
+        DateTimeOffset now)
+    {
+        var block = Create(doctorId, seriesId: null, startsAt, endsAt, minimumDurationHours);
+        if (block.IsFailure) return block;
+
+        return startsAt > now ? block : DoctorAvailabilityErrors.StartsInPast;
+    }
+
+    /// <summary>
     /// Crea el bloque de una ocurrencia de la serie, con el médico y la serie de esta.
     /// La serie debe estar guardada para tener su Id.
     /// </summary>
