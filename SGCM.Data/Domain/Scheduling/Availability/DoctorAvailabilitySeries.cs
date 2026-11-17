@@ -29,6 +29,20 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
     /// <summary>Zona horaria en que se interpretan las horas de la serie.</summary>
     public string TimeZone { get; private set; } = null!;
 
+    /// <summary>El patrón semanal de la serie, en hora local.</summary>
+    public WeeklyRecurrence Recurrence => WeeklyRecurrence.Restore(DaysOfWeek, StartTime, EndTime, StartDate, EndDate);
+
+    // La recurrencia valida el patrón; la serie conserva sus propios códigos de error para la API.
+    private static readonly Dictionary<string, Error> ErrorsByRecurrenceCode = new()
+    {
+        [WeeklyRecurrenceErrors.DaysRequired.Code] = DoctorAvailabilitySeriesErrors.DaysRequired,
+        [WeeklyRecurrenceErrors.InvalidDayOfWeek.Code] = DoctorAvailabilitySeriesErrors.InvalidDayOfWeek,
+        [WeeklyRecurrenceErrors.TimeNotOnHour.Code] = DoctorAvailabilitySeriesErrors.TimeNotOnHour,
+        [WeeklyRecurrenceErrors.InvalidTimeRange.Code] = DoctorAvailabilitySeriesErrors.InvalidTimeRange,
+        [WeeklyRecurrenceErrors.DurationTooShort.Code] = DoctorAvailabilitySeriesErrors.DurationTooShort,
+        [WeeklyRecurrenceErrors.InvalidDateRange.Code] = DoctorAvailabilitySeriesErrors.InvalidDateRange
+    };
+
     protected override string EntityName => nameof(DoctorAvailabilitySeries);
 
     private DoctorAvailabilitySeries()
@@ -56,17 +70,9 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
 
         if (doctorId <= 0) return DoctorAvailabilitySeriesErrors.InvalidDoctor;
 
-        var days = daysOfWeek?.Distinct().ToList() ?? [];
-        if (days.Count == 0) return DoctorAvailabilitySeriesErrors.DaysRequired;
-        if (days.Any(day => !Enum.IsDefined(day))) return DoctorAvailabilitySeriesErrors.InvalidDayOfWeek;
-
-        if (!HourAlignedInstant.IsOnHour(startTime) || !HourAlignedInstant.IsOnHour(endTime))
-            return DoctorAvailabilitySeriesErrors.TimeNotOnHour;
-        if (endTime <= startTime) return DoctorAvailabilitySeriesErrors.InvalidTimeRange;
-        if (endTime - startTime < TimeSpan.FromHours(minimumDurationHours))
-            return DoctorAvailabilitySeriesErrors.DurationTooShort;
-
-        if (endDate < startDate) return DoctorAvailabilitySeriesErrors.InvalidDateRange;
+        var created = WeeklyRecurrence.Create(daysOfWeek, startTime, endTime, startDate, endDate, minimumDurationHours);
+        if (created.IsFailure) return ErrorsByRecurrenceCode[created.Error.Code];
+        var recurrence = created.Value;
 
         var calendar = BusinessCalendar.Create(timeZone);
         if (calendar.IsFailure) return DoctorAvailabilitySeriesErrors.InvalidTimeZone;
@@ -74,11 +80,11 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
         var series = new DoctorAvailabilitySeries
         {
             DoctorId = doctorId,
-            _isoDaysOfWeek = days.Select(day => (short)IsoDayNumber(day)).Order().ToArray(),
-            StartTime = startTime,
-            EndTime = endTime,
-            StartDate = startDate,
-            EndDate = endDate,
+            _isoDaysOfWeek = recurrence.DaysOfWeek.Select(day => (short)IsoDayNumber(day)).ToArray(),
+            StartTime = recurrence.StartTime,
+            EndTime = recurrence.EndTime,
+            StartDate = recurrence.StartDate,
+            EndDate = recurrence.EndDate,
             TimeZone = calendar.Value.TimeZoneId
         };
 
@@ -94,18 +100,11 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
     /// <returns>Las ocurrencias en orden cronológico; vacío si el rango no toca la vigencia.</returns>
     public IReadOnlyList<AvailabilityOccurrence> GetOccurrences(DateOnly from, DateOnly to)
     {
-        var first = from > StartDate ? from : StartDate;
-        var last = EndDate is { } end && end < to ? end : to;
-        if (last < first) return [];
-
-        var days = DaysOfWeek;
         var calendar = Calendar();
         var occurrences = new List<AvailabilityOccurrence>();
 
-        for (var date = first; date <= last; date = date.AddDays(1))
+        foreach (var date in Recurrence.DatesBetween(from, to))
         {
-            if (!days.Contains(date.DayOfWeek)) continue;
-
             if (!calendar.TryToUtc(date, StartTime, out var startsAt) || !calendar.TryToUtc(date, EndTime, out var endsAt))
                 continue;
 
@@ -116,12 +115,15 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
     }
 
     /// <summary>
-    /// Indica si alguna ocurrencia de esta serie se cruza con alguna de otra serie. Basta revisar
-    /// una semana del tramo en que ambas están vigentes, porque el patrón se repite cada 7 días.
+    /// Indica si alguna ocurrencia de esta serie se cruza con alguna de otra serie, aunque ninguna tenga
+    /// fecha de fin. Con la misma zona horaria basta comparar las recurrencias; con zonas distintas se
+    /// comparan en UTC las ocurrencias de una semana del tramo común, porque el patrón se repite cada 7 días.
     /// </summary>
     public bool OverlapsWith(DoctorAvailabilitySeries other)
     {
         ArgumentNullException.ThrowIfNull(other);
+
+        if (TimeZone == other.TimeZone) return Recurrence.OverlapsWith(other.Recurrence);
 
         var first = StartDate > other.StartDate ? StartDate : other.StartDate;
         var last = (EndDate, other.EndDate) switch
@@ -134,7 +136,7 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
         if (last < first) return false;
         if (last > first.AddDays(7)) last = first.AddDays(7);
 
-        // Un día de margen por si las zonas horarias de las series difieren.
+        // Un día de margen porque la fecha local de una zona puede ir un día por delante de la otra.
         var mineOccurrences = GetOccurrences(first.AddDays(-1), last.AddDays(1));
         var theirOccurrences = other.GetOccurrences(first.AddDays(-1), last.AddDays(1));
         return mineOccurrences.Any(occurrence =>

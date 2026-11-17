@@ -27,6 +27,20 @@ public sealed class DoctorAvailabilitySeriesCreateTests
     }
 
     [Fact]
+    public void La_recurrencia_de_la_serie_refleja_su_patron_semanal()
+    {
+        var series = DoctorAvailabilitySeriesMother.Create(endDate: new DateOnly(2027, 6, 30)).Value;
+
+        var recurrence = series.Recurrence;
+
+        recurrence.DaysOfWeek.ShouldBe(series.DaysOfWeek);
+        recurrence.StartTime.ShouldBe(series.StartTime);
+        recurrence.EndTime.ShouldBe(series.EndTime);
+        recurrence.StartDate.ShouldBe(series.StartDate);
+        recurrence.EndDate.ShouldBe(series.EndDate);
+    }
+
+    [Fact]
     public void Create_sin_fecha_hasta_deja_la_serie_sin_fin()
     {
         var series = DoctorAvailabilitySeriesMother.Create().Value;
