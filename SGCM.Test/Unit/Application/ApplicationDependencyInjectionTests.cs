@@ -29,6 +29,7 @@ using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAvailabilityBlocks;
 using SGCM.Data.Application.Scheduling.EventHandlers;
+using SGCM.Data.Application.Scheduling.Queries.GetAvailableSlots;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.ValueObjects;
@@ -60,6 +61,8 @@ public sealed class ApplicationDependencyInjectionTests
     private readonly IInsuranceProviderRepository _insuranceProviderRepository = Substitute.For<IInsuranceProviderRepository>();
     private readonly IDoctorAvailabilitySeriesRepository _seriesRepository = Substitute.For<IDoctorAvailabilitySeriesRepository>();
     private readonly IDoctorAvailabilityRepository _availabilityRepository = Substitute.For<IDoctorAvailabilityRepository>();
+    private readonly IActiveDoctorReader _activeDoctorReader = Substitute.For<IActiveDoctorReader>();
+    private readonly IActiveAppointmentReader _activeAppointmentReader = Substitute.For<IActiveAppointmentReader>();
 
     [Theory]
     [InlineData(1, true)]
@@ -82,6 +85,39 @@ public sealed class ApplicationDependencyInjectionTests
 
         result.IsSuccess.ShouldBe(valid);
         _specialtyListReader.ReceivedCalls().Count().ShouldBe(valid ? 1 : 0);
+        await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(0, false)]
+    public async Task AddApplication_AvailableSlotsQueryValidatesAndReadsWithoutTransaction(int doctorId, bool valid)
+    {
+        using var provider = BuildProvider();
+        var currentUser = provider.GetRequiredService<ICurrentUser>();
+        currentUser.IsAuthenticated.Returns(true);
+        currentUser.IsInRole(UserRole.Patient).Returns(true);
+        // La configuración de las pruebas no define la duración de la cita, que el cálculo exige positiva.
+        provider.GetRequiredService<IOptions<SchedulingOptions>>().Value.AppointmentDurationHours = 2;
+        _activeDoctorReader.FindActiveDoctorIdAsync(1, Arg.Any<CancellationToken>()).Returns(1);
+        _availabilityRepository.ListByDoctorAsync(
+                1, Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>())
+            .Returns(new List<DoctorAvailability>());
+        _activeAppointmentReader.ListActiveIntervalsAsync(
+                1, Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
+            .Returns(new List<BookedInterval>());
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider
+            .GetRequiredService<IQueryHandler<GetAvailableSlotsQuery, IReadOnlyList<AvailableSlotDto>>>();
+
+        handler.ShouldBeOfType<GetAvailableSlotsQueryHandler>();
+        var result = await handler.HandleAsync(new GetAvailableSlotsQuery(doctorId), CancellationToken.None);
+
+        result.IsSuccess.ShouldBe(valid);
+        if (!valid) result.Error.Code.ShouldBe("AvailableSlots.InvalidDoctorId");
+        _activeDoctorReader.ReceivedCalls().Count().ShouldBe(valid ? 1 : 0);
+        _activeAppointmentReader.ReceivedCalls().Count().ShouldBe(valid ? 1 : 0);
         await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
     }
@@ -1055,6 +1091,8 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(_insuranceProviderRepository);
         services.AddSingleton(_seriesRepository);
         services.AddSingleton(_availabilityRepository);
+        services.AddSingleton(_activeDoctorReader);
+        services.AddSingleton(_activeAppointmentReader);
         services.AddSingleton(Options.Create(CreateAvailabilitySeriesCommandMother.Options()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
