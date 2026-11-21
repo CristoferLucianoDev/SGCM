@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.People.Commands.CompleteDoctorProfile;
+using SGCM.Data.Application.People.Commands.UpdateDoctorProfile;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
@@ -18,6 +19,9 @@ public sealed class DoctorProfilesController(ILogger<DoctorProfilesController> l
 {
     private static readonly Error ProfileCompletionFailed = Error.Failure(
         "Doctor.ProfileCompletionFailed", "Ocurrió un error al completar el perfil.");
+
+    private static readonly Error ProfileUpdateFailed = Error.Failure(
+        "Doctor.ProfileUpdateFailed", "Ocurrió un error al actualizar el perfil.");
 
     /// <summary>Completa el primer acceso del médico y devuelve los tokens de una sesión nueva.</summary>
     [HttpPost("profile")]
@@ -51,6 +55,33 @@ public sealed class DoctorProfilesController(ILogger<DoctorProfilesController> l
             logger.LogError("Fallo al completar el perfil médico ({ExceptionType}). Petición {TraceId}.",
                 exception.GetType().Name, HttpContext.TraceIdentifier);
             return ErrorResult(ProfileCompletionFailed);
+        }
+    }
+
+    /// <summary>Reemplaza los datos profesionales editables del médico autenticado.</summary>
+    [HttpPut("me/profile")]
+    [Authorize(Roles = nameof(UserRole.Doctor))]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> UpdateProfile(
+        UpdateDoctorProfileRequest request,
+        [FromServices] ICommandHandler<UpdateDoctorProfileCommand, Unit> handler,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await handler.HandleAsync(request.ToCommand(), cancellationToken);
+            return result.IsSuccess ? NoContent() : ErrorResult(result.Error);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError("Fallo al actualizar el perfil médico ({ExceptionType}). Petición {TraceId}.",
+                exception.GetType().Name, HttpContext.TraceIdentifier);
+            return ErrorResult(ProfileUpdateFailed);
         }
     }
 }

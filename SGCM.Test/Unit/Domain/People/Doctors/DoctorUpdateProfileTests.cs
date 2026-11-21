@@ -115,6 +115,41 @@ public sealed class DoctorUpdateProfileTests
         doctor.DomainEvents.ShouldHaveSingleItem().ShouldBeSameAs(pendingEvent);
     }
 
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void UpdateProfessionalData_preserva_identidad_legada_estado_especialidades_y_eventos(bool active, bool valid)
+    {
+        var doctor = DoctorMother.Create([11, 22]).Value;
+        if (!active) doctor.Deactivate().IsSuccess.ShouldBeTrue();
+        typeof(Entity).GetProperty(nameof(Doctor.Id))!.SetValue(doctor, 17);
+        typeof(Doctor).GetProperty(nameof(Doctor.FirstName))!.SetValue(doctor, " Luis ");
+        typeof(Doctor).GetProperty(nameof(Doctor.LastName))!.SetValue(doctor, " Pérez ");
+        typeof(Doctor).GetProperty(nameof(Doctor.LicenseNumber))!.SetValue(doctor, " LIC-LEGADA ");
+        var before = Profile.Read(doctor);
+        var specialties = doctor.Specialties.ToArray();
+        var pendingEvent = Substitute.For<IDomainEvent>();
+        typeof(AggregateRoot).GetMethod("Raise", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(doctor, [pendingEvent]);
+
+        var result = doctor.UpdateProfessionalData(" (809) 555-0199 ", 5, 8, " Calle  Principal ",
+            1250.340m, 20, valid ? " Medicina  preventiva. " : null);
+
+        result.IsSuccess.ShouldBe(valid);
+        if (!valid) result.Error.ShouldBe(DoctorErrors.BiographyRequired);
+        var expected = valid ? NewProfile with
+        {
+            FirstName = before.FirstName, LastName = before.LastName, LicenseNumber = before.LicenseNumber
+        } : before;
+        Profile.Read(doctor).ShouldBe(expected);
+        doctor.Id.ShouldBe(17);
+        doctor.UserId.ShouldBe(DoctorMother.UserId);
+        doctor.IsActive.ShouldBe(active);
+        doctor.Specialties.ShouldBe(specialties);
+        doctor.DomainEvents.ShouldHaveSingleItem().ShouldBeSameAs(pendingEvent);
+    }
+
     private sealed record Profile(
         string? FirstName, string? LastName, string? LicenseNumber, string? PhoneNumber,
         int ProvinceId, int MunicipalityId, string? AddressLine, decimal ConsultationFee,
