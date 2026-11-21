@@ -1,4 +1,5 @@
 using SGCM.Data.Application.People.Commands.CompleteDoctorProfile;
+using SGCM.Data.Application.People.Commands.UpdateDoctorProfile;
 using SGCM.Web.Contracts.People;
 
 namespace SGCM.Web.Mappers.People;
@@ -10,4 +11,8 @@ public static class DoctorMapper
         new(request.FirstName, request.LastName, request.LicenseNumber, request.PhoneNumber, request.ProvinceId,
             request.MunicipalityId, request.AddressLine, request.ConsultationFee, request.YearsOfExperience,
             request.Biography, request.SpecialtyIds, deviceName, ipAddress);
+
+    public static UpdateDoctorProfileCommand ToCommand(this UpdateDoctorProfileRequest request) =>
+        new(request.PhoneNumber, request.ProvinceId, request.MunicipalityId, request.AddressLine,
+            request.ConsultationFee, request.YearsOfExperience, request.Biography);
 }

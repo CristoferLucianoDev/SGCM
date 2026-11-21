@@ -71,6 +71,35 @@ public sealed class Doctor : ActivatableAggregateRoot
         if (surname.IsFailure) return surname.Error;
         var license = RequiredText(licenseNumber, MaxLicenseNumberLength, DoctorErrors.LicenseNumberRequired, DoctorErrors.LicenseNumberTooLong);
         if (license.IsFailure) return license.Error;
+
+        var profile = ValidateProfessionalData(phoneNumber, provinceId, municipalityId, addressLine, consultationFee,
+            yearsOfExperience, biography);
+        if (profile.IsFailure) return profile.Error;
+
+        FirstName = name.Value;
+        LastName = surname.Value;
+        LicenseNumber = license.Value;
+        ApplyProfessionalData(profile.Value);
+        return Result.Success();
+    }
+
+    /// <summary>Actualiza los datos editables conservando la identidad profesional persistida.</summary>
+    public Result UpdateProfessionalData(
+        string? phoneNumber, int provinceId, int municipalityId, string? addressLine,
+        decimal consultationFee, int yearsOfExperience, string? biography)
+    {
+        var profile = ValidateProfessionalData(phoneNumber, provinceId, municipalityId, addressLine, consultationFee,
+            yearsOfExperience, biography);
+        if (profile.IsFailure) return profile.Error;
+
+        ApplyProfessionalData(profile.Value);
+        return Result.Success();
+    }
+
+    internal static Result<ProfessionalData> ValidateProfessionalData(
+        string? phoneNumber, int provinceId, int municipalityId, string? addressLine,
+        decimal consultationFee, int yearsOfExperience, string? biography)
+    {
         var phone = PhoneNumber.Create(phoneNumber);
         if (phone.IsFailure)
             return phone.Error == CommonErrors.PhoneNumberRequired
@@ -88,18 +117,24 @@ public sealed class Doctor : ActivatableAggregateRoot
         var bio = RequiredText(biography, MaxBiographyLength, DoctorErrors.BiographyRequired, DoctorErrors.BiographyTooLong);
         if (bio.IsFailure) return bio.Error;
 
-        FirstName = name.Value;
-        LastName = surname.Value;
-        LicenseNumber = license.Value;
-        PhoneNumber = phone.Value;
-        ProvinceId = provinceId;
-        MunicipalityId = municipalityId;
-        AddressLine = address.Value;
-        ConsultationFee = fee.Value;
-        YearsOfExperience = yearsOfExperience;
-        Biography = bio.Value;
-        return Result.Success();
+        return new ProfessionalData(phone.Value, provinceId, municipalityId, address.Value, fee.Value,
+            yearsOfExperience, bio.Value);
     }
+
+    private void ApplyProfessionalData(ProfessionalData profile)
+    {
+        PhoneNumber = profile.PhoneNumber;
+        ProvinceId = profile.ProvinceId;
+        MunicipalityId = profile.MunicipalityId;
+        AddressLine = profile.AddressLine;
+        ConsultationFee = profile.ConsultationFee;
+        YearsOfExperience = profile.YearsOfExperience;
+        Biography = profile.Biography;
+    }
+
+    internal sealed record ProfessionalData(
+        PhoneNumber PhoneNumber, int ProvinceId, int MunicipalityId, string AddressLine,
+        Money ConsultationFee, int YearsOfExperience, string Biography);
 
     public Result AssociateSpecialty(int specialtyId)
     {
