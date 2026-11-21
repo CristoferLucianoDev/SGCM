@@ -7,9 +7,9 @@ namespace SGCM.Data.Domain.Scheduling.Availability;
 /// </summary>
 public static class AvailableSlotsErrors
 {
-    /// <summary>El paciente no indicó de qué médico quiere ver los horarios.</summary>
-    public static readonly Error DoctorRequired = Error.Validation(
-        "AvailableSlots.DoctorRequired", "Debe indicar el médico.");
+    /// <summary>El paciente no indicó ni el médico ni la especialidad.</summary>
+    public static readonly Error DoctorOrSpecialtyRequired = Error.Validation(
+        "AvailableSlots.DoctorOrSpecialtyRequired", "Debe indicar el médico o la especialidad.");
 
     /// <summary>Solo los pacientes y los médicos consultan horarios libres.</summary>
     public static readonly Error RoleNotAllowed = Error.Forbidden(

@@ -101,12 +101,14 @@ public sealed class ApplicationDependencyInjectionTests
         // La configuración de las pruebas no define la duración de la cita, que el cálculo exige positiva.
         provider.GetRequiredService<IOptions<SchedulingOptions>>().Value.AppointmentDurationHours = 2;
         _activeDoctorReader.FindActiveDoctorIdAsync(1, Arg.Any<CancellationToken>()).Returns(1);
-        _availabilityRepository.ListByDoctorAsync(
-                1, Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>())
+        _availabilityRepository.ListByDoctorsAsync(
+                Arg.Any<IReadOnlyCollection<int>>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(),
+                Arg.Any<CancellationToken>())
             .Returns(new List<DoctorAvailability>());
         _activeAppointmentReader.ListActiveIntervalsAsync(
-                1, Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
-            .Returns(new List<BookedInterval>());
+                Arg.Any<IReadOnlyCollection<int>>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<int, IReadOnlyList<BookedInterval>>());
         using var scope = provider.CreateScope();
         var handler = scope.ServiceProvider
             .GetRequiredService<IQueryHandler<GetAvailableSlotsQuery, IReadOnlyList<AvailableSlotDto>>>();
