@@ -22,6 +22,18 @@ public static class DoctorAvailabilityErrors
     public static readonly Error DurationTooShort = Error.Validation(
         "Availability.DurationTooShort", "El bloque no cumple la duración mínima.");
 
+    /// <summary>Un bloque que ya empezó no se puede cambiar.</summary>
+    public static readonly Error AlreadyStarted = Error.Validation(
+        "Availability.AlreadyStarted", "El bloque ya empezó y no se puede cambiar.");
+
+    /// <summary>Solo un bloque generado por una serie se edita como ocurrencia.</summary>
+    public static readonly Error NotAnOccurrence = Error.Validation(
+        "Availability.NotAnOccurrence", "Solo un bloque de una serie puede editarse como ocurrencia.");
+
+    /// <summary>Editar una ocurrencia cambia el horario de ese día, no la mueve a otro.</summary>
+    public static readonly Error OccurrenceDayChanged = Error.Validation(
+        "Availability.OccurrenceDayChanged", "La ocurrencia solo puede cambiar de horario dentro de su mismo día.");
+
     /// <summary>Un bloque suelto solo puede crearse para un horario futuro.</summary>
     public static readonly Error StartsInPast = Error.Validation(
         "Availability.StartsInPast", "El bloque debe empezar en el futuro.");
