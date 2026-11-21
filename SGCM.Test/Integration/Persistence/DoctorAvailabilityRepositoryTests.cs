@@ -269,6 +269,71 @@ public sealed class DoctorAvailabilityRepositoryTests(PostgresFixture database) 
         unbounded.Select(block => block.StartsAt).ShouldBe(new[] { Start, Start.AddDays(2), Start.AddDays(10) });
     }
 
+    [Fact]
+    public async Task ListByDoctorsAsync_trae_los_bloques_de_varios_medicos_en_una_llamada_ordenados_por_inicio_y_sin_los_de_otros()
+    {
+        await using var provider = CreateProvider();
+        var first = await InsertDoctorAsync(provider);
+        var second = await InsertDoctorAsync(provider);
+        var notRequested = await InsertDoctorAsync(provider);
+        await SaveBlocksAsync(provider,
+        [
+            Block(first, Start),
+            Block(second, Start),
+            Block(first, Start.AddDays(2)),
+            Block(notRequested, Start)
+        ]);
+
+        await using var scope = provider.CreateAsyncScope();
+        var blocks = await scope.ServiceProvider.GetRequiredService<IDoctorAvailabilityRepository>()
+            .ListByDoctorsAsync([first, second], Start, Start.AddDays(10), CancellationToken.None);
+
+        // A la misma hora el orden lo desempata el id del bloque, que sigue el orden de inserción.
+        blocks.Select(block => (block.DoctorId, block.StartsAt))
+            .ShouldBe(new[] { (first, Start), (second, Start), (first, Start.AddDays(2)) });
+    }
+
+    [Fact]
+    public async Task ListByDoctorsAsync_respeta_la_ventana_y_devuelve_bloques_abiertos_y_cerrados()
+    {
+        await using var provider = CreateProvider();
+        var doctorId = await InsertDoctorAsync(provider);
+        await SaveBlocksAsync(provider,
+        [
+            Block(doctorId, Start.AddDays(-2)),
+            Block(doctorId, Start),
+            Block(doctorId, Start.AddDays(2)),
+            Block(doctorId, Start.AddDays(10))
+        ]);
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE scheduling.doctor_availability SET is_available = false WHERE doctor_id = {doctorId} AND starts_at = {Start.AddDays(2)}");
+        }
+
+        await using var check = provider.CreateAsyncScope();
+        // Desde la mitad del primer bloque: el bloque del día -2 ya terminó y el del día 10 empieza justo en el fin, así que no entran.
+        var blocks = await check.ServiceProvider.GetRequiredService<IDoctorAvailabilityRepository>()
+            .ListByDoctorsAsync([doctorId], Start.AddHours(3), Start.AddDays(10), CancellationToken.None);
+
+        blocks.Select(block => block.StartsAt).ShouldBe(new[] { Start, Start.AddDays(2) });
+        blocks.Select(block => block.IsAvailable).ShouldBe(new[] { true, false });
+    }
+
+    [Fact]
+    public async Task ListByDoctorsAsync_sin_ids_devuelve_una_lista_vacia()
+    {
+        await using var provider = CreateProvider();
+        var doctorId = await InsertDoctorAsync(provider);
+        await SaveBlocksAsync(provider, [Block(doctorId, Start)]);
+
+        await using var scope = provider.CreateAsyncScope();
+        var blocks = await scope.ServiceProvider.GetRequiredService<IDoctorAvailabilityRepository>()
+            .ListByDoctorsAsync([], Start, Start.AddDays(10), CancellationToken.None);
+
+        blocks.ShouldBeEmpty();
+    }
+
     private static DoctorAvailability Block(int doctorId, DateTimeOffset startsAt) =>
         DoctorAvailability.Create(doctorId, null, startsAt, startsAt.AddHours(MinimumHours), MinimumHours).Value;
 

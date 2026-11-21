@@ -124,6 +124,61 @@ public sealed class ActiveAppointmentReaderTests(PostgresFixture database) : Int
         (await ListAsync(doctor.DoctorId, Day, Day.AddDays(1))).ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task ListActiveIntervalsAsync_con_varios_medicos_agrupa_las_citas_por_medico_ordenadas_por_inicio()
+    {
+        var first = await SeedDoctorAsync();
+        var second = await SeedDoctorAsync();
+        var firstLate = await InsertAsync(first, At(14), At(16), Confirmed);
+        var firstEarly = await InsertAsync(first, At(8), At(10), Pending);
+        var secondOnly = await InsertAsync(second, At(9), At(11), Confirmed);
+
+        var byDoctor = await ListManyAsync([first.DoctorId, second.DoctorId], Day, Day.AddDays(1));
+
+        byDoctor.Keys.ShouldBe(new[] { first.DoctorId, second.DoctorId }, ignoreOrder: true);
+        byDoctor[first.DoctorId].Select(interval => interval.AppointmentId).ShouldBe(new[] { firstEarly, firstLate });
+        byDoctor[second.DoctorId].Select(interval => interval.AppointmentId).ShouldBe(new[] { secondOnly });
+    }
+
+    [Fact]
+    public async Task ListActiveIntervalsAsync_con_varios_medicos_omite_a_los_que_no_tienen_citas_activas_en_el_rango()
+    {
+        var withAppointment = await SeedDoctorAsync();
+        var withoutAppointments = await SeedDoctorAsync();
+        var onlyInactive = await SeedDoctorAsync();
+        var outsideRange = await SeedDoctorAsync();
+        await InsertAsync(withAppointment, At(8), At(10), Confirmed);
+        await InsertAsync(onlyInactive, At(8), At(10), Cancelled);
+        await InsertAsync(outsideRange, At(20), At(22), Confirmed);
+        var ids = new[] { withAppointment.DoctorId, withoutAppointments.DoctorId, onlyInactive.DoctorId, outsideRange.DoctorId };
+
+        var byDoctor = await ListManyAsync(ids, At(7), At(12));
+
+        byDoctor.Keys.ShouldBe(new[] { withAppointment.DoctorId });
+    }
+
+    [Fact]
+    public async Task ListActiveIntervalsAsync_con_varios_medicos_solo_trae_los_pedidos()
+    {
+        var requested = await SeedDoctorAsync();
+        var notRequested = await SeedDoctorAsync();
+        await InsertAsync(requested, At(8), At(10), Confirmed);
+        await InsertAsync(notRequested, At(8), At(10), Confirmed);
+
+        var byDoctor = await ListManyAsync([requested.DoctorId], Day, Day.AddDays(1));
+
+        byDoctor.Keys.ShouldBe(new[] { requested.DoctorId });
+    }
+
+    [Fact]
+    public async Task ListActiveIntervalsAsync_sin_ids_devuelve_un_diccionario_vacio()
+    {
+        var doctor = await SeedDoctorAsync();
+        await InsertAsync(doctor, At(8), At(10), Confirmed);
+
+        (await ListManyAsync([], Day, Day.AddDays(1))).ShouldBeEmpty();
+    }
+
     private static DateTimeOffset At(int hour) => Day.AddHours(hour);
 
     /// <summary>Crea el médico con una especialidad activa y un bloque abierto que cubre todo enero de 2027.</summary>
@@ -179,12 +234,17 @@ public sealed class ActiveAppointmentReaderTests(PostgresFixture database) : Int
             .Select(patient => patient.Id).SingleAsync();
     }
 
+    /// <summary>Intervalos de un solo médico; un médico sin citas no está en el diccionario y da una lista vacía.</summary>
     private async Task<IReadOnlyList<BookedInterval>> ListAsync(
-        int doctorId, DateTimeOffset from, DateTimeOffset to)
+        int doctorId, DateTimeOffset from, DateTimeOffset to) =>
+        (await ListManyAsync([doctorId], from, to)).GetValueOrDefault(doctorId) ?? [];
+
+    private async Task<IReadOnlyDictionary<int, IReadOnlyList<BookedInterval>>> ListManyAsync(
+        int[] doctorIds, DateTimeOffset from, DateTimeOffset to)
     {
         await using var context = CreateContext();
         return await new ActiveAppointmentReader(context).ListActiveIntervalsAsync(
-            doctorId, from, to, CancellationToken.None);
+            doctorIds, from, to, CancellationToken.None);
     }
 
     private AppDbContext CreateContext() => DoctorPersistenceData.Context(Database.ConnectionString);

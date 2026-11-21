@@ -13,4 +13,12 @@ public interface IDoctorAvailabilityRepository : IRepository<DoctorAvailability>
     /// </summary>
     Task<IReadOnlyList<DoctorAvailability>> ListByDoctorAsync(
         int doctorId, DateTimeOffset from, DateTimeOffset? to, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Bloques de esos médicos, abiertos o cerrados y sin rastrear, que terminan después de
+    /// <paramref name="from"/> y empiezan antes de <paramref name="to"/>, ordenados por inicio. Sin ids devuelve
+    /// una lista vacía sin consultar la base.
+    /// </summary>
+    Task<IReadOnlyList<DoctorAvailability>> ListByDoctorsAsync(
+        IReadOnlyCollection<int> doctorIds, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken);
 }

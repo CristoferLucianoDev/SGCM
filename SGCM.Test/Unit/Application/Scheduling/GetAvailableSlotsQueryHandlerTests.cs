@@ -20,6 +20,10 @@ public sealed class GetAvailableSlotsQueryHandlerTests
     private const int UserId = 42;
     private const int DoctorId = 7;
     private const int OtherDoctorId = 8;
+    private const int ThirdDoctorId = 9;
+    private const int SpecialtyId = 5;
+    private const int ProvinceId = 3;
+    private const int MunicipalityId = 4;
     private const int AppointmentHours = 2;
     private const int MinimumBlockHours = 6;
 
@@ -72,9 +76,12 @@ public sealed class GetAvailableSlotsQueryHandlerTests
         result.Value.ShouldAllBe(slot => slot.StartsAt.Offset == TimeSpan.Zero && slot.EndsAt.Offset == TimeSpan.Zero);
         await _doctors.Received(1).FindActiveDoctorIdAsync(DoctorId, CancellationToken.None);
         await _doctors.DidNotReceive().FindActiveDoctorIdByUserIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
-        await _blocks.Received(1).ListByDoctorAsync(DoctorId, PatientWindowStart, PatientWindowEnd, CancellationToken.None);
+        await _blocks.Received(1).ListByDoctorsAsync(
+            Arg.Is<IReadOnlyCollection<int>>(ids => SameIds(ids, DoctorId)),
+            PatientWindowStart, PatientWindowEnd, CancellationToken.None);
         await _appointments.Received(1).ListActiveIntervalsAsync(
-            DoctorId, PatientWindowStart, PatientWindowEnd, CancellationToken.None);
+            Arg.Is<IReadOnlyCollection<int>>(ids => SameIds(ids, DoctorId)),
+            PatientWindowStart, PatientWindowEnd, CancellationToken.None);
     }
 
     [Fact]
@@ -120,8 +127,10 @@ public sealed class GetAvailableSlotsQueryHandlerTests
         await _doctors.DidNotReceive().FindActiveDoctorIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
         // 10 de enero + 90 días = 10 de abril; el fin es el 11 de abril a las 00:00 locales (04:00 UTC).
         var windowEnd = new DateTimeOffset(2027, 4, 11, 4, 0, 0, TimeSpan.Zero);
-        await _blocks.Received(1).ListByDoctorAsync(DoctorId, now, windowEnd, CancellationToken.None);
-        await _appointments.Received(1).ListActiveIntervalsAsync(DoctorId, now, windowEnd, CancellationToken.None);
+        await _blocks.Received(1).ListByDoctorsAsync(
+            Arg.Is<IReadOnlyCollection<int>>(ids => SameIds(ids, DoctorId)), now, windowEnd, CancellationToken.None);
+        await _appointments.Received(1).ListActiveIntervalsAsync(
+            Arg.Is<IReadOnlyCollection<int>>(ids => SameIds(ids, DoctorId)), now, windowEnd, CancellationToken.None);
     }
 
     [Fact]
@@ -150,13 +159,13 @@ public sealed class GetAvailableSlotsQueryHandlerTests
     }
 
     [Fact]
-    public async Task Un_paciente_sin_DoctorId_recibe_DoctorRequired_sin_tocar_los_lectores()
+    public async Task Un_paciente_sin_DoctorId_ni_SpecialtyId_recibe_DoctorOrSpecialtyRequired_sin_tocar_los_lectores()
     {
         AsPatient();
 
         var result = await Handle(new GetAvailableSlotsQuery());
 
-        result.Error.ShouldBe(AvailableSlotsErrors.DoctorRequired);
+        result.Error.ShouldBe(AvailableSlotsErrors.DoctorOrSpecialtyRequired);
         _doctors.ReceivedCalls().ShouldBeEmpty();
         _blocks.ReceivedCalls().ShouldBeEmpty();
         _appointments.ReceivedCalls().ShouldBeEmpty();
@@ -246,6 +255,163 @@ public sealed class GetAvailableSlotsQueryHandlerTests
         result.Value.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task Un_paciente_con_SpecialtyId_recibe_la_union_ordenada_y_sin_repetir_de_los_horarios_de_los_medicos()
+    {
+        AsPatient();
+        GivenCandidates(DoctorId, OtherDoctorId);
+        // Médico 7: bloque de 8:00 a 16:00 UTC con una cita de 10:00 a 12:00, así que le quedan 8, 12, 13 y 14.
+        // Médico 8: bloque de 12:00 a 20:00 con una cita de 14:00 a 16:00, así que le quedan 12, 16, 17 y 18.
+        GivenBlocks(Block(DoctorId, BlockStart, BlockEnd), Block(OtherDoctorId, BlockStart.AddHours(4), BlockEnd.AddHours(4)));
+        GivenAppointmentsByDoctor(new Dictionary<int, IReadOnlyList<BookedInterval>>
+        {
+            [DoctorId] = [Appointment(1, BlockStart.AddHours(2), BlockStart.AddHours(4))],
+            [OtherDoctorId] = [Appointment(2, BlockStart.AddHours(6), BlockStart.AddHours(8))]
+        });
+
+        var result = await Handle(new GetAvailableSlotsQuery(SpecialtyId: SpecialtyId));
+
+        // Las 12 las tienen libres los dos y salen una vez; las 8, 13 y 14 solo el médico 7 y las 16, 17 y 18 solo el 8.
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Select(slot => slot.StartsAt.Hour).ShouldBe(new[] { 8, 12, 13, 14, 16, 17, 18 });
+        result.Value.ShouldAllBe(slot => slot.EndsAt - slot.StartsAt == TimeSpan.FromHours(AppointmentHours));
+    }
+
+    [Fact]
+    public async Task Un_horario_ocupado_en_todos_los_medicos_no_aparece_y_el_libre_en_ambos_sale_una_sola_vez()
+    {
+        AsPatient();
+        GivenCandidates(DoctorId, OtherDoctorId);
+        GivenBlocks(Block(DoctorId, BlockStart, BlockEnd), Block(OtherDoctorId, BlockStart, BlockEnd));
+        // Los dos tienen una cita de 8:00 a 10:00: las 8 y las 9 quedan ocupadas para ambos.
+        GivenAppointmentsByDoctor(new Dictionary<int, IReadOnlyList<BookedInterval>>
+        {
+            [DoctorId] = [Appointment(1, BlockStart, BlockStart.AddHours(2))],
+            [OtherDoctorId] = [Appointment(2, BlockStart, BlockStart.AddHours(2))]
+        });
+
+        var result = await Handle(new GetAvailableSlotsQuery(SpecialtyId: SpecialtyId));
+
+        result.Value.Select(slot => slot.StartsAt.Hour).ShouldBe(new[] { 10, 11, 12, 13, 14 });
+    }
+
+    [Fact]
+    public async Task El_calculo_usa_los_bloques_y_las_citas_de_cada_medico_por_separado()
+    {
+        AsPatient();
+        GivenCandidates(DoctorId, OtherDoctorId);
+        // Solo el médico 7 tiene bloque; la cita del médico 8 no debe ocupar sus horarios ni el bloque del 7 darle horarios al 8.
+        GivenBlocks(Block(DoctorId, BlockStart, BlockEnd));
+        GivenAppointmentsByDoctor(new Dictionary<int, IReadOnlyList<BookedInterval>>
+        {
+            [OtherDoctorId] = [Appointment(2, BlockStart, BlockEnd)]
+        });
+
+        var result = await Handle(new GetAvailableSlotsQuery(SpecialtyId: SpecialtyId));
+
+        result.Value.Select(slot => slot.StartsAt.Hour).ShouldBe(new[] { 8, 9, 10, 11, 12, 13, 14 });
+    }
+
+    [Fact]
+    public async Task Un_bloque_cerrado_de_un_medico_no_aporta_horarios_a_la_especialidad()
+    {
+        AsPatient();
+        GivenCandidates(DoctorId, OtherDoctorId);
+        var closed = Block(DoctorId, BlockStart, BlockEnd);
+        typeof(DoctorAvailability).GetProperty(nameof(DoctorAvailability.IsAvailable))!.SetValue(closed, false);
+        GivenBlocks(closed, Block(OtherDoctorId, BlockStart.AddHours(4), BlockEnd.AddHours(4)));
+
+        var result = await Handle(new GetAvailableSlotsQuery(SpecialtyId: SpecialtyId));
+
+        result.Value.Select(slot => slot.StartsAt.Hour).ShouldBe(new[] { 12, 13, 14, 15, 16, 17, 18 });
+    }
+
+    [Fact]
+    public async Task Con_varios_medicos_los_bloques_y_las_citas_se_leen_una_sola_vez_con_la_ventana_del_paciente()
+    {
+        AsPatient();
+        GivenCandidates(DoctorId, OtherDoctorId, ThirdDoctorId);
+
+        await Handle(new GetAvailableSlotsQuery(SpecialtyId: SpecialtyId));
+
+        await _blocks.Received(1).ListByDoctorsAsync(
+            Arg.Is<IReadOnlyCollection<int>>(ids => SameIds(ids, DoctorId, OtherDoctorId, ThirdDoctorId)),
+            PatientWindowStart, PatientWindowEnd, CancellationToken.None);
+        await _appointments.Received(1).ListActiveIntervalsAsync(
+            Arg.Is<IReadOnlyCollection<int>>(ids => SameIds(ids, DoctorId, OtherDoctorId, ThirdDoctorId)),
+            PatientWindowStart, PatientWindowEnd, CancellationToken.None);
+        await _blocks.DidNotReceive().ListByDoctorAsync(
+            Arg.Any<int>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Los_filtros_de_especialidad_y_ubicacion_llegan_tal_cual_al_lector_de_medicos()
+    {
+        AsPatient();
+        GivenCandidates(DoctorId);
+
+        await Handle(new GetAvailableSlotsQuery(SpecialtyId: SpecialtyId, ProvinceId: ProvinceId, MunicipalityId: MunicipalityId));
+        await Handle(new GetAvailableSlotsQuery(SpecialtyId: SpecialtyId));
+
+        await _doctors.Received(1).ListActiveDoctorIdsBySpecialtyAsync(
+            SpecialtyId, ProvinceId, MunicipalityId, CancellationToken.None);
+        await _doctors.Received(1).ListActiveDoctorIdsBySpecialtyAsync(
+            SpecialtyId, null, null, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Sin_candidatos_devuelve_exito_con_una_lista_vacia_sin_leer_bloques_ni_citas()
+    {
+        AsPatient();
+        GivenCandidates();
+
+        var result = await Handle(new GetAvailableSlotsQuery(SpecialtyId: SpecialtyId));
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBeEmpty();
+        _blocks.ReceivedCalls().ShouldBeEmpty();
+        _appointments.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Un_paciente_con_DoctorId_y_SpecialtyId_usa_solo_ese_medico()
+    {
+        AsPatient();
+
+        await Handle(new GetAvailableSlotsQuery(DoctorId, SpecialtyId, ProvinceId, MunicipalityId));
+
+        await _doctors.DidNotReceive().ListActiveDoctorIdsBySpecialtyAsync(
+            Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+        await _blocks.Received(1).ListByDoctorsAsync(
+            Arg.Is<IReadOnlyCollection<int>>(ids => SameIds(ids, DoctorId)),
+            PatientWindowStart, PatientWindowEnd, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Un_medico_con_SpecialtyId_usa_solo_su_propio_id_y_no_consulta_candidatos()
+    {
+        AsDoctor();
+
+        await Handle(new GetAvailableSlotsQuery(SpecialtyId: SpecialtyId, ProvinceId: ProvinceId));
+
+        await _doctors.DidNotReceive().ListActiveDoctorIdsBySpecialtyAsync(
+            Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>());
+        await _blocks.Received(1).ListByDoctorsAsync(
+            Arg.Is<IReadOnlyCollection<int>>(ids => SameIds(ids, DoctorId)),
+            Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Un_administrador_con_SpecialtyId_recibe_RoleNotAllowed_sin_tocar_los_lectores()
+    {
+        _currentUser.IsAuthenticated.Returns(true);
+        _currentUser.IsInRole(UserRole.Administrator).Returns(true);
+
+        var result = await Handle(new GetAvailableSlotsQuery(SpecialtyId: SpecialtyId));
+
+        AssertRoleNotAllowed(result);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
@@ -283,8 +449,10 @@ public sealed class GetAvailableSlotsQueryHandlerTests
         AsPatient();
         GivenBlocks(Block(BlockStart, BlockEnd));
         _appointments.ListActiveIntervalsAsync(
-                Arg.Any<int>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromException<IReadOnlyList<BookedInterval>>(new OperationCanceledException()));
+                Arg.Any<IReadOnlyCollection<int>>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<IReadOnlyDictionary<int, IReadOnlyList<BookedInterval>>>(
+                new OperationCanceledException()));
 
         await Should.ThrowAsync<OperationCanceledException>(() => Handle(new GetAvailableSlotsQuery(DoctorId)));
     }
@@ -302,14 +470,35 @@ public sealed class GetAvailableSlotsQueryHandlerTests
     }
 
     private void GivenBlocks(params DoctorAvailability[] blocks) =>
-        _blocks.ListByDoctorAsync(
-                Arg.Any<int>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset?>(), Arg.Any<CancellationToken>())
+        _blocks.ListByDoctorsAsync(
+                Arg.Any<IReadOnlyCollection<int>>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(),
+                Arg.Any<CancellationToken>())
             .Returns((IReadOnlyList<DoctorAvailability>)blocks);
 
-    private void GivenAppointments(params BookedInterval[] appointments) =>
+    // Las citas de estas pruebas pertenecen al médico DoctorId, salvo que se indique otro con GivenAppointmentsOf.
+    private void GivenAppointments(params BookedInterval[] appointments) => GivenAppointmentsOf(DoctorId, appointments);
+
+    private void GivenAppointmentsOf(int doctorId, params BookedInterval[] appointments)
+    {
+        var byDoctor = new Dictionary<int, IReadOnlyList<BookedInterval>>();
+        if (appointments.Length > 0) byDoctor[doctorId] = appointments;
+
+        GivenAppointmentsByDoctor(byDoctor);
+    }
+
+    private void GivenAppointmentsByDoctor(IReadOnlyDictionary<int, IReadOnlyList<BookedInterval>> byDoctor) =>
         _appointments.ListActiveIntervalsAsync(
-                Arg.Any<int>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
-            .Returns((IReadOnlyList<BookedInterval>)appointments);
+                Arg.Any<IReadOnlyCollection<int>>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(),
+                Arg.Any<CancellationToken>())
+            .Returns(byDoctor);
+
+    private void GivenCandidates(params int[] doctorIds) =>
+        _doctors.ListActiveDoctorIdsBySpecialtyAsync(
+                Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<int?>(), Arg.Any<CancellationToken>())
+            .Returns((IReadOnlyList<int>)doctorIds);
+
+    private static bool SameIds(IReadOnlyCollection<int> actual, params int[] expected) =>
+        actual.SequenceEqual(expected);
 
     private void AssertRoleNotAllowed(Result<IReadOnlyList<AvailableSlotDto>> result)
     {
@@ -320,7 +509,10 @@ public sealed class GetAvailableSlotsQueryHandlerTests
     }
 
     private static DoctorAvailability Block(DateTimeOffset startsAt, DateTimeOffset endsAt) =>
-        DoctorAvailability.Create(DoctorId, null, startsAt, endsAt, MinimumBlockHours).Value;
+        Block(DoctorId, startsAt, endsAt);
+
+    private static DoctorAvailability Block(int doctorId, DateTimeOffset startsAt, DateTimeOffset endsAt) =>
+        DoctorAvailability.Create(doctorId, null, startsAt, endsAt, MinimumBlockHours).Value;
 
     private static BookedInterval Appointment(int id, DateTimeOffset startsAt, DateTimeOffset endsAt) =>
         new(id, TimeRange.Create(startsAt, endsAt).Value);

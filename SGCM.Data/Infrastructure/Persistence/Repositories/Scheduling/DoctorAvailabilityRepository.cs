@@ -21,4 +21,20 @@ internal sealed class DoctorAvailabilityRepository(AppDbContext context) : IDoct
             .OrderBy(block => block.StartsAt)
             .ToListAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<DoctorAvailability>> ListByDoctorsAsync(
+        IReadOnlyCollection<int> doctorIds, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken)
+    {
+        if (doctorIds.Count == 0) return [];
+
+        var fromUtc = from.ToUniversalTime();
+        var toUtc = to.ToUniversalTime();
+        var ids = doctorIds.ToArray();
+
+        return await context.DoctorAvailabilities.AsNoTracking()
+            .Where(block => ids.Contains(block.DoctorId) && block.EndsAt > fromUtc && block.StartsAt < toUtc)
+            .OrderBy(block => block.StartsAt)
+            .ThenBy(block => block.Id)
+            .ToListAsync(cancellationToken);
+    }
 }
