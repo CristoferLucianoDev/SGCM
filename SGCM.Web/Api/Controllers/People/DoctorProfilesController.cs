@@ -4,6 +4,7 @@ using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.People.Commands.CompleteDoctorProfile;
 using SGCM.Data.Application.People.Commands.UpdateDoctorProfile;
+using SGCM.Data.Application.People.Queries.GetDoctorProfile;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
@@ -22,6 +23,41 @@ public sealed class DoctorProfilesController(ILogger<DoctorProfilesController> l
 
     private static readonly Error ProfileUpdateFailed = Error.Failure(
         "Doctor.ProfileUpdateFailed", "Ocurrió un error al actualizar el perfil.");
+
+    private static readonly Error ProfileReadFailed = Error.Failure(
+        "Doctor.ProfileReadFailed", "Ocurrió un error al consultar el perfil médico.");
+
+    [HttpGet("{doctorId:int}/profile")]
+    [AllowAnonymous]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    [ProducesResponseType(typeof(DoctorPublicProfileResponse), StatusCodes.Status200OK, "application/json")]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError, "application/problem+json")]
+    public async Task<IActionResult> GetProfile(
+        [FromRoute] int doctorId,
+        [FromServices] IQueryHandler<GetDoctorProfileQuery, DoctorProfileResult> handler,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await handler.HandleAsync(new GetDoctorProfileQuery(doctorId), cancellationToken);
+            if (result.IsFailure) return ErrorResult(result.Error);
+
+            return result.Value switch
+            {
+                DoctorPublicProfileDto profile => Ok(profile.ToResponse()),
+                DoctorAdminProfileDto profile => Ok(profile.ToResponse()),
+                _ => throw new InvalidOperationException("Variante inesperada del perfil médico.")
+            };
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogError("Fallo al consultar el perfil médico ({ExceptionType}). Petición {TraceId}.",
+                exception.GetType().Name, HttpContext.TraceIdentifier);
+            return ErrorResult(ProfileReadFailed);
+        }
+    }
 
     /// <summary>Completa el primer acceso del médico y devuelve los tokens de una sesión nueva.</summary>
     [HttpPost("profile")]

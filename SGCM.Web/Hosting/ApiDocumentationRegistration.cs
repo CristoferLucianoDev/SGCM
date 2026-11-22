@@ -21,6 +21,7 @@ public static class ApiDocumentationRegistration
                 Description = "Pega el access token sin el prefijo \"Bearer\".",
             });
             options.OperationFilter<AuthorizeOperationFilter>();
+            options.OperationFilter<DoctorProfileOperationFilter>();
         });
 
         return services;
