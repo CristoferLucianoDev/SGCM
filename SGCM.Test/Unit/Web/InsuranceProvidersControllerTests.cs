@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Common;
 using SGCM.Data.Application.People.Commands.RegisterInsuranceProvider;
+using SGCM.Data.Application.People.Queries.ListInsuranceProviders;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.InsuranceProviders;
@@ -20,6 +22,9 @@ public sealed class InsuranceProvidersControllerTests
 
     private readonly ICommandHandler<RegisterInsuranceProviderCommand, int> _handler =
         Substitute.For<ICommandHandler<RegisterInsuranceProviderCommand, int>>();
+
+    private readonly IQueryHandler<ListInsuranceProvidersQuery, PagedResult<InsuranceProviderDto>> _queryHandler =
+        Substitute.For<IQueryHandler<ListInsuranceProvidersQuery, PagedResult<InsuranceProviderDto>>>();
 
     [Fact]
     public async Task Register_mapea_la_solicitud_y_devuelve_201_con_el_id()
@@ -71,5 +76,111 @@ public sealed class InsuranceProvidersControllerTests
         register.GetParameters()
             .Single(parameter => parameter.ParameterType == typeof(ICommandHandler<RegisterInsuranceProviderCommand, int>))
             .GetCustomAttribute<FromServicesAttribute>().ShouldNotBeNull();
+    }
+
+    [Theory]
+    [InlineData(InsuranceProviderStatusFilter.Active, true)]
+    [InlineData(InsuranceProviderStatusFilter.Inactive, false)]
+    [InlineData(InsuranceProviderStatusFilter.All, null)]
+    public async Task List_mapea_la_solicitud_propaga_el_token_y_devuelve_200_con_el_contrato_HTTP(
+        InsuranceProviderStatusFilter status, bool? expectedState)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var itemState = expectedState ?? false;
+        var page = new PagedResult<InsuranceProviderDto>(
+            [new(42, "Seguros Universal", "8095550200", "contacto@seguros.com", "Av. Winston Churchill 100", null, itemState)],
+            2, 10, 11);
+        _queryHandler.HandleAsync(Arg.Any<ListInsuranceProvidersQuery>(), cancellation.Token).Returns(page);
+
+        var result = await new InsuranceProvidersController().List(
+            new ListInsuranceProvidersRequest("  UNIVÉR%_  ", 2, 10, status), _queryHandler, cancellation.Token);
+
+        var response = result.ShouldBeOfType<OkObjectResult>();
+        response.StatusCode.ShouldBe(200);
+        var body = response.Value.ShouldBeOfType<ListInsuranceProvidersResponse>();
+        body.Items.ShouldHaveSingleItem().ShouldBe(new InsuranceProviderResponse(
+            42, "Seguros Universal", "8095550200", "contacto@seguros.com", "Av. Winston Churchill 100", null, itemState));
+        body.PageNumber.ShouldBe(2);
+        body.PageSize.ShouldBe(10);
+        body.TotalCount.ShouldBe(11);
+        body.Message.ShouldBeNull();
+        await _queryHandler.Received(1).HandleAsync(
+            new ListInsuranceProvidersQuery("  UNIVÉR%_  ", expectedState, 2, 10), cancellation.Token);
+    }
+
+    [Theory]
+    [InlineData(0, "No existen registros de proveedores de seguros")]
+    [InlineData(4, null)]
+    public async Task List_devuelve_200_vacio_y_el_mensaje_depende_del_total(int totalCount, string? message)
+    {
+        _queryHandler.HandleAsync(new ListInsuranceProvidersQuery(PageNumber: 3), CancellationToken.None)
+            .Returns(new PagedResult<InsuranceProviderDto>([], 3, 20, totalCount));
+
+        var result = await new InsuranceProvidersController().List(
+            new ListInsuranceProvidersRequest(PageNumber: 3), _queryHandler, CancellationToken.None);
+
+        var response = result.ShouldBeOfType<OkObjectResult>();
+        response.StatusCode.ShouldBe(200);
+        var body = response.Value.ShouldBeOfType<ListInsuranceProvidersResponse>();
+        body.Items.ShouldBeEmpty();
+        body.PageNumber.ShouldBe(3);
+        body.PageSize.ShouldBe(20);
+        body.TotalCount.ShouldBe(totalCount);
+        body.Message.ShouldBe(message);
+    }
+
+    [Theory]
+    [InlineData("InsuranceProvider.InvalidPageNumber")]
+    [InlineData("InsuranceProvider.InvalidPageSize")]
+    [InlineData("InsuranceProvider.PageOffsetTooLarge")]
+    public async Task List_devuelve_400_y_el_codigo_del_error_del_handler(string code)
+    {
+        var error = Error.Validation(code, "Paginación inválida.");
+        _queryHandler.HandleAsync(Arg.Any<ListInsuranceProvidersQuery>(), CancellationToken.None)
+            .Returns(Result<PagedResult<InsuranceProviderDto>>.Failure(error));
+
+        var result = await new InsuranceProvidersController().List(
+            new ListInsuranceProvidersRequest(), _queryHandler, CancellationToken.None);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(400);
+        var problem = response.Value.ShouldBeOfType<ProblemDetails>();
+        problem.Status.ShouldBe(400);
+        problem.Title.ShouldBe(error.Description);
+        problem.Extensions["code"].ShouldBe(code);
+    }
+
+    [Fact]
+    public async Task List_propaga_la_cancelacion_del_handler()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        _queryHandler.HandleAsync(Arg.Any<ListInsuranceProvidersQuery>(), cancellation.Token)
+            .Returns(Task.FromCanceled<Result<PagedResult<InsuranceProviderDto>>>(cancellation.Token));
+
+        var exception = await Should.ThrowAsync<OperationCanceledException>(() => new InsuranceProvidersController().List(
+            new ListInsuranceProvidersRequest(), _queryHandler, cancellation.Token));
+
+        exception.CancellationToken.ShouldBe(cancellation.Token);
+        await _queryHandler.Received(1).HandleAsync(new ListInsuranceProvidersQuery(), cancellation.Token);
+    }
+
+    [Fact]
+    public void List_es_GET_publico_sin_Authorize_ni_rol_y_solo_declara_200_y_400()
+    {
+        var list = typeof(InsuranceProvidersController).GetMethod(nameof(InsuranceProvidersController.List))!;
+
+        list.GetCustomAttributes<HttpGetAttribute>().ShouldHaveSingleItem().Template.ShouldBeNull();
+        list.GetCustomAttributes<AllowAnonymousAttribute>().ShouldHaveSingleItem();
+        list.GetCustomAttributes<AuthorizeAttribute>().ShouldBeEmpty();
+        list.GetParameters().Single(parameter => parameter.ParameterType == typeof(ListInsuranceProvidersRequest))
+            .GetCustomAttribute<FromQueryAttribute>().ShouldNotBeNull();
+        list.GetParameters()
+            .Single(parameter => parameter.ParameterType == typeof(IQueryHandler<ListInsuranceProvidersQuery, PagedResult<InsuranceProviderDto>>))
+            .GetCustomAttribute<FromServicesAttribute>().ShouldNotBeNull();
+        var responses = list.GetCustomAttributes<ProducesResponseTypeAttribute>().ToArray();
+        responses.Select(value => value.StatusCode).ShouldBe(new[] { 200, 400 }, ignoreOrder: true);
+        responses.Single(value => value.StatusCode == 200).Type.ShouldBe(typeof(ListInsuranceProvidersResponse));
+        responses.Single(value => value.StatusCode == 400).Type.ShouldBe(typeof(ProblemDetails));
     }
 }
