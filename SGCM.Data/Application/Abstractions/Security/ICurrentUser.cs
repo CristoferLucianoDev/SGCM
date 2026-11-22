@@ -21,4 +21,9 @@ public interface ICurrentUser
     /// sin aceptar claims ausentes, duplicados o repartidos entre identidades.
     /// </summary>
     bool TryGetSessionIdentity(out int userId, out int sessionId);
+
+    /// <summary>
+    /// Obtiene la identidad de sesión si su único claim de rol coincide con el requerido.
+    /// </summary>
+    bool TryGetSessionIdentity(UserRole requiredRole, out int userId, out int sessionId);
 }
