@@ -1102,6 +1102,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(_specialtyRepository);
         services.AddSingleton(_specialtyListReader);
         services.AddSingleton(_insuranceProviderListReader);
+        services.AddSingleton(Substitute.For<IDoctorSearchReader>());
         services.AddSingleton(Substitute.For<ICurrentUser>());
         services.AddSingleton(Substitute.For<IPasswordHasher>());
         services.AddSingleton(Substitute.For<ISecureTokenGenerator>());
