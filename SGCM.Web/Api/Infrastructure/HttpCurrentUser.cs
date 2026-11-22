@@ -17,14 +17,27 @@ public sealed class HttpCurrentUser(IHttpContextAccessor accessor) : ICurrentUse
             ? userId
             : throw new InvalidOperationException("La petición no tiene un usuario autenticado.");
 
-    public bool TryGetSessionIdentity(out int userId, out int sessionId)
+    public bool TryGetSessionIdentity(out int userId, out int sessionId) =>
+        TryGetSessionIdentityCore(null, out userId, out sessionId);
+
+    public bool TryGetSessionIdentity(UserRole requiredRole, out int userId, out int sessionId) =>
+        TryGetSessionIdentityCore(requiredRole, out userId, out sessionId);
+
+    private bool TryGetSessionIdentityCore(UserRole? requiredRole, out int userId, out int sessionId)
     {
         userId = sessionId = 0;
         var identities = accessor.HttpContext?.User.Identities.Where(identity => identity.IsAuthenticated).ToArray();
         if (identities is not { Length: 1 }) return false;
 
-        var subjects = identities[0].FindAll(AppClaims.UserId).ToArray();
-        var sessions = identities[0].FindAll(AppClaims.SessionId).ToArray();
+        var identity = identities[0];
+        if (requiredRole is { } role)
+        {
+            var roles = identity.FindAll(identity.RoleClaimType).ToArray();
+            if (roles.Length != 1 || roles[0].Value != role.ToString()) return false;
+        }
+
+        var subjects = identity.FindAll(AppClaims.UserId).ToArray();
+        var sessions = identity.FindAll(AppClaims.SessionId).ToArray();
         if (subjects.Length != 1 || sessions.Length != 1
             || !int.TryParse(subjects[0].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsedUser)
             || !int.TryParse(sessions[0].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsedSession)
