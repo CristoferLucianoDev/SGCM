@@ -23,6 +23,7 @@ using SGCM.Data.Application.People.Commands.CreateSpecialty;
 using SGCM.Data.Application.People.Commands.DeactivateSpecialty;
 using SGCM.Data.Application.People.Commands.RegisterInsuranceProvider;
 using SGCM.Data.Application.People.Commands.UpdateSpecialty;
+using SGCM.Data.Application.People.Queries.ListInsuranceProviders;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
@@ -56,6 +57,7 @@ public sealed class ApplicationDependencyInjectionTests
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
     private readonly ISpecialtyRepository _specialtyRepository = Substitute.For<ISpecialtyRepository>();
     private readonly ISpecialtyListReader _specialtyListReader = Substitute.For<ISpecialtyListReader>();
+    private readonly IInsuranceProviderListReader _insuranceProviderListReader = Substitute.For<IInsuranceProviderListReader>();
     private readonly IPatientRepository _patientRepository = Substitute.For<IPatientRepository>();
     private readonly IDoctorRepository _doctorRepository = Substitute.For<IDoctorRepository>();
     private readonly IInsuranceProviderRepository _insuranceProviderRepository = Substitute.For<IInsuranceProviderRepository>();
@@ -85,6 +87,32 @@ public sealed class ApplicationDependencyInjectionTests
 
         result.IsSuccess.ShouldBe(valid);
         _specialtyListReader.ReceivedCalls().Count().ShouldBe(valid ? 1 : 0);
+        await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(0, false)]
+    public async Task AddApplication_InsuranceProvidersQueryValidatesAndReadsWithoutTransaction(int pageNumber, bool valid)
+    {
+        _insuranceProviderListReader.ListAsync(null, true, false, pageNumber, 20, CancellationToken.None)
+            .Returns(new PagedResult<InsuranceProviderDto>([], pageNumber, 20, 0));
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider
+            .GetRequiredService<IQueryHandler<ListInsuranceProvidersQuery, PagedResult<InsuranceProviderDto>>>();
+
+        handler.ShouldBeOfType<ListInsuranceProvidersQueryHandler>();
+        scope.ServiceProvider.GetRequiredService<IQueryHandler<ListInsuranceProvidersQuery, PagedResult<InsuranceProviderDto>>>()
+            .ShouldBeSameAs(handler);
+        using var otherScope = provider.CreateScope();
+        otherScope.ServiceProvider.GetRequiredService<IQueryHandler<ListInsuranceProvidersQuery, PagedResult<InsuranceProviderDto>>>()
+            .ShouldNotBeSameAs(handler);
+        var result = await handler.HandleAsync(new ListInsuranceProvidersQuery(PageNumber: pageNumber), CancellationToken.None);
+
+        result.IsSuccess.ShouldBe(valid);
+        _insuranceProviderListReader.ReceivedCalls().Count().ShouldBe(valid ? 1 : 0);
         await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
     }
@@ -1073,6 +1101,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(_unitOfWork);
         services.AddSingleton(_specialtyRepository);
         services.AddSingleton(_specialtyListReader);
+        services.AddSingleton(_insuranceProviderListReader);
         services.AddSingleton(Substitute.For<ICurrentUser>());
         services.AddSingleton(Substitute.For<IPasswordHasher>());
         services.AddSingleton(Substitute.For<ISecureTokenGenerator>());
