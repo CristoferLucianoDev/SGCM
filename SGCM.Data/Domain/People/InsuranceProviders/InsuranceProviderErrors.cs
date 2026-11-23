@@ -14,6 +14,24 @@ public static class InsuranceProviderErrors
         description: "Ya existe un proveedor de seguros con ese nombre."
     );
 
+    /// <summary>El proveedor de seguros solicitado no existe.</summary>
+    public static readonly Error NotFound = Error.NotFound(
+        code: "InsuranceProvider.NotFound",
+        description: "El proveedor de seguros no existe."
+    );
+
+    /// <summary>El identificador del proveedor no es un número positivo.</summary>
+    public static readonly Error InvalidId = Error.Validation(
+        code: "InsuranceProvider.InvalidId",
+        description: "El identificador del proveedor de seguros debe ser mayor que cero."
+    );
+
+    /// <summary>La actualización no envía ningún dato.</summary>
+    public static readonly Error NoFieldsProvided = Error.Validation(
+        code: "InsuranceProvider.NoFieldsProvided",
+        description: "Debe proporcionar al menos un dato del proveedor de seguros para actualizarlo."
+    );
+
     /// <summary>Falta el nombre.</summary>
     public static readonly Error NameRequired = Error.Validation(
         code: "InsuranceProvider.NameRequired",

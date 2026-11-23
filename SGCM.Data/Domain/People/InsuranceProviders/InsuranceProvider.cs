@@ -109,6 +109,74 @@ public sealed class InsuranceProvider : ActivatableAggregateRoot
         };
     }
 
+    /// <summary>
+    /// Actualiza solo los campos enviados con las mismas reglas que <see cref="Create"/>: recorte, correo
+    /// normalizado, longitudes y sitio web http o https. Un campo obligatorio enviado vacío se rechaza, y un
+    /// sitio web enviado nulo o vacío se quita. Es atómico: si algo es inválido no cambia ningún campo. Funciona
+    /// igual con el proveedor inactivo, no cambia su estado y no emite eventos. La unicidad del nombre no se
+    /// comprueba aquí porque depende de los demás proveedores.
+    /// </summary>
+    /// <param name="changes">Cambios parciales; los campos no enviados conservan su valor.</param>
+    /// <returns>
+    /// Éxito, <see cref="InsuranceProviderErrors.NoFieldsProvided"/> si no se envió ningún campo, o el primer
+    /// error de validación en el orden nombre, teléfono, correo, dirección y sitio web.
+    /// </returns>
+    public Result Update(InsuranceProviderChanges changes)
+    {
+        if (!changes.HasChanges)
+        {
+            return InsuranceProviderErrors.NoFieldsProvided;
+        }
+
+        // Se valida con un candidato armado por Create para reutilizar exactamente las reglas y el orden
+        // de validación del registro, sin tocar este agregado hasta que todo sea válido.
+        var candidate = Create(
+            Pick(changes.Name, Name),
+            Pick(changes.ContactPhone, ContactPhone),
+            Pick(changes.ContactEmail, ContactEmail.Value),
+            Pick(changes.Address, Address),
+            Pick(changes.Website, Website));
+        if (candidate.IsFailure)
+        {
+            return candidate.Error;
+        }
+
+        ApplyProvided(changes, candidate.Value);
+        return Result.Success();
+    }
+
+    private static string? Pick(Change<string?> change, string? current) =>
+        change.IsProvided ? change.Value : current;
+
+    // Se asignan los valores normalizados del candidato y solo de los campos enviados.
+    private void ApplyProvided(InsuranceProviderChanges changes, InsuranceProvider candidate)
+    {
+        if (changes.Name.IsProvided)
+        {
+            Name = candidate.Name;
+        }
+
+        if (changes.ContactPhone.IsProvided)
+        {
+            ContactPhone = candidate.ContactPhone;
+        }
+
+        if (changes.ContactEmail.IsProvided)
+        {
+            ContactEmail = candidate.ContactEmail;
+        }
+
+        if (changes.Address.IsProvided)
+        {
+            Address = candidate.Address;
+        }
+
+        if (changes.Website.IsProvided)
+        {
+            Website = candidate.Website;
+        }
+    }
+
     // Solo http y https: otros esquemas, como javascript: o data:, serían XSS almacenado
     // cuando una vista use el sitio como enlace.
     private static bool IsHttpUrl(string value) =>

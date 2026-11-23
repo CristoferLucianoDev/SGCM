@@ -22,6 +22,7 @@ using SGCM.Data.Application.People.Commands.UpdatePatientProfile;
 using SGCM.Data.Application.People.Commands.CreateSpecialty;
 using SGCM.Data.Application.People.Commands.DeactivateSpecialty;
 using SGCM.Data.Application.People.Commands.RegisterInsuranceProvider;
+using SGCM.Data.Application.People.Commands.UpdateInsuranceProvider;
 using SGCM.Data.Application.People.Commands.UpdateSpecialty;
 using SGCM.Data.Application.People.Queries.ListInsuranceProviders;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
@@ -650,6 +651,124 @@ public sealed class ApplicationDependencyInjectionTests
         }
         _specialtyRepository.GetByIdAsync(42, cancellationToken).Returns(specialty);
         return specialty;
+    }
+
+    [Fact]
+    public void AddApplication_ResolvesUpdateInsuranceProviderWithValidationAndScopedLifetime()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<UpdateInsuranceProviderCommand, Unit>>();
+
+        handler.ShouldBeOfType<ValidationDecorator<UpdateInsuranceProviderCommand, Unit>>();
+        scope.ServiceProvider.GetRequiredService<ICommandHandler<UpdateInsuranceProviderCommand, Unit>>().ShouldBeSameAs(handler);
+        using var otherScope = provider.CreateScope();
+        otherScope.ServiceProvider.GetRequiredService<ICommandHandler<UpdateInsuranceProviderCommand, Unit>>()
+            .ShouldNotBeSameAs(handler);
+        scope.ServiceProvider.GetServices<IValidator<UpdateInsuranceProviderCommand>>()
+            .ShouldHaveSingleItem().ShouldBeOfType<UpdateInsuranceProviderCommandValidator>();
+        _unitOfWork.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(0, false, "InsuranceProvider.InvalidId")]
+    [InlineData(42, false, "InsuranceProvider.NoFieldsProvided")]
+    [InlineData(42, true, "InsuranceProvider.NameRequired")]
+    public async Task AddApplication_InvalidInsuranceProviderUpdateIsRejectedBeforeOpeningTransaction(
+        int id, bool nameProvided, string code)
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<UpdateInsuranceProviderCommand, Unit>>();
+        var changes = nameProvided ? default(InsuranceProviderChanges) with { Name = Change<string?>.Set(null) } : default;
+
+        var result = await handler.HandleAsync(new(id, changes), CancellationToken.None);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Type.ShouldBe(ErrorType.Validation);
+        result.Error.Code.ShouldBe(code);
+        _unitOfWork.ReceivedCalls().ShouldBeEmpty();
+        _insuranceProviderRepository.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task AddApplication_InsuranceProviderUpdateSavesAndCommitsOnceUsingTheExistingTransaction()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var insuranceProvider = ConfigureUpdateInsuranceProvider(cancellation.Token);
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(cancellation.Token).Returns(transaction);
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<UpdateInsuranceProviderCommand, Unit>>();
+        var changes = default(InsuranceProviderChanges) with
+        {
+            Name = Change<string?>.Set("  Seguros del Caribe "),
+            Website = Change<string?>.Set(null)
+        };
+
+        var result = await handler.HandleAsync(new(42, changes), cancellation.Token);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ShouldBe(Unit.Value);
+        insuranceProvider.Name.ShouldBe("Seguros del Caribe");
+        insuranceProvider.Website.ShouldBeNull();
+        insuranceProvider.ContactPhone.ShouldBe(InsuranceProviderMother.DefaultContactPhone);
+        insuranceProvider.Id.ShouldBe(42);
+        Received.InOrder(() =>
+        {
+            _unitOfWork.BeginTransactionAsync(cancellation.Token);
+            _insuranceProviderRepository.GetByIdAsync(42, cancellation.Token);
+            _insuranceProviderRepository.ExistsByNameAsync("Seguros del Caribe", 42, cancellation.Token);
+            _unitOfWork.SaveChangesAsync(cancellation.Token);
+            transaction.CommitAsync(cancellation.Token);
+        });
+        await _unitOfWork.Received(1).BeginTransactionAsync(cancellation.Token);
+        await _unitOfWork.Received(1).SaveChangesAsync(cancellation.Token);
+        await transaction.Received(1).CommitAsync(cancellation.Token);
+        await transaction.Received(1).DisposeAsync();
+        await transaction.DidNotReceive().RollbackAsync(Arg.Any<CancellationToken>());
+        _insuranceProviderRepository.DidNotReceive().Add(Arg.Any<InsuranceProvider>());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AddApplication_MissingOrDuplicateInsuranceProviderUpdateRollsBackWithoutSaving(bool missing)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var insuranceProvider = missing ? null : ConfigureUpdateInsuranceProvider(cancellation.Token);
+        _insuranceProviderRepository.ExistsByNameAsync("Seguros del Caribe", 42, cancellation.Token).Returns(true);
+        var transaction = Substitute.For<ITransaction>();
+        _unitOfWork.BeginTransactionAsync(cancellation.Token).Returns(transaction);
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<UpdateInsuranceProviderCommand, Unit>>();
+
+        var result = await handler.HandleAsync(
+            new(42, default(InsuranceProviderChanges) with { Name = Change<string?>.Set("Seguros del Caribe") }),
+            cancellation.Token);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(missing ? InsuranceProviderErrors.NotFound : InsuranceProviderErrors.NameAlreadyInUse);
+        await _unitOfWork.Received(1).BeginTransactionAsync(cancellation.Token);
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+        await transaction.Received(1).RollbackAsync(cancellation.Token);
+        await transaction.DidNotReceive().CommitAsync(Arg.Any<CancellationToken>());
+        await transaction.Received(1).DisposeAsync();
+        if (insuranceProvider is not null)
+        {
+            insuranceProvider.Name.ShouldBe(InsuranceProviderMother.DefaultName);
+            insuranceProvider.Id.ShouldBe(42);
+        }
+    }
+
+    private InsuranceProvider ConfigureUpdateInsuranceProvider(CancellationToken cancellationToken)
+    {
+        var insuranceProvider = InsuranceProviderMother.Valid();
+        typeof(Entity).GetProperty(nameof(Entity.Id))!.SetValue(insuranceProvider, 42);
+        _insuranceProviderRepository.GetByIdAsync(42, cancellationToken).Returns(insuranceProvider);
+        return insuranceProvider;
     }
 
     private Specialty ConfigureUpdateSpecialty(CancellationToken cancellationToken)

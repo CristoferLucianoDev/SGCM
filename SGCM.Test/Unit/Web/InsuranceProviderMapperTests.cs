@@ -8,6 +8,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Primitives;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.People.Commands.RegisterInsuranceProvider;
+using SGCM.Data.Application.People.Commands.UpdateInsuranceProvider;
+using SGCM.Data.Domain.Common;
 using SGCM.Data.Application.People.Queries.ListInsuranceProviders;
 using SGCM.Web.Contracts.People;
 using SGCM.Web.Mappers.People;
@@ -28,6 +30,36 @@ public sealed class InsuranceProviderMapperTests
         var request = new RegisterInsuranceProviderRequest(name, contactPhone, contactEmail, address, website);
 
         request.ToCommand().ShouldBe(new RegisterInsuranceProviderCommand(name, contactPhone, contactEmail, address, website));
+    }
+
+    [Fact]
+    public void ToCommand_actualizacion_copia_el_id_y_los_cambios_sin_transformar_los_valores()
+    {
+        var request = new UpdateInsuranceProviderRequest
+        {
+            Name = "  Seguros Universal  ",
+            ContactEmail = " Contacto@Seguros.com ",
+            Website = null
+        };
+
+        var command = request.ToCommand(42);
+
+        command.Id.ShouldBe(42);
+        command.Changes.Name.ShouldBe(Change<string?>.Set("  Seguros Universal  "));
+        command.Changes.ContactEmail.ShouldBe(Change<string?>.Set(" Contacto@Seguros.com "));
+        command.Changes.Website.ShouldBe(Change<string?>.Set(null));
+        command.Changes.ContactPhone.IsProvided.ShouldBeFalse();
+        command.Changes.Address.IsProvided.ShouldBeFalse();
+        command.ShouldBe(new UpdateInsuranceProviderCommand(42, request.Changes));
+    }
+
+    [Fact]
+    public void ToCommand_actualizacion_sin_campos_no_marca_ningun_cambio()
+    {
+        var command = new UpdateInsuranceProviderRequest().ToCommand(7);
+
+        command.Id.ShouldBe(7);
+        command.Changes.HasChanges.ShouldBeFalse();
     }
 
     [Fact]
