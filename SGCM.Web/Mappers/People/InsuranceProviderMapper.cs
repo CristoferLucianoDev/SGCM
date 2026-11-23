@@ -1,5 +1,6 @@
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.People.Commands.RegisterInsuranceProvider;
+using SGCM.Data.Application.People.Commands.UpdateInsuranceProvider;
 using SGCM.Data.Application.People.Queries.ListInsuranceProviders;
 using SGCM.Web.Contracts.People;
 
@@ -20,6 +21,16 @@ public static class InsuranceProviderMapper
     /// <returns>El comando de registro.</returns>
     public static RegisterInsuranceProviderCommand ToCommand(this RegisterInsuranceProviderRequest request) =>
         new(request.Name, request.ContactPhone, request.ContactEmail, request.Address, request.Website);
+
+    /// <summary>
+    /// Copia el id y los campos enviados al comando sin transformar los valores: el recorte y la
+    /// validación los hace el dominio.
+    /// </summary>
+    /// <param name="request">Solicitud recibida.</param>
+    /// <param name="id">Id del proveedor, tomado de la ruta.</param>
+    /// <returns>El comando de actualización.</returns>
+    public static UpdateInsuranceProviderCommand ToCommand(this UpdateInsuranceProviderRequest request, int id) =>
+        new(id, request.Changes);
 
     /// <summary>
     /// Convierte los parámetros del listado en la consulta; el estado pasa a un filtro booleano

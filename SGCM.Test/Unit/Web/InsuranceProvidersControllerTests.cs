@@ -1,10 +1,12 @@
 using System.Reflection;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.People.Commands.RegisterInsuranceProvider;
+using SGCM.Data.Application.People.Commands.UpdateInsuranceProvider;
 using SGCM.Data.Application.People.Queries.ListInsuranceProviders;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
@@ -15,6 +17,8 @@ using Shouldly;
 
 namespace SGCM.Test.Unit.Web;
 
+using Unit = SGCM.Data.Domain.Common.Unit;
+
 public sealed class InsuranceProvidersControllerTests
 {
     private static readonly RegisterInsuranceProviderRequest Request = new(
@@ -22,6 +26,9 @@ public sealed class InsuranceProvidersControllerTests
 
     private readonly ICommandHandler<RegisterInsuranceProviderCommand, int> _handler =
         Substitute.For<ICommandHandler<RegisterInsuranceProviderCommand, int>>();
+
+    private readonly ICommandHandler<UpdateInsuranceProviderCommand, Unit> _updateHandler =
+        Substitute.For<ICommandHandler<UpdateInsuranceProviderCommand, Unit>>();
 
     private readonly IQueryHandler<ListInsuranceProvidersQuery, PagedResult<InsuranceProviderDto>> _queryHandler =
         Substitute.For<IQueryHandler<ListInsuranceProvidersQuery, PagedResult<InsuranceProviderDto>>>();
@@ -60,6 +67,112 @@ public sealed class InsuranceProvidersControllerTests
         problem.Status.ShouldBe(expectedStatus);
         problem.Title.ShouldBe(error.Description);
         problem.Extensions["code"].ShouldBe(error.Code);
+    }
+
+    [Fact]
+    public async Task Update_mapea_el_id_y_los_campos_propaga_el_token_y_devuelve_204()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var request = new UpdateInsuranceProviderRequest { Name = "  Seguros del Caribe  ", Website = null };
+        _updateHandler.HandleAsync(Arg.Any<UpdateInsuranceProviderCommand>(), cancellation.Token).Returns(Unit.Value);
+
+        var result = await new InsuranceProvidersController().Update(42, request, _updateHandler, cancellation.Token);
+
+        result.ShouldBeOfType<NoContentResult>().StatusCode.ShouldBe(204);
+        await _updateHandler.Received(1).HandleAsync(new UpdateInsuranceProviderCommand(42, request.Changes), cancellation.Token);
+        var received = _updateHandler.ReceivedCalls().Single().GetArguments()[0].ShouldBeOfType<UpdateInsuranceProviderCommand>();
+        received.Changes.Name.ShouldBe(Change<string?>.Set("  Seguros del Caribe  "));
+        received.Changes.Website.ShouldBe(Change<string?>.Set(null));
+        received.Changes.Address.IsProvided.ShouldBeFalse();
+        _handler.ReceivedCalls().ShouldBeEmpty();
+        _queryHandler.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("InsuranceProvider.InvalidId", 400, 0, "{\"name\":\"Seguros\"}")]
+    [InlineData("InsuranceProvider.NoFieldsProvided", 400, 42, "{}")]
+    [InlineData("InsuranceProvider.NameRequired", 400, 42, "{\"name\":null}")]
+    [InlineData("InsuranceProvider.WebsiteInvalid", 400, 42, "{\"website\":\"ftp://sitio.com\"}")]
+    [InlineData("InsuranceProvider.NotFound", 404, 42, "{\"name\":\"Seguros\"}")]
+    [InlineData("InsuranceProvider.NameAlreadyInUse", 409, 42, "{\"name\":\"Seguros\"}")]
+    public async Task Update_utiliza_ErrorResult_con_el_estado_y_codigo_correspondientes(
+        string code, int status, int id, string json)
+    {
+        var error = code switch
+        {
+            "InsuranceProvider.InvalidId" => InsuranceProviderErrors.InvalidId,
+            "InsuranceProvider.NoFieldsProvided" => InsuranceProviderErrors.NoFieldsProvided,
+            "InsuranceProvider.NameRequired" => InsuranceProviderErrors.NameRequired,
+            "InsuranceProvider.WebsiteInvalid" => InsuranceProviderErrors.WebsiteInvalid,
+            "InsuranceProvider.NotFound" => InsuranceProviderErrors.NotFound,
+            _ => InsuranceProviderErrors.NameAlreadyInUse
+        };
+        var request = JsonSerializer.Deserialize<UpdateInsuranceProviderRequest>(
+            json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var command = new UpdateInsuranceProviderCommand(id, request.Changes);
+        // El validador real confirma que los errores 400 son los que produce la validación de la aplicación.
+        var validation = new UpdateInsuranceProviderCommandValidator().Validate(command);
+        if (status == 400)
+        {
+            validation.IsValid.ShouldBeFalse();
+            validation.Errors.ShouldHaveSingleItem().ErrorCode.ShouldBe(code);
+        }
+        else
+        {
+            validation.IsValid.ShouldBeTrue();
+        }
+        _updateHandler.HandleAsync(command, CancellationToken.None).Returns(Result<Unit>.Failure(error));
+
+        var result = await new InsuranceProvidersController().Update(id, request, _updateHandler, CancellationToken.None);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(status);
+        var problem = response.Value.ShouldBeOfType<ProblemDetails>();
+        problem.Status.ShouldBe(status);
+        problem.Title.ShouldBe(error.Description);
+        problem.Extensions["code"].ShouldBe(code);
+        await _updateHandler.Received(1).HandleAsync(command, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Update_propaga_la_cancelacion_del_handler()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        _updateHandler.HandleAsync(Arg.Any<UpdateInsuranceProviderCommand>(), cancellation.Token)
+            .Returns(Task.FromCanceled<Result<Unit>>(cancellation.Token));
+
+        var exception = await Should.ThrowAsync<OperationCanceledException>(() => new InsuranceProvidersController().Update(
+            42, new UpdateInsuranceProviderRequest { Name = "Seguros" }, _updateHandler, cancellation.Token));
+
+        exception.CancellationToken.ShouldBe(cancellation.Token);
+        await _updateHandler.Received(1).HandleAsync(
+            Arg.Is<UpdateInsuranceProviderCommand>(command => command.Id == 42 && command.Changes.Name.IsProvided),
+            cancellation.Token);
+    }
+
+    [Fact]
+    public void Update_es_PATCH_administrativo_con_id_de_ruta_y_cuerpo_JSON()
+    {
+        var controller = typeof(InsuranceProvidersController);
+        controller.GetCustomAttributes<AllowAnonymousAttribute>().ShouldBeEmpty();
+
+        var update = controller.GetMethod(nameof(InsuranceProvidersController.Update))!;
+        update.GetCustomAttributes<HttpPatchAttribute>().ShouldHaveSingleItem().Template.ShouldBe("{id:int}");
+        update.GetCustomAttributes<AllowAnonymousAttribute>().ShouldBeEmpty();
+        update.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Administrator));
+        update.GetParameters().Single(parameter => parameter.Name == "id")
+            .GetCustomAttribute<FromRouteAttribute>().ShouldNotBeNull();
+        update.GetParameters().Single(parameter => parameter.ParameterType == typeof(UpdateInsuranceProviderRequest))
+            .GetCustomAttribute<FromBodyAttribute>().ShouldNotBeNull();
+        update.GetParameters()
+            .Single(parameter => parameter.ParameterType == typeof(ICommandHandler<UpdateInsuranceProviderCommand, Unit>))
+            .GetCustomAttribute<FromServicesAttribute>().ShouldNotBeNull();
+        var responses = update.GetCustomAttributes<ProducesResponseTypeAttribute>().ToArray();
+        responses.Select(attribute => attribute.StatusCode)
+            .ShouldBe(new[] { 204, 400, 401, 403, 404, 409 }, ignoreOrder: true);
+        responses.Where(attribute => attribute.StatusCode is 400 or 404 or 409)
+            .ShouldAllBe(attribute => attribute.Type == typeof(ProblemDetails));
     }
 
     [Fact]

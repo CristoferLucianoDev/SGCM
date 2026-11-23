@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.People.Commands.RegisterInsuranceProvider;
+using SGCM.Data.Application.People.Commands.UpdateInsuranceProvider;
 using SGCM.Data.Application.People.Queries.ListInsuranceProviders;
+using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
 using SGCM.Web.Contracts.People;
@@ -42,6 +44,41 @@ public sealed class InsuranceProvidersController : ApiControllerBase
         return result.IsSuccess
             ? StatusCode(StatusCodes.Status201Created, new RegisterInsuranceProviderResponse(result.Value))
             : ErrorResult(result.Error);
+    }
+
+    /// <summary>
+    /// Actualiza parcialmente un proveedor de seguros.
+    /// </summary>
+    /// <remarks>
+    /// Solo para administradores. Los campos no enviados conservan su valor, y un sitio web enviado como null o
+    /// vacío lo quita. Un nombre, teléfono, correo o dirección enviado no puede quedar vacío.
+    /// 400 indica en "code" el error: InsuranceProvider.InvalidId, InsuranceProvider.NoFieldsProvided, los del
+    /// nombre (NameRequired, NameTooLong), del teléfono (ContactPhoneRequired, ContactPhoneTooLong), Common.InvalidEmail,
+    /// los de la dirección (AddressRequired, AddressTooLong) y los del sitio web (WebsiteTooLong, WebsiteInvalid).
+    /// 404 responde InsuranceProvider.NotFound.
+    /// 409 responde InsuranceProvider.NameAlreadyInUse si otro proveedor, activo o inactivo, ya usa ese nombre.
+    /// </remarks>
+    /// <param name="id">Id del proveedor, mayor que cero.</param>
+    /// <param name="request">Campos a cambiar; los omitidos se conservan.</param>
+    /// <param name="handler">Manejador del comando.</param>
+    /// <param name="cancellationToken">Token de cancelación de la petición.</param>
+    [HttpPatch("{id:int}")]
+    [Authorize(Roles = nameof(UserRole.Administrator))]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Update(
+        [FromRoute] int id,
+        [FromBody] UpdateInsuranceProviderRequest request,
+        [FromServices] ICommandHandler<UpdateInsuranceProviderCommand, Unit> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToCommand(id), cancellationToken);
+
+        return result.IsSuccess ? NoContent() : ErrorResult(result.Error);
     }
 
     /// <summary>
