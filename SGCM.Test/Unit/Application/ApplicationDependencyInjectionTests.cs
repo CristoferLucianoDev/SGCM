@@ -25,6 +25,8 @@ using SGCM.Data.Application.People.Commands.RegisterInsuranceProvider;
 using SGCM.Data.Application.People.Commands.UpdateInsuranceProvider;
 using SGCM.Data.Application.People.Commands.UpdateSpecialty;
 using SGCM.Data.Application.People.Queries.ListInsuranceProviders;
+using SGCM.Data.Application.People.Queries.ListMunicipalities;
+using SGCM.Data.Application.People.Queries.ListProvinces;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
@@ -66,6 +68,27 @@ public sealed class ApplicationDependencyInjectionTests
     private readonly IDoctorAvailabilityRepository _availabilityRepository = Substitute.For<IDoctorAvailabilityRepository>();
     private readonly IActiveDoctorReader _activeDoctorReader = Substitute.For<IActiveDoctorReader>();
     private readonly IActiveAppointmentReader _activeAppointmentReader = Substitute.For<IActiveAppointmentReader>();
+
+    [Fact]
+    public void AddApplication_RegistersLocationQueriesPerScope()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var provinces = first.ServiceProvider.GetRequiredService<IQueryHandler<ListProvincesQuery, IReadOnlyList<ProvinceDto>>>();
+        var municipalities = first.ServiceProvider.GetRequiredService<IQueryHandler<ListMunicipalitiesQuery, IReadOnlyList<MunicipalityDto>>>();
+        provinces.ShouldBeOfType<ListProvincesQueryHandler>();
+        municipalities.ShouldBeOfType<ListMunicipalitiesQueryHandler>();
+        first.ServiceProvider.GetRequiredService<IQueryHandler<ListProvincesQuery, IReadOnlyList<ProvinceDto>>>()
+            .ShouldBeSameAs(provinces);
+        first.ServiceProvider.GetRequiredService<IQueryHandler<ListMunicipalitiesQuery, IReadOnlyList<MunicipalityDto>>>()
+            .ShouldBeSameAs(municipalities);
+        second.ServiceProvider.GetRequiredService<IQueryHandler<ListProvincesQuery, IReadOnlyList<ProvinceDto>>>()
+            .ShouldNotBeSameAs(provinces);
+        second.ServiceProvider.GetRequiredService<IQueryHandler<ListMunicipalitiesQuery, IReadOnlyList<MunicipalityDto>>>()
+            .ShouldNotBeSameAs(municipalities);
+    }
 
     [Theory]
     [InlineData(1, true)]
@@ -1239,6 +1262,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(_doctorRepository);
         services.AddSingleton(Substitute.For<IUserProfileReader>());
         services.AddSingleton(Substitute.For<IDoctorProfileCatalogReader>());
+        services.AddSingleton(Substitute.For<ILocationCatalogReader>());
         services.AddSingleton(Substitute.For<IInsuranceProviderReader>());
         services.AddSingleton(_insuranceProviderRepository);
         services.AddSingleton(_seriesRepository);
