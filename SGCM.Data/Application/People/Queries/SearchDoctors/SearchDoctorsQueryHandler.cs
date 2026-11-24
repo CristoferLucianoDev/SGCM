@@ -21,6 +21,8 @@ internal sealed class SearchDoctorsQueryHandler(IDoctorSearchReader reader, IVal
         }
 
         var search = string.IsNullOrWhiteSpace(query.Search) ? null : query.Search.Trim();
-        return await reader.SearchAsync(search, query.PageNumber, query.PageSize, cancellationToken);
+        var criteria = new DoctorSearchCriteria(search, query.PageNumber, query.PageSize,
+            SpecialtyId: query.SpecialtyId, ProvinceId: query.ProvinceId, MunicipalityId: query.MunicipalityId);
+        return await reader.SearchAsync(criteria, cancellationToken);
     }
 }

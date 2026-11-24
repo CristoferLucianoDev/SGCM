@@ -8,25 +8,40 @@ namespace SGCM.Data.Infrastructure.Persistence.Readers;
 internal sealed class DoctorSearchReader(AppDbContext context) : IDoctorSearchReader
 {
     public async Task<PagedResult<DoctorSearchDto>> SearchAsync(
-        string? search, int pageNumber, int pageSize, CancellationToken cancellationToken)
+        DoctorSearchCriteria criteria, CancellationToken cancellationToken)
     {
         var query = context.Database.SqlQuery<DoctorSearchDto>($"""
             SELECT id, first_name, last_name, province_id, province_name, municipality_id, municipality_name,
                    address_line, consultation_fee, years_of_experience, biography, specialty_ids, specialty_names
             FROM people.vw_doctor_directory
-            """);
+            """).Where(doctor => doctor.SpecialtyIds.Length > 0);
 
-        if (search is not null)
+        if (criteria.Search is { } search)
         {
             query = query.Where(doctor => PostgresFunctions.NormalizeText(doctor.FirstName.Trim() + " " + doctor.LastName.Trim())!
                 .Contains(PostgresFunctions.NormalizeText(search)!));
         }
 
-        var totalCount = await query.CountAsync(cancellationToken);
-        var offset = checked((int)(((long)pageNumber - 1) * pageSize));
-        var items = await query.OrderBy(doctor => doctor.FirstName).ThenBy(doctor => doctor.LastName)
-            .ThenBy(doctor => doctor.Id).Skip(offset).Take(pageSize).ToListAsync(cancellationToken);
+        if (criteria.SpecialtyId is { } specialtyId)
+        {
+            query = query.Where(doctor => doctor.SpecialtyIds.Contains(specialtyId));
+        }
 
-        return new PagedResult<DoctorSearchDto>(items, pageNumber, pageSize, totalCount);
+        if (criteria.ProvinceId is { } provinceId)
+        {
+            query = query.Where(doctor => doctor.ProvinceId == provinceId);
+        }
+
+        if (criteria.MunicipalityId is { } municipalityId)
+        {
+            query = query.Where(doctor => doctor.MunicipalityId == municipalityId);
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var offset = checked((int)(((long)criteria.PageNumber - 1) * criteria.PageSize));
+        var items = await query.OrderBy(doctor => doctor.FirstName).ThenBy(doctor => doctor.LastName)
+            .ThenBy(doctor => doctor.Id).Skip(offset).Take(criteria.PageSize).ToListAsync(cancellationToken);
+
+        return new PagedResult<DoctorSearchDto>(items, criteria.PageNumber, criteria.PageSize, totalCount);
     }
 }

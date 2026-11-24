@@ -5,6 +5,8 @@ namespace SGCM.Data.Application.Abstractions.Persistence;
 
 internal interface IDoctorSearchReader
 {
-    Task<PagedResult<DoctorSearchDto>> SearchAsync(
-        string? search, int pageNumber, int pageSize, CancellationToken cancellationToken);
+    Task<PagedResult<DoctorSearchDto>> SearchAsync(DoctorSearchCriteria criteria, CancellationToken cancellationToken);
 }
+
+internal sealed record DoctorSearchCriteria(
+    string? Search, int PageNumber, int PageSize, int? SpecialtyId, int? ProvinceId, int? MunicipalityId);
