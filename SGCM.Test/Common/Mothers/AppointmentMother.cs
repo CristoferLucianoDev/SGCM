@@ -17,6 +17,8 @@ public static class AppointmentMother
     public const int DurationHours = 2;
     public const string Reason = "Dolor de cabeza frecuente";
     public const int PatientCancellationDeadlineHours = 24;
+    public const int ShortNoticeThresholdHours = 6;
+    public const int ShortNoticeMinimumWords = 30;
 
     public static readonly TimeSpan SantoDomingo = TimeSpan.FromHours(-4);
 
@@ -26,6 +28,9 @@ public static class AppointmentMother
 
     /// <summary>Martes 12 de enero de 2027 a las 9:00 en Santo Domingo.</summary>
     public static readonly DateTimeOffset StartsAt = new(2027, 1, 12, 9, 0, 0, SantoDomingo);
+
+    /// <summary>Regla de la cancelación del médico con poco aviso, con los valores de la configuración de pruebas.</summary>
+    public static readonly ShortNoticeCancellation ShortNotice = new(ShortNoticeThresholdHours, ShortNoticeMinimumWords);
 
     public static Result<Appointment> Request(
         DateTimeOffset? startsAt = null,

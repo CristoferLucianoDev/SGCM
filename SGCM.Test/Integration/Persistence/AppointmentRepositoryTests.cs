@@ -123,7 +123,7 @@ public sealed class AppointmentRepositoryTests(PostgresFixture database) : Integ
         var tracked = await repository.GetByIdAsync(id, CancellationToken.None);
         tracked!.Cancel(
             AppointmentCanceller.Patient, null, Start.AddHours(-AppointmentMother.PatientCancellationDeadlineHours * 2),
-            AppointmentMother.PatientCancellationDeadlineHours).IsSuccess.ShouldBeTrue();
+            AppointmentMother.PatientCancellationDeadlineHours, AppointmentMother.ShortNotice).IsSuccess.ShouldBeTrue();
         await using var transaction = await scope.ServiceProvider.GetRequiredService<AppDbContext>()
             .Database.BeginTransactionAsync();
 

@@ -44,7 +44,9 @@ public sealed class CancelAppointmentCommandHandlerTests
 
         var options = Options.Create(new SchedulingOptions
         {
-            PatientCancellationDeadlineHours = AppointmentMother.PatientCancellationDeadlineHours
+            PatientCancellationDeadlineHours = AppointmentMother.PatientCancellationDeadlineHours,
+            DoctorLateCancellationThresholdHours = AppointmentMother.ShortNoticeThresholdHours,
+            DoctorLateCancellationMinimumWords = AppointmentMother.ShortNoticeMinimumWords
         });
         _handler = new CancelAppointmentCommandHandler(_currentUser, _patients, _appointments, _clock, options);
     }

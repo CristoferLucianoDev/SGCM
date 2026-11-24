@@ -162,7 +162,7 @@ public sealed class AppointmentCancelTests
         var appointment = AppointmentMother.InStatus(AppointmentStatus.Pending);
 
         Should.Throw<ArgumentOutOfRangeException>(() =>
-            appointment.Cancel(AppointmentCanceller.Patient, null, EarlyEnough, deadlineHours));
+            appointment.Cancel(AppointmentCanceller.Patient, null, EarlyEnough, deadlineHours, AppointmentMother.ShortNotice));
     }
 
     [Fact]
@@ -172,10 +172,155 @@ public sealed class AppointmentCancelTests
 
         Should.Throw<ArgumentOutOfRangeException>(() =>
             appointment.Cancel(
-                (AppointmentCanceller)99, null, EarlyEnough, AppointmentMother.PatientCancellationDeadlineHours));
+                (AppointmentCanceller)99, null, EarlyEnough, AppointmentMother.PatientCancellationDeadlineHours,
+                AppointmentMother.ShortNotice));
+    }
+
+    [Theory]
+    [InlineData(AppointmentStatus.Pending)]
+    [InlineData(AppointmentStatus.Confirmed)]
+    public void El_medico_cancela_una_cita_activa_con_motivo_y_se_emite_el_evento_con_el_medico(AppointmentStatus status)
+    {
+        var appointment = AppointmentMother.InStatus(status);
+
+        var result = CancelByDoctor(appointment, "Emergencia", EarlyEnough);
+
+        result.IsSuccess.ShouldBeTrue();
+        appointment.Status.ShouldBe(AppointmentStatus.Cancelled);
+        appointment.StatusReason.ShouldBe("Emergencia");
+        var domainEvent = appointment.DomainEvents.ShouldHaveSingleItem().ShouldBeOfType<AppointmentCancelledEvent>();
+        domainEvent.CancelledBy.ShouldBe(AppointmentCanceller.Doctor);
+    }
+
+    [Theory]
+    [MemberData(nameof(InstantsCloseToOrAfterTheStart))]
+    public void El_medico_cancela_en_cualquier_momento_con_un_motivo_suficiente(DateTimeOffset now)
+    {
+        var appointment = AppointmentMother.InStatus(AppointmentStatus.Pending);
+
+        var result = CancelByDoctor(appointment, Words(AppointmentMother.ShortNoticeMinimumWords), now);
+
+        result.IsSuccess.ShouldBeTrue();
+        appointment.Status.ShouldBe(AppointmentStatus.Cancelled);
+    }
+
+    public static TheoryData<DateTimeOffset> InstantsCloseToOrAfterTheStart => new()
+    {
+        AppointmentMother.StartsAt.AddHours(-1),
+        AppointmentMother.StartsAt.AddHours(1)
+    };
+
+    [Fact]
+    public void El_medico_no_tiene_el_plazo_de_cancelacion_del_paciente()
+    {
+        var appointment = AppointmentMother.InStatus(AppointmentStatus.Pending);
+        var now = AppointmentMother.StartsAt.AddHours(-(AppointmentMother.PatientCancellationDeadlineHours - 1));
+
+        var result = CancelByDoctor(appointment, Words(AppointmentMother.ShortNoticeMinimumWords), now);
+
+        result.IsSuccess.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void El_medico_debe_indicar_el_motivo(string? reason)
+    {
+        var appointment = AppointmentMother.InStatus(AppointmentStatus.Pending);
+
+        var result = CancelByDoctor(appointment, reason, EarlyEnough);
+
+        result.Error.ShouldBe(AppointmentErrors.StatusReasonRequired);
+        result.Error.Type.ShouldBe(ErrorType.Validation);
+        appointment.Status.ShouldBe(AppointmentStatus.Pending);
+        appointment.StatusReason.ShouldBeNull();
+        appointment.DomainEvents.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Con_mas_horas_que_el_umbral_basta_un_motivo_de_una_palabra()
+    {
+        var appointment = AppointmentMother.InStatus(AppointmentStatus.Pending);
+
+        var result = CancelByDoctor(appointment, Words(1), EarlyEnough);
+
+        result.IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Con_poco_aviso_un_motivo_corto_se_rechaza_y_la_cita_no_cambia()
+    {
+        var appointment = AppointmentMother.InStatus(AppointmentStatus.Pending);
+
+        var result = CancelByDoctor(appointment, Words(AppointmentMother.ShortNoticeMinimumWords - 1), ShortNoticeNow());
+
+        result.Error.ShouldBe(AppointmentErrors.ShortNoticeReasonTooShort(AppointmentMother.ShortNoticeMinimumWords));
+        result.Error.Type.ShouldBe(ErrorType.Validation);
+        result.Error.Description.ShouldContain(AppointmentMother.ShortNoticeMinimumWords.ToString());
+        appointment.Status.ShouldBe(AppointmentStatus.Pending);
+        appointment.StatusReason.ShouldBeNull();
+        appointment.DomainEvents.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Con_poco_aviso_un_motivo_con_las_palabras_minimas_se_acepta()
+    {
+        var appointment = AppointmentMother.InStatus(AppointmentStatus.Pending);
+
+        var result = CancelByDoctor(appointment, Words(AppointmentMother.ShortNoticeMinimumWords), ShortNoticeNow());
+
+        result.IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void El_motivo_del_medico_demasiado_largo_se_rechaza()
+    {
+        var appointment = AppointmentMother.InStatus(AppointmentStatus.Pending);
+        var reason = new string('a', Appointment.StatusReasonMaxLength + 1);
+
+        var result = CancelByDoctor(appointment, reason, EarlyEnough);
+
+        result.Error.ShouldBe(AppointmentErrors.StatusReasonTooLong);
+        appointment.Status.ShouldBe(AppointmentStatus.Pending);
+    }
+
+    [Theory]
+    [InlineData(AppointmentStatus.Rejected)]
+    [InlineData(AppointmentStatus.Cancelled)]
+    [InlineData(AppointmentStatus.Completed)]
+    public void El_medico_tampoco_puede_cancelar_una_cita_que_no_esta_activa(AppointmentStatus status)
+    {
+        var appointment = AppointmentMother.InStatus(status);
+
+        var result = CancelByDoctor(appointment, "Emergencia", EarlyEnough);
+
+        result.Error.ShouldBe(AppointmentErrors.InvalidTransition);
+        appointment.Status.ShouldBe(status);
+        appointment.DomainEvents.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Una_regla_de_poco_aviso_nula_es_un_error_de_programacion()
+    {
+        var appointment = AppointmentMother.InStatus(AppointmentStatus.Pending);
+
+        Should.Throw<ArgumentNullException>(() => appointment.Cancel(
+            AppointmentCanceller.Doctor, "Emergencia", EarlyEnough, AppointmentMother.PatientCancellationDeadlineHours, null!));
     }
 
     private static Result Cancel(Appointment appointment, string? reason, DateTimeOffset now) =>
         appointment.Cancel(
-            AppointmentCanceller.Patient, reason, now, AppointmentMother.PatientCancellationDeadlineHours);
+            AppointmentCanceller.Patient, reason, now, AppointmentMother.PatientCancellationDeadlineHours,
+            AppointmentMother.ShortNotice);
+
+    private static Result CancelByDoctor(Appointment appointment, string? reason, DateTimeOffset now) =>
+        appointment.Cancel(
+            AppointmentCanceller.Doctor, reason, now, AppointmentMother.PatientCancellationDeadlineHours,
+            AppointmentMother.ShortNotice);
+
+    private static DateTimeOffset ShortNoticeNow() =>
+        AppointmentMother.StartsAt.AddHours(-(AppointmentMother.ShortNoticeThresholdHours - 1));
+
+    private static string Words(int count) => string.Join(" ", Enumerable.Repeat("palabra", count));
 }

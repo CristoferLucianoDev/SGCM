@@ -85,7 +85,8 @@ public sealed class SendAppointmentCancelledNotificationTests
                 AppointmentCanceller.Patient,
                 Reason,
                 AppointmentMother.StartsAt.AddHours(-HoursBeforeStartInsideDeadline),
-                AppointmentMother.PatientCancellationDeadlineHours)
+                AppointmentMother.PatientCancellationDeadlineHours,
+                AppointmentMother.ShortNotice)
             .IsSuccess.ShouldBeTrue();
         return appointment;
     }

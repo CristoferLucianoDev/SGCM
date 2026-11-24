@@ -62,6 +62,16 @@ public static class AppointmentErrors
         "Appointment.StatusReasonTooLong",
         $"El motivo no puede superar los {Appointment.StatusReasonMaxLength} caracteres.");
 
+    /// <summary>Quien cancela como médico no indicó el motivo, que es obligatorio.</summary>
+    public static readonly Error StatusReasonRequired = Error.Validation(
+        "Appointment.StatusReasonRequired", "Debe indicar el motivo.");
+
+    /// <summary>El médico cancela con poco aviso y su motivo no llega al mínimo de palabras.</summary>
+    /// <param name="minimumWords">Palabras mínimas exigidas, según la configuración.</param>
+    public static Error ShortNoticeReasonTooShort(int minimumWords) => Error.Validation(
+        "Appointment.ShortNoticeReasonTooShort",
+        $"Faltan pocas horas para la cita: el motivo debe tener al menos {minimumWords} palabras.");
+
     /// <summary>
     /// La cita no existe o no es del paciente; en ambos casos se responde igual para no revelar citas de otros
     /// pacientes.

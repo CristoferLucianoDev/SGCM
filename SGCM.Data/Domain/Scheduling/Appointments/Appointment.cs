@@ -1,5 +1,7 @@
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Scheduling.Appointments.Events;
+// La propiedad StatusReason de la cita oculta el tipo del mismo nombre dentro de esta clase.
+using StatusReasonValue = SGCM.Data.Domain.Scheduling.Appointments.StatusReason;
 
 namespace SGCM.Data.Domain.Scheduling.Appointments;
 
@@ -13,7 +15,7 @@ public sealed class Appointment : AggregateRoot
     public const int ReasonForVisitMaxLength = 500;
 
     /// <summary>Longitud máxima del motivo de cancelación o rechazo, igual que en la base.</summary>
-    public const int StatusReasonMaxLength = 500;
+    public const int StatusReasonMaxLength = StatusReasonValue.MaxLength;
 
     public int PatientId { get; private set; }
 
@@ -89,42 +91,69 @@ public sealed class Appointment : AggregateRoot
     }
 
     /// <summary>
-    /// Cancela la cita si está pendiente o confirmada y, cuando la cancela el paciente, si todavía está dentro
-    /// del plazo. Emite <see cref="AppointmentCancelledEvent"/>; ante cualquier error la cita no cambia.
+    /// Cancela la cita si está pendiente o confirmada. El paciente solo puede dentro del plazo y con motivo
+    /// opcional; el médico en cualquier momento, con motivo obligatorio y, si faltan pocas horas, con un mínimo
+    /// de palabras. Emite <see cref="AppointmentCancelledEvent"/>; ante cualquier error la cita no cambia.
     /// </summary>
     /// <param name="cancelledBy">Quién cancela.</param>
-    /// <param name="reason">Motivo opcional; se recorta y, si queda vacío, se guarda <c>null</c>.</param>
-    /// <param name="now">Instante actual, que se compara con el plazo.</param>
+    /// <param name="reason">Motivo; se recorta. Para el paciente es opcional y, si queda vacío, se guarda <c>null</c>.</param>
+    /// <param name="now">Instante actual, que se compara con el plazo y con el umbral de poco aviso.</param>
     /// <param name="patientCancellationDeadlineHours">
     /// Horas de antelación mínima con que el paciente puede cancelar, según la configuración.
     /// </param>
+    /// <param name="shortNotice">Regla de la cancelación del médico con poco aviso.</param>
     /// <returns>
     /// Éxito, o <see cref="AppointmentErrors.InvalidTransition"/>, <see cref="AppointmentErrors.CancellationDeadlinePassed"/>
-    /// o <see cref="AppointmentErrors.StatusReasonTooLong"/>.
+    /// (paciente), <see cref="AppointmentErrors.StatusReasonRequired"/> (médico),
+    /// <see cref="AppointmentErrors.StatusReasonTooLong"/> o <see cref="AppointmentErrors.ShortNoticeReasonTooShort"/>
+    /// (médico).
     /// </returns>
     /// <exception cref="ArgumentOutOfRangeException">Si el plazo no es positivo o <paramref name="cancelledBy"/> no es válido.</exception>
+    /// <exception cref="ArgumentNullException">Si <paramref name="shortNotice"/> es nulo.</exception>
     public Result Cancel(
         AppointmentCanceller cancelledBy,
         string? reason,
         DateTimeOffset now,
-        int patientCancellationDeadlineHours)
+        int patientCancellationDeadlineHours,
+        ShortNoticeCancellation shortNotice)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(patientCancellationDeadlineHours);
-        if (cancelledBy != AppointmentCanceller.Patient) throw new ArgumentOutOfRangeException(nameof(cancelledBy));
+        ArgumentNullException.ThrowIfNull(shortNotice);
+        if (cancelledBy is not (AppointmentCanceller.Patient or AppointmentCanceller.Doctor))
+            throw new ArgumentOutOfRangeException(nameof(cancelledBy));
 
         if (Status is not (AppointmentStatus.Pending or AppointmentStatus.Confirmed))
             return AppointmentErrors.InvalidTransition;
-        if (now > StartsAt.AddHours(-patientCancellationDeadlineHours))
-            return AppointmentErrors.CancellationDeadlinePassed;
 
-        var trimmedReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
-        if (trimmedReason?.Length > StatusReasonMaxLength) return AppointmentErrors.StatusReasonTooLong;
+        var validated = cancelledBy == AppointmentCanceller.Patient
+            ? ValidatePatientCancellation(reason, now, patientCancellationDeadlineHours)
+            : ValidateDoctorCancellation(reason, now, shortNotice);
+        if (validated.IsFailure) return validated.Error;
 
         Status = AppointmentStatus.Cancelled;
-        StatusReason = trimmedReason;
+        StatusReason = validated.Value?.Value;
         Raise(new AppointmentCancelledEvent(this, cancelledBy));
 
         return Result.Success();
+    }
+
+    private Result<StatusReasonValue?> ValidatePatientCancellation(string? reason, DateTimeOffset now, int deadlineHours)
+    {
+        if (now > StartsAt.AddHours(-deadlineHours)) return AppointmentErrors.CancellationDeadlinePassed;
+
+        return StatusReasonValue.CreateOptional(reason);
+    }
+
+    private Result<StatusReasonValue?> ValidateDoctorCancellation(
+        string? reason, DateTimeOffset now, ShortNoticeCancellation shortNotice)
+    {
+        var created = StatusReasonValue.Create(reason);
+        if (created.IsFailure) return created.Error;
+
+        if (shortNotice.AppliesTo(StartsAt, now) && !created.Value.HasAtLeastWords(shortNotice.MinimumWords))
+            return AppointmentErrors.ShortNoticeReasonTooShort(shortNotice.MinimumWords);
+
+        return Result<StatusReasonValue?>.Success(created.Value);
     }
 
     /// <summary>

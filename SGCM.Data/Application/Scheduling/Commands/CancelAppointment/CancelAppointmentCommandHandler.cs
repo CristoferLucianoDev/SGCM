@@ -33,11 +33,14 @@ internal sealed class CancelAppointmentCommandHandler(
         var appointment = await appointmentRepository.GetByIdForUpdateAsync(command.AppointmentId, cancellationToken);
         if (appointment is null || appointment.PatientId != patient.Id) return AppointmentErrors.NotFound;
 
+        var options = schedulingOptions.Value;
         var cancelled = appointment.Cancel(
             AppointmentCanceller.Patient,
             command.Reason,
             clock.UtcNow,
-            schedulingOptions.Value.PatientCancellationDeadlineHours);
+            options.PatientCancellationDeadlineHours,
+            new ShortNoticeCancellation(
+                options.DoctorLateCancellationThresholdHours, options.DoctorLateCancellationMinimumWords));
         if (cancelled.IsFailure) return cancelled.Error;
 
         // El TransactionDecorator guarda los cambios y confirma la transacción.
