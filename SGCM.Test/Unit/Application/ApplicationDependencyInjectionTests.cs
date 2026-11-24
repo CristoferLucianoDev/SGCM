@@ -31,6 +31,7 @@ using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Application.Scheduling.Commands.CloseAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
+using SGCM.Data.Application.Scheduling.Commands.RescheduleAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAvailabilityBlocks;
@@ -1231,6 +1232,22 @@ public sealed class ApplicationDependencyInjectionTests
         var result = await handler.HandleAsync(new CloseAvailabilityBlockCommand(0), CancellationToken.None);
 
         result.Error.Code.ShouldBe("Availability.InvalidBlockId");
+        await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Una_reprogramacion_de_bloque_invalida_se_rechaza_antes_de_abrir_la_transaccion()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider
+            .GetRequiredService<ICommandHandler<RescheduleAvailabilityBlockCommand, RescheduledAvailabilityBlockDto>>();
+        var command = new RescheduleAvailabilityBlockCommand(40, new DateOnly(2027, 1, 20), new TimeOnly(10, 30), new TimeOnly(16, 0));
+
+        handler.ShouldBeOfType<ValidationDecorator<RescheduleAvailabilityBlockCommand, RescheduledAvailabilityBlockDto>>();
+        var result = await handler.HandleAsync(command, CancellationToken.None);
+
+        result.Error.Code.ShouldBe("Availability.NotOnHour");
         await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
     }
 

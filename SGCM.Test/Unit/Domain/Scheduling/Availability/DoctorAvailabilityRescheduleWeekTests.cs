@@ -146,3 +146,49 @@ public sealed class DoctorAvailabilityRescheduleWeekTests
 
     private static TimeRange Range(DateTimeOffset start, DateTimeOffset end) => TimeRange.Create(start, end).Value;
 }
+
+public sealed class DoctorAvailabilityValidateRescheduleTests
+{
+    private static readonly TimeSpan SantoDomingo = TimeSpan.FromHours(-4);
+    private static readonly BusinessCalendar Calendar = BusinessCalendar.ForTimeZone(DoctorAvailabilitySeriesMother.TimeZone);
+    private static readonly DateTimeOffset Tuesday = new(2027, 1, 5, 10, 0, 0, SantoDomingo);
+    private static readonly DateTimeOffset Start = new(2027, 1, 20, 8, 0, 0, SantoDomingo);
+
+    [Fact]
+    public void Un_horario_valido_no_tiene_error_y_el_bloque_no_cambia()
+    {
+        var block = Block();
+
+        block.ValidateReschedule(Start.AddHours(2), Start.AddHours(8), 6, Tuesday, Calendar).ShouldBe(Error.None);
+        block.StartsAt.ShouldBe(Start);
+        block.DomainEvents.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Un_bloque_cerrado_no_se_reprograma()
+    {
+        var block = Block();
+        block.Close(null, Tuesday);
+        block.ClearDomainEvents();
+
+        block.ValidateReschedule(Start.AddHours(2), Start.AddHours(8), 6, Tuesday, Calendar)
+            .ShouldBe(DoctorAvailabilityErrors.AlreadyClosed);
+        block.Reschedule(Start.AddHours(2), Start.AddHours(8), 6, Tuesday, Calendar).Error
+            .ShouldBe(DoctorAvailabilityErrors.AlreadyClosed);
+        block.DomainEvents.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Devuelve_los_mismos_errores_que_Reschedule()
+    {
+        var block = Block();
+        var friday = new DateTimeOffset(2027, 1, 8, 8, 0, 0, SantoDomingo);
+
+        block.ValidateReschedule(Start.AddMinutes(30), Start.AddHours(7), 6, Tuesday, Calendar).ShouldBe(DoctorAvailabilityErrors.NotOnHour);
+        block.ValidateReschedule(Start, Start.AddHours(5), 6, Tuesday, Calendar).ShouldBe(DoctorAvailabilityErrors.DurationTooShort);
+        block.ValidateReschedule(friday, friday.AddHours(6), 6, Tuesday, Calendar).ShouldBe(SchedulingErrors.CurrentWeekLocked);
+    }
+
+    private static DoctorAvailability Block() =>
+        DoctorAvailability.Create(DoctorAvailabilitySeriesMother.DoctorId, 15, Start, Start.AddHours(6), 6).Value;
+}

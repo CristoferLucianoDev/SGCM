@@ -108,18 +108,8 @@ public sealed class DoctorAvailability : AggregateRoot
         BusinessCalendar calendar,
         string? reason = null)
     {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(minimumDurationHours);
-        ArgumentNullException.ThrowIfNull(calendar);
-
-        if (StartsAt <= now) return DoctorAvailabilityErrors.AlreadyStarted;
-        var schedule = ValidateSchedule(startsAt, endsAt, minimumDurationHours);
-        if (schedule != Error.None) return schedule;
-        if (startsAt <= now) return DoctorAvailabilityErrors.StartsInPast;
-
-        var currentWeek = RescheduleWeekRule.Check(calendar.ToLocalDate(StartsAt), now, calendar);
-        if (currentWeek != Error.None) return currentWeek;
-        var newWeek = RescheduleWeekRule.Check(calendar.ToLocalDate(startsAt), now, calendar);
-        if (newWeek != Error.None) return newWeek;
+        var valid = ValidateReschedule(startsAt, endsAt, minimumDurationHours, now, calendar);
+        if (valid != Error.None) return valid;
 
         var previous = TimeRange.Create(StartsAt, EndsAt).Value;
         StartsAt = startsAt.ToUniversalTime();
@@ -133,6 +123,36 @@ public sealed class DoctorAvailability : AggregateRoot
         }
 
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Comprueba si el bloque se puede reprogramar a ese horario, sin cambiarlo: abierto, sin haber empezado, con un
+    /// horario nuevo válido y futuro, y con la regla de semanas para el día actual y el nuevo. Permite rechazar la
+    /// reprogramación antes de cancelar las citas afectadas, con el mismo error que <see cref="Reschedule"/>.
+    /// </summary>
+    /// <returns><see cref="Error.None"/> o el primer error encontrado.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si la duración mínima no es positiva.</exception>
+    /// <exception cref="ArgumentNullException">Si el calendario es nulo.</exception>
+    public Error ValidateReschedule(
+        DateTimeOffset startsAt,
+        DateTimeOffset endsAt,
+        int minimumDurationHours,
+        DateTimeOffset now,
+        BusinessCalendar calendar)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(minimumDurationHours);
+        ArgumentNullException.ThrowIfNull(calendar);
+
+        if (!IsAvailable) return DoctorAvailabilityErrors.AlreadyClosed;
+        if (StartsAt <= now) return DoctorAvailabilityErrors.AlreadyStarted;
+        var schedule = ValidateSchedule(startsAt, endsAt, minimumDurationHours);
+        if (schedule != Error.None) return schedule;
+        if (startsAt <= now) return DoctorAvailabilityErrors.StartsInPast;
+
+        var currentWeek = RescheduleWeekRule.Check(calendar.ToLocalDate(StartsAt), now, calendar);
+        if (currentWeek != Error.None) return currentWeek;
+
+        return RescheduleWeekRule.Check(calendar.ToLocalDate(startsAt), now, calendar);
     }
 
     /// <summary>
