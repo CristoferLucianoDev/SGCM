@@ -45,6 +45,7 @@ using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Domain.Scheduling;
 using SGCM.Data.Domain.Scheduling.Appointments;
+using SGCM.Data.Domain.Scheduling.Appointments.Events;
 using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Data.Domain.Scheduling.Availability.Events;
 using SGCM.Test.Common.Fakes;
@@ -1173,6 +1174,16 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public void La_solicitud_de_cita_tiene_un_solo_manejador_que_avisa_al_medico()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentRequestedEvent>>()
+            .ShouldHaveSingleItem().ShouldBeOfType<SendAppointmentRequestedNotification>();
+    }
+
+    [Fact]
     public void El_servicio_de_asignacion_de_medico_se_resuelve_por_scope()
     {
         using var provider = BuildProvider();
@@ -1302,6 +1313,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(_activeAppointmentReader);
         services.AddSingleton(Substitute.For<IRandomNumberGenerator>());
         services.AddSingleton(Substitute.For<IAppointmentRepository>());
+        services.AddSingleton(Substitute.For<IAppointmentNotificationReader>());
         services.AddSingleton(Options.Create(CreateAvailabilitySeriesCommandMother.Options()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
