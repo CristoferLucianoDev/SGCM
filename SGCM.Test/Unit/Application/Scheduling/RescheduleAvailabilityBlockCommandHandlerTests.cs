@@ -31,6 +31,7 @@ public sealed class RescheduleAvailabilityBlockCommandHandlerTests
     private readonly IDoctorRepository _doctors = Substitute.For<IDoctorRepository>();
     private readonly IDoctorAvailabilityRepository _blocks = Substitute.For<IDoctorAvailabilityRepository>();
     private readonly IAffectedAppointmentsPolicy _policy = Substitute.For<IAffectedAppointmentsPolicy>();
+    private readonly IAffectedAppointmentsCanceler _canceler = Substitute.For<IAffectedAppointmentsCanceler>();
     private readonly FakeDateTimeProvider _clock = new() { UtcNow = new DateTimeOffset(2027, 1, 5, 10, 0, 0, SantoDomingo) };
     private readonly DoctorAvailability _block = Block(DoctorId, BlockId, BlockStart);
     private IReadOnlyCollection<TimeRange>? _evaluated;
@@ -44,6 +45,7 @@ public sealed class RescheduleAvailabilityBlockCommandHandlerTests
         _blocks.GetByIdAsync(BlockId, Arg.Any<CancellationToken>()).Returns(_block);
         GivenOverlapping(_block);
         GivenAffected(0);
+        GivenCancelled(0);
     }
 
     [Fact]
@@ -90,6 +92,60 @@ public sealed class RescheduleAvailabilityBlockCommandHandlerTests
     }
 
     [Fact]
+    public async Task Cancela_las_citas_que_quedan_fuera_con_el_motivo_y_devuelve_cuantas()
+    {
+        GivenAffected(2);
+        GivenCancelled(2);
+
+        var result = await Handle(Command(10, 16) with { Reason = "Cambio de consultorio" });
+
+        result.Value.ShouldBe(new RescheduledAvailabilityBlockDto(2));
+        await _canceler.Received(1).CancelAsync(
+            DoctorId,
+            Arg.Is<IReadOnlyCollection<TimeRange>>(ranges => ranges.SequenceEqual(new[] { Range(BlockStart, BlockStart.AddHours(2)) })),
+            "Cambio de consultorio",
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Cancela_las_citas_antes_de_mover_el_bloque()
+    {
+        GivenAffected(1);
+        var startWhenCancelling = default(DateTimeOffset);
+        _canceler.CancelAsync(Arg.Any<int>(), Arg.Any<IReadOnlyCollection<TimeRange>>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                startWhenCancelling = _block.StartsAt;
+                return Result<int>.Success(1);
+            });
+
+        (await Handle(Command(10, 16) with { Reason = "Motivo" })).IsSuccess.ShouldBeTrue();
+
+        startWhenCancelling.ShouldBe(BlockStart);
+        _block.StartsAt.ShouldBe(BlockStart.AddHours(2));
+    }
+
+    [Fact]
+    public async Task Si_una_cancelacion_falla_el_bloque_no_se_mueve()
+    {
+        GivenAffected(1);
+        _canceler.CancelAsync(Arg.Any<int>(), Arg.Any<IReadOnlyCollection<TimeRange>>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(Result<int>.Failure(AppointmentErrors.InvalidTransition));
+
+        AssertRejected(await Handle(Command(10, 16) with { Reason = "Motivo" }), AppointmentErrors.InvalidTransition);
+    }
+
+    [Fact]
+    public async Task Sin_motivo_obligatorio_no_cancela_nada()
+    {
+        GivenAffected(1);
+
+        await Handle(Command(10, 16));
+
+        _canceler.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task En_la_semana_actual_el_error_indica_que_el_bloque_solo_se_puede_cerrar()
     {
         var thisWeek = Block(DoctorId, BlockId, new DateTimeOffset(2027, 1, 8, 8, 0, 0, SantoDomingo));
@@ -100,6 +156,7 @@ public sealed class RescheduleAvailabilityBlockCommandHandlerTests
         result.Error.ShouldBe(SchedulingErrors.CurrentWeekLocked);
         result.Error.Description.ShouldContain("solo se puede cerrar");
         _policy.ReceivedCalls().ShouldBeEmpty();
+        _canceler.ReceivedCalls().ShouldBeEmpty();
     }
 
     [Fact]
@@ -111,6 +168,7 @@ public sealed class RescheduleAvailabilityBlockCommandHandlerTests
 
         AssertRejected(result, DoctorAvailabilityErrors.Overlap);
         _policy.ReceivedCalls().ShouldBeEmpty();
+        _canceler.ReceivedCalls().ShouldBeEmpty();
     }
 
     [Fact]
@@ -129,6 +187,7 @@ public sealed class RescheduleAvailabilityBlockCommandHandlerTests
             _blocks.LockOpenBlockAsync(DoctorId, BlockStart, BlockStart.AddHours(6), CancellationToken.None);
             _blocks.ListByDoctorAsync(DoctorId, BlockStart.AddHours(2), BlockStart.AddHours(8), CancellationToken.None);
             _policy.EvaluateAsync(DoctorId, Arg.Any<IReadOnlyCollection<TimeRange>>(), CancellationToken.None);
+            _canceler.CancelAsync(DoctorId, Arg.Any<IReadOnlyCollection<TimeRange>>(), null, CancellationToken.None);
         });
     }
 
@@ -169,12 +228,16 @@ public sealed class RescheduleAvailabilityBlockCommandHandlerTests
                 IsShortNotice: false,
                 new ShortNoticeCancellation(6, 30)));
 
+    private void GivenCancelled(int count) =>
+        _canceler.CancelAsync(Arg.Any<int>(), Arg.Any<IReadOnlyCollection<TimeRange>>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(Result<int>.Success(count));
+
     private static RescheduleAvailabilityBlockCommand Command(int startHour, int endHour) =>
         new(BlockId, Day, new TimeOnly(startHour, 0), new TimeOnly(endHour, 0));
 
     private Task<Result<RescheduledAvailabilityBlockDto>> Handle(RescheduleAvailabilityBlockCommand command) =>
         new RescheduleAvailabilityBlockCommandHandler(
-                _currentUser, _doctors, _blocks, _policy, _clock, Calendar,
+                _currentUser, _doctors, _blocks, _policy, _canceler, _clock, Calendar,
                 Options.Create(new SchedulingOptions { MinimumBlockDurationHours = 6 }))
             .HandleAsync(command, CancellationToken.None);
 
