@@ -1,0 +1,34 @@
+using SGCM.Data.Domain.Common;
+
+namespace SGCM.Data.Domain.Scheduling.Appointments;
+
+/// <summary>
+/// Errores de validación de una cita.
+/// </summary>
+public static class AppointmentErrors
+{
+    public static readonly Error InvalidPatient = Error.Validation(
+        "Appointment.InvalidPatient", "El paciente de la cita no es válido.");
+
+    public static readonly Error InvalidDoctor = Error.Validation(
+        "Appointment.InvalidDoctor", "El médico de la cita no es válido.");
+
+    public static readonly Error InvalidSpecialty = Error.Validation(
+        "Appointment.InvalidSpecialty", "La especialidad de la cita no es válida.");
+
+    public static readonly Error NotOnHour = Error.Validation(
+        "Appointment.NotOnHour", "La cita debe empezar en punto.");
+
+    /// <summary>El horario está antes de la antelación mínima; esas citas se coordinan por teléfono.</summary>
+    public static readonly Error TooSoon = Error.Validation(
+        "Appointment.TooSoon",
+        "El horario no cumple la antelación mínima para reservar en línea; para una cita tan cercana debe llamar al médico.");
+
+    /// <summary>El horario está después del horizonte de reservas.</summary>
+    public static readonly Error BeyondHorizon = Error.Validation(
+        "Appointment.BeyondHorizon", "El horario está fuera del período en que se pueden reservar citas.");
+
+    public static readonly Error ReasonTooLong = Error.Validation(
+        "Appointment.ReasonTooLong",
+        $"El motivo de la consulta no puede superar los {Appointment.ReasonForVisitMaxLength} caracteres.");
+}
