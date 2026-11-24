@@ -34,6 +34,7 @@ public static class DependencyInjection
         services.AddSecurity();
 
         services.AddSingleton<IDateTimeProvider, SystemDateTimeProvider>();
+        services.AddSingleton<IRandomNumberGenerator, SystemRandomNumberGenerator>();
 
         return services;
     }

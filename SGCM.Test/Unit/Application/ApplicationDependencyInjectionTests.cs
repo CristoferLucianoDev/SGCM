@@ -1156,6 +1156,20 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public void El_servicio_de_asignacion_de_medico_se_resuelve_por_scope()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var service = first.ServiceProvider.GetRequiredService<IDoctorAssignmentService>();
+
+        service.ShouldBeOfType<DoctorAssignmentService>();
+        service.ShouldBeSameAs(first.ServiceProvider.GetRequiredService<IDoctorAssignmentService>());
+        service.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<IDoctorAssignmentService>());
+    }
+
+    [Fact]
     public async Task Generar_bloques_se_resuelve_con_transaccion_y_confirma_lo_generado()
     {
         using var provider = BuildProvider();
@@ -1269,6 +1283,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(_availabilityRepository);
         services.AddSingleton(_activeDoctorReader);
         services.AddSingleton(_activeAppointmentReader);
+        services.AddSingleton(Substitute.For<IRandomNumberGenerator>());
         services.AddSingleton(Options.Create(CreateAvailabilitySeriesCommandMother.Options()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
