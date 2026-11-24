@@ -31,4 +31,12 @@ public static class AppointmentErrors
     public static readonly Error ReasonTooLong = Error.Validation(
         "Appointment.ReasonTooLong",
         $"El motivo de la consulta no puede superar los {Appointment.ReasonForVisitMaxLength} caracteres.");
+
+    /// <summary>El médico ya tiene otra cita activa que se cruza con ese horario.</summary>
+    public static readonly Error SlotUnavailable = Error.Conflict(
+        "Appointment.SlotUnavailable", "El horario no está disponible.");
+
+    /// <summary>El paciente ya tiene otra cita activa que se cruza con ese horario.</summary>
+    public static readonly Error PatientOverlap = Error.Conflict(
+        "Appointment.PatientOverlap", "El horario se traslapa con otra cita tuya.");
 }
