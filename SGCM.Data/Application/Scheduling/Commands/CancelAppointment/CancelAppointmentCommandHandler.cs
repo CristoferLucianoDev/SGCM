@@ -39,8 +39,7 @@ internal sealed class CancelAppointmentCommandHandler(
             command.Reason,
             clock.UtcNow,
             options.PatientCancellationDeadlineHours,
-            new ShortNoticeCancellation(
-                options.DoctorLateCancellationThresholdHours, options.DoctorLateCancellationMinimumWords));
+            options.ToShortNoticeCancellation());
         if (cancelled.IsFailure) return cancelled.Error;
 
         // El TransactionDecorator guarda los cambios y confirma la transacción.

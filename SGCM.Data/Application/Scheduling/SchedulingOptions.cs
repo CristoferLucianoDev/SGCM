@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Options;
 using SGCM.Data.Application.Common;
+using SGCM.Data.Domain.Scheduling.Appointments;
 
 namespace SGCM.Data.Application.Scheduling;
 
@@ -18,6 +19,10 @@ public sealed class SchedulingOptions
     public int DoctorLateCancellationThresholdHours { get; set; }
     public int DoctorLateCancellationMinimumWords { get; set; }
     public int PatientReminderLeadHours { get; set; }
+
+    /// <summary>Regla de cancelación del médico con poco aviso, con los valores de esta configuración.</summary>
+    public ShortNoticeCancellation ToShortNoticeCancellation() =>
+        new(DoctorLateCancellationThresholdHours, DoctorLateCancellationMinimumWords);
 }
 
 public sealed class SchedulingOptionsValidator : IValidateOptions<SchedulingOptions>

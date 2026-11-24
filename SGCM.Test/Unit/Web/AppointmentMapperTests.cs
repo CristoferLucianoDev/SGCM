@@ -1,4 +1,5 @@
 using SGCM.Data.Application.Scheduling.Commands.CancelAppointment;
+using SGCM.Data.Application.Scheduling.Commands.CancelAppointmentByDoctor;
 using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorAssignment;
 using SGCM.Web.Contracts.Scheduling;
@@ -60,6 +61,14 @@ public sealed class AppointmentMapperTests
         Should.Throw<ArgumentNullException>(() => ((RequestAppointmentRequest)null!).ToCommand());
         Should.Throw<ArgumentNullException>(() => ((RequestedAppointmentDto)null!).ToResponse());
         Should.Throw<ArgumentNullException>(() => ((CancelAppointmentRequest)null!).ToCommand(1));
+        Should.Throw<ArgumentNullException>(() => ((CancelAppointmentByDoctorRequest)null!).ToCommand(1));
+    }
+
+    [Fact]
+    public void La_solicitud_de_cancelacion_del_medico_se_convierte_en_el_comando_con_el_id_de_la_ruta_y_el_motivo()
+    {
+        new CancelAppointmentByDoctorRequest("Emergencia familiar").ToCommand(99)
+            .ShouldBe(new CancelAppointmentByDoctorCommand(99, "Emergencia familiar"));
     }
 
     [Fact]
