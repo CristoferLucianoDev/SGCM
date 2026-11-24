@@ -15,6 +15,9 @@ public sealed class SendAppointmentCancelledNotificationTests
 {
     private const int AppointmentId = 99;
     private const string Reason = "Viaje";
+    private const string DoctorReason =
+        "Surgió una emergencia familiar imprevista y no podré atender la consulta programada para ese día; " +
+        "lamento mucho el inconveniente y le ruego reagendar su cita con cualquiera de mis horarios disponibles.";
     private const int HoursBeforeStartInsideDeadline = 48;
 
     private static readonly AppointmentNotificationData Data = new(
@@ -75,6 +78,33 @@ public sealed class SendAppointmentCancelledNotificationTests
             .HandleAsync(new AppointmentCancelledEvent(Cancelled(), AppointmentCanceller.Patient), CancellationToken.None);
 
         _notifications.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Si_cancela_el_medico_envia_un_solo_correo_al_paciente_con_el_motivo_y_el_medico_no_recibe_nada()
+    {
+        await new SendAppointmentCancelledNotification(_reader, _notifications)
+            .HandleAsync(new AppointmentCancelledEvent(CancelledByDoctor(), AppointmentCanceller.Doctor), CancellationToken.None);
+
+        var notification = _sent.ShouldHaveSingleItem().ShouldBeOfType<AppointmentCancelledNotification>();
+        notification.Recipient.ShouldBe(new Recipient("paciente@correo.com", "Ana Pérez"));
+        notification.CancelledBy.ShouldBe(AppointmentCanceller.Doctor);
+        notification.CancellationReason.ShouldBe(DoctorReason);
+        _sent.ShouldNotContain(sent => sent.Recipient.Email == Data.DoctorEmail);
+    }
+
+    private static Appointment CancelledByDoctor()
+    {
+        var appointment = AppointmentMother.InStatus(AppointmentStatus.Pending);
+        typeof(Entity).GetProperty(nameof(Entity.Id))!.SetValue(appointment, AppointmentId);
+        appointment.Cancel(
+                AppointmentCanceller.Doctor,
+                DoctorReason,
+                AppointmentMother.StartsAt.AddHours(-HoursBeforeStartInsideDeadline),
+                AppointmentMother.PatientCancellationDeadlineHours,
+                AppointmentMother.ShortNotice)
+            .IsSuccess.ShouldBeTrue();
+        return appointment;
     }
 
     private static Appointment Cancelled()
