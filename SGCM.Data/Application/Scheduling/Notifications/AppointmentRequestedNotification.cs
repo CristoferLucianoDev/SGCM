@@ -27,9 +27,9 @@ public sealed record AppointmentRequestedNotification(
             ["DoctorName"] = Appointment.DoctorName,
             ["PatientName"] = Appointment.PatientName,
             ["SpecialtyName"] = Appointment.SpecialtyName,
-            ["AppointmentDate"] = Appointment.AppointmentDate.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture),
-            ["StartTime"] = Appointment.StartTime.ToString("HH:mm", CultureInfo.InvariantCulture),
-            ["EndTime"] = Appointment.EndTime.ToString("HH:mm", CultureInfo.InvariantCulture),
+            ["AppointmentDate"] = AppointmentNotificationFormats.Date(Appointment.AppointmentDate),
+            ["StartTime"] = AppointmentNotificationFormats.Time(Appointment.StartTime),
+            ["EndTime"] = AppointmentNotificationFormats.Time(Appointment.EndTime),
             ["ReasonForVisit"] = Appointment.ReasonForVisit ?? NoReason,
             ["ConfirmationDeadlineHours"] = ConfirmationDeadlineHours.ToString(CultureInfo.InvariantCulture)
         };

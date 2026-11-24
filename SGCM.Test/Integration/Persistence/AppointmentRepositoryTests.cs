@@ -60,6 +60,90 @@ public sealed class AppointmentRepositoryTests(PostgresFixture database) : Integ
     }
 
     [Fact]
+    public async Task GetByIdForUpdateAsync_sin_transaccion_lanza_InvalidOperationException()
+    {
+        await using var provider = CreateProvider();
+        await using var scope = provider.CreateAsyncScope();
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            scope.ServiceProvider.GetRequiredService<IAppointmentRepository>()
+                .GetByIdForUpdateAsync(1, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetByIdForUpdateAsync_en_una_transaccion_devuelve_la_cita_guardada_y_rastreada()
+    {
+        await using var provider = CreateProvider();
+        var doctor = await SeedDoctorAsync(provider);
+        var id = await SaveAsync(provider, Request(await InsertPatientAsync(provider), doctor, Start));
+        await using var scope = provider.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+
+        var locked = await scope.ServiceProvider.GetRequiredService<IAppointmentRepository>()
+            .GetByIdForUpdateAsync(id, CancellationToken.None);
+
+        locked.ShouldNotBeNull();
+        locked.Id.ShouldBe(id);
+        locked.Status.ShouldBe(AppointmentStatus.Pending);
+        context.ChangeTracker.Entries<Appointment>().Select(entry => entry.Entity).ShouldContain(locked);
+    }
+
+    [Fact]
+    public async Task GetByIdForUpdateAsync_relee_una_cita_ya_rastreada_tras_el_bloqueo()
+    {
+        await using var provider = CreateProvider();
+        var doctor = await SeedDoctorAsync(provider);
+        var id = await SaveAsync(provider, Request(await InsertPatientAsync(provider), doctor, Start));
+        await using var scope = provider.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IAppointmentRepository>();
+        (await repository.GetByIdAsync(id, CancellationToken.None))!.Status.ShouldBe(AppointmentStatus.Pending);
+        await using (var other = provider.CreateAsyncScope())
+        {
+            await other.ServiceProvider.GetRequiredService<AppDbContext>().Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE scheduling.appointment SET status = 'cancelled' WHERE id = {id}");
+        }
+
+        await using var transaction = await scope.ServiceProvider.GetRequiredService<AppDbContext>()
+            .Database.BeginTransactionAsync();
+        var locked = await repository.GetByIdForUpdateAsync(id, CancellationToken.None);
+
+        locked.ShouldNotBeNull();
+        locked.Status.ShouldBe(AppointmentStatus.Cancelled);
+    }
+
+    [Fact]
+    public async Task GetByIdForUpdateAsync_con_cambios_pendientes_en_la_cita_rastreada_lanza_InvalidOperationException()
+    {
+        await using var provider = CreateProvider();
+        var doctor = await SeedDoctorAsync(provider);
+        var id = await SaveAsync(provider, Request(await InsertPatientAsync(provider), doctor, Start));
+        await using var scope = provider.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IAppointmentRepository>();
+        var tracked = await repository.GetByIdAsync(id, CancellationToken.None);
+        tracked!.Cancel(
+            AppointmentCanceller.Patient, null, Start.AddHours(-AppointmentMother.PatientCancellationDeadlineHours * 2),
+            AppointmentMother.PatientCancellationDeadlineHours).IsSuccess.ShouldBeTrue();
+        await using var transaction = await scope.ServiceProvider.GetRequiredService<AppDbContext>()
+            .Database.BeginTransactionAsync();
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            repository.GetByIdForUpdateAsync(id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetByIdForUpdateAsync_de_una_cita_que_no_existe_devuelve_null()
+    {
+        await using var provider = CreateProvider();
+        await using var scope = provider.CreateAsyncScope();
+        await using var transaction = await scope.ServiceProvider.GetRequiredService<AppDbContext>()
+            .Database.BeginTransactionAsync();
+
+        (await scope.ServiceProvider.GetRequiredService<IAppointmentRepository>()
+            .GetByIdForUpdateAsync(int.MaxValue, CancellationToken.None)).ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Una_cita_que_se_cruza_con_otra_activa_del_medico_es_horario_no_disponible()
     {
         await using var provider = CreateProvider();
