@@ -1,4 +1,5 @@
 using SGCM.Data.Domain.Common;
+using SGCM.Data.Domain.Scheduling.Availability.Events;
 namespace SGCM.Data.Domain.Scheduling.Availability;
 
 /// <summary>
@@ -134,6 +135,25 @@ public sealed class DoctorAvailability : AggregateRoot
         if (rescheduled.IsFailure) return rescheduled;
 
         IsModified = true;
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Cierra el bloque en cualquier semana, incluida la actual: deja de ofrecer horarios de inmediato. Emite
+    /// <see cref="DoctorAvailabilityClosedEvent"/> con el rango del bloque y el motivo, para cancelar las citas
+    /// activas que quedan dentro. Si el motivo es obligatorio lo decide la política de citas afectadas, no el bloque.
+    /// </summary>
+    /// <param name="reason">Motivo del médico; se recorta y, si queda vacío, el evento lleva <c>null</c>.</param>
+    /// <param name="now">Instante actual.</param>
+    /// <returns>El primer error de validación; ante un error el bloque no cambia ni emite nada.</returns>
+    public Result Close(string? reason, DateTimeOffset now)
+    {
+        if (!IsAvailable) return DoctorAvailabilityErrors.AlreadyClosed;
+        if (EndsAt <= now) return DoctorAvailabilityErrors.AlreadyEnded;
+
+        IsAvailable = false;
+        var trimmed = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        Raise(new DoctorAvailabilityClosedEvent(Id, DoctorId, TimeRange.Create(StartsAt, EndsAt).Value, trimmed));
         return Result.Success();
     }
 

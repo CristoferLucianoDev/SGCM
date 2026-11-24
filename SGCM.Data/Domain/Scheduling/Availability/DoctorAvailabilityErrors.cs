@@ -41,4 +41,12 @@ public static class DoctorAvailabilityErrors
     /// <summary>El bloque se cruza con otro del mismo médico, abierto o cerrado.</summary>
     public static readonly Error Overlap = Error.Conflict(
         "Availability.Overlap", "El horario se traslapa con otro horario del mismo médico.");
+
+    /// <summary>El bloque ya está cerrado.</summary>
+    public static readonly Error AlreadyClosed = Error.Validation(
+        "Availability.AlreadyClosed", "El bloque ya está cerrado.");
+
+    /// <summary>Un bloque que ya terminó no se puede cerrar.</summary>
+    public static readonly Error AlreadyEnded = Error.Validation(
+        "Availability.AlreadyEnded", "El bloque ya terminó y no se puede cerrar.");
 }
