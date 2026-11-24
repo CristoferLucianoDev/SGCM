@@ -1194,6 +1194,19 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public void La_politica_de_citas_afectadas_se_resuelve_por_scope()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var policy = first.ServiceProvider.GetRequiredService<IAffectedAppointmentsPolicy>();
+
+        policy.ShouldBeOfType<AffectedAppointmentsPolicy>();
+        policy.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<IAffectedAppointmentsPolicy>());
+    }
+
+    [Fact]
     public void El_servicio_de_asignacion_de_medico_se_resuelve_por_scope()
     {
         using var provider = BuildProvider();

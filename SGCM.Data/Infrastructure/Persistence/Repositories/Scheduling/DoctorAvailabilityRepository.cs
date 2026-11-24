@@ -5,6 +5,9 @@ namespace SGCM.Data.Infrastructure.Persistence.Repositories.Scheduling;
 
 internal sealed class DoctorAvailabilityRepository(AppDbContext context) : IDoctorAvailabilityRepository
 {
+    public Task<DoctorAvailability?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
+        context.DoctorAvailabilities.AsTracking().SingleOrDefaultAsync(block => block.Id == id, cancellationToken);
+
     public void Add(DoctorAvailability block) => context.DoctorAvailabilities.Add(block);
 
     public void AddRange(IEnumerable<DoctorAvailability> blocks) => context.DoctorAvailabilities.AddRange(blocks);

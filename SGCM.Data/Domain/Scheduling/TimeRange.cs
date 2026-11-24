@@ -48,6 +48,21 @@ public sealed record TimeRange
         return Start <= other.Start && other.End <= End;
     }
 
+    /// <summary>
+    /// Partes de este rango que no cubre el otro, en orden: ninguna si lo cubre completo, una si se cruzan por un
+    /// extremo, dos si el otro queda en medio y el rango completo si no se cruzan.
+    /// </summary>
+    public IReadOnlyList<TimeRange> Subtract(TimeRange other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        if (!Overlaps(other)) return [this];
+
+        var parts = new List<TimeRange>(2);
+        if (Start < other.Start) parts.Add(new TimeRange(Start, other.Start));
+        if (other.End < End) parts.Add(new TimeRange(other.End, End));
+        return parts;
+    }
+
     public override string ToString() =>
         $"[{Start.ToString("O", System.Globalization.CultureInfo.InvariantCulture)}, " +
         $"{End.ToString("O", System.Globalization.CultureInfo.InvariantCulture)})";

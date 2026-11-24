@@ -49,4 +49,8 @@ public static class DoctorAvailabilityErrors
     /// <summary>Un bloque que ya terminó no se puede cerrar.</summary>
     public static readonly Error AlreadyEnded = Error.Validation(
         "Availability.AlreadyEnded", "El bloque ya terminó y no se puede cerrar.");
+
+    /// <summary>El bloque no existe o es de otro médico.</summary>
+    public static readonly Error NotFound = Error.NotFound(
+        "Availability.NotFound", "El bloque no existe.");
 }

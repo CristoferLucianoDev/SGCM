@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
+using SGCM.Data.Application.Scheduling.Queries.GetAffectedAppointments;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
 using SGCM.Web.Contracts.Scheduling;
@@ -35,5 +36,30 @@ public sealed class AvailabilityBlocksController : ApiControllerBase
         return result.IsSuccess
             ? StatusCode(StatusCodes.Status201Created, new CreateAvailabilityBlockResponse(result.Value))
             : ErrorResult(result.Error);
+    }
+
+    /// <summary>Avisa cuántas citas se cancelarían al cerrar o reprogramar un bloque propio, antes de confirmar.</summary>
+    /// <remarks>
+    /// Sin <c>startsAt</c> ni <c>endsAt</c> evalúa el cierre del bloque; con los dos, la reprogramación a ese horario.
+    /// Indica si el motivo es obligatorio y, si alguna cita empieza pronto, la advertencia con las palabras mínimas.
+    /// Un bloque de otro médico responde 404.
+    /// </remarks>
+    [HttpGet("{blockId:int}/affected-appointments")]
+    [Authorize(Roles = nameof(UserRole.Doctor))]
+    [ProducesResponseType(typeof(AffectedAppointmentsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetAffectedAppointments(
+        [FromRoute] int blockId,
+        [FromQuery] DateTimeOffset? startsAt,
+        [FromQuery] DateTimeOffset? endsAt,
+        [FromServices] IQueryHandler<GetAffectedAppointmentsQuery, AffectedAppointmentsDto> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new GetAffectedAppointmentsQuery(blockId, startsAt, endsAt), cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
     }
 }

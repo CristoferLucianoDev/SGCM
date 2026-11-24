@@ -4,6 +4,10 @@ namespace SGCM.Data.Domain.Scheduling.Availability;
 
 public interface IDoctorAvailabilityRepository : IRepository<DoctorAvailability>
 {
+    /// <summary>Busca un bloque por su id, rastreado para poder cambiarlo.</summary>
+    /// <returns>El bloque, o <c>null</c> si no existe.</returns>
+    Task<DoctorAvailability?> GetByIdAsync(int id, CancellationToken cancellationToken);
+
     /// <summary>Agrega varios bloques, por ejemplo los que genera una serie hasta el horizonte.</summary>
     void AddRange(IEnumerable<DoctorAvailability> blocks);
 
