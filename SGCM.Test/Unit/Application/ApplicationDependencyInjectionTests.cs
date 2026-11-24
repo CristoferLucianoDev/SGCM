@@ -1184,6 +1184,16 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public void AppointmentCancelledEvent_tiene_un_solo_manejador_que_envia_la_notificacion()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentCancelledEvent>>()
+            .ShouldHaveSingleItem().ShouldBeOfType<SendAppointmentCancelledNotification>();
+    }
+
+    [Fact]
     public void El_servicio_de_asignacion_de_medico_se_resuelve_por_scope()
     {
         using var provider = BuildProvider();
