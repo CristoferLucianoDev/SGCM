@@ -39,4 +39,8 @@ public static class AppointmentErrors
     /// <summary>El paciente ya tiene otra cita activa que se cruza con ese horario.</summary>
     public static readonly Error PatientOverlap = Error.Conflict(
         "Appointment.PatientOverlap", "El horario se traslapa con otra cita tuya.");
+
+    /// <summary>Solo un paciente agenda citas.</summary>
+    public static readonly Error PatientOnly = Error.Forbidden(
+        "Appointment.PatientOnly", "Solo los pacientes pueden agendar citas.");
 }
