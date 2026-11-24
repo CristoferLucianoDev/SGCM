@@ -29,6 +29,7 @@ using SGCM.Data.Application.People.Queries.ListMunicipalities;
 using SGCM.Data.Application.People.Queries.ListProvinces;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Application.Scheduling.Commands.CloseAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
@@ -1191,6 +1192,46 @@ public sealed class ApplicationDependencyInjectionTests
 
         scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentCancelledEvent>>()
             .ShouldHaveSingleItem().ShouldBeOfType<SendAppointmentCancelledNotification>();
+    }
+
+    [Fact]
+    public void La_politica_de_citas_afectadas_se_resuelve_por_scope()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var policy = first.ServiceProvider.GetRequiredService<IAffectedAppointmentsPolicy>();
+
+        policy.ShouldBeOfType<AffectedAppointmentsPolicy>();
+        policy.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<IAffectedAppointmentsPolicy>());
+    }
+
+    [Fact]
+    public void El_cancelador_de_citas_afectadas_se_resuelve_por_scope()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var canceler = first.ServiceProvider.GetRequiredService<IAffectedAppointmentsCanceler>();
+
+        canceler.ShouldBeOfType<AffectedAppointmentsCanceler>();
+        canceler.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<IAffectedAppointmentsCanceler>());
+    }
+
+    [Fact]
+    public async Task Un_cierre_de_bloque_invalido_se_rechaza_antes_de_abrir_la_transaccion()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<CloseAvailabilityBlockCommand, ClosedAvailabilityBlockDto>>();
+
+        handler.ShouldBeOfType<ValidationDecorator<CloseAvailabilityBlockCommand, ClosedAvailabilityBlockDto>>();
+        var result = await handler.HandleAsync(new CloseAvailabilityBlockCommand(0), CancellationToken.None);
+
+        result.Error.Code.ShouldBe("Availability.InvalidBlockId");
+        await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]

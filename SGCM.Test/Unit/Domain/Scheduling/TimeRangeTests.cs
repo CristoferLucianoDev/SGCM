@@ -77,3 +77,27 @@ public sealed class TimeRangeTests
     private static TimeRange Range(int startHour, int endHour) =>
         TimeRange.Create(Eight.AddHours(startHour), Eight.AddHours(endHour)).Value;
 }
+
+public sealed class TimeRangeSubtractTests
+{
+    private static readonly DateTimeOffset Start = new(2027, 1, 12, 12, 0, 0, TimeSpan.Zero);
+    private static readonly SGCM.Data.Domain.Scheduling.TimeRange Block = At(0, 6);
+
+    [Fact]
+    public void Sin_cruce_queda_el_rango_completo() => Block.Subtract(At(6, 8)).ShouldBe(new[] { Block });
+
+    [Fact]
+    public void Cubierto_completo_no_queda_nada() => Block.Subtract(At(-1, 7)).ShouldBeEmpty();
+
+    [Fact]
+    public void Cruzando_el_inicio_queda_el_final() => Block.Subtract(At(-1, 2)).ShouldBe(new[] { At(2, 6) });
+
+    [Fact]
+    public void Cruzando_el_fin_queda_el_principio() => Block.Subtract(At(4, 8)).ShouldBe(new[] { At(0, 4) });
+
+    [Fact]
+    public void En_medio_quedan_dos_partes_en_orden() => Block.Subtract(At(2, 4)).ShouldBe(new[] { At(0, 2), At(4, 6) });
+
+    private static SGCM.Data.Domain.Scheduling.TimeRange At(int fromHour, int toHour) =>
+        SGCM.Data.Domain.Scheduling.TimeRange.Create(Start.AddHours(fromHour), Start.AddHours(toHour)).Value;
+}

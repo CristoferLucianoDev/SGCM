@@ -411,6 +411,25 @@ public sealed class DoctorAvailabilityRepositoryTests(PostgresFixture database) 
         return locked;
     }
 
+    [Fact]
+    public async Task GetByIdAsync_trae_el_bloque_rastreado_y_null_si_no_existe()
+    {
+        await using var provider = CreateProvider();
+        var doctorId = await InsertDoctorAsync(provider);
+        var block = Block(doctorId, Start);
+        await SaveBlocksAsync(provider, [block]);
+
+        await using var scope = provider.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IDoctorAvailabilityRepository>();
+        var found = await repository.GetByIdAsync(block.Id, CancellationToken.None);
+
+        found.ShouldNotBeNull();
+        found.DoctorId.ShouldBe(doctorId);
+        found.StartsAt.ShouldBe(Start);
+        scope.ServiceProvider.GetRequiredService<AppDbContext>().Entry(found).State.ShouldBe(EntityState.Unchanged);
+        (await repository.GetByIdAsync(int.MaxValue, CancellationToken.None)).ShouldBeNull();
+    }
+
     private static DoctorAvailability Block(int doctorId, DateTimeOffset startsAt) =>
         DoctorAvailability.Create(doctorId, null, startsAt, startsAt.AddHours(MinimumHours), MinimumHours).Value;
 
