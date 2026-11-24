@@ -1324,6 +1324,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<IRandomNumberGenerator>());
         services.AddSingleton(Substitute.For<IAppointmentRepository>());
         services.AddSingleton(Substitute.For<IAppointmentNotificationReader>());
+        services.AddSingleton(Substitute.For<IPatientAppointmentHistoryReader>());
         services.AddSingleton(Options.Create(CreateAvailabilitySeriesCommandMother.Options()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });

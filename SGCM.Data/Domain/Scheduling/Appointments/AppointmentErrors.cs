@@ -79,6 +79,10 @@ public static class AppointmentErrors
     public static readonly Error NotFound = Error.NotFound(
         "Appointment.NotFound", "La cita no existe.");
 
+    /// <summary>Solo un paciente consulta su historial de citas.</summary>
+    public static readonly Error HistoryPatientOnly = Error.Forbidden(
+        "Appointment.HistoryPatientOnly", "Solo los pacientes pueden consultar su historial de citas.");
+
     /// <summary>Solo el médico de la cita la cancela desde el caso de uso del médico.</summary>
     public static readonly Error CancellationDoctorOnly = Error.Forbidden(
         "Appointment.CancellationDoctorOnly", "Solo el médico de la cita puede cancelarla desde aquí.");
