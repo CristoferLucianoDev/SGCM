@@ -63,26 +63,45 @@ public sealed class Appointment : AggregateRoot
         if (patientId <= 0) return AppointmentErrors.InvalidPatient;
         if (doctorId <= 0) return AppointmentErrors.InvalidDoctor;
         if (specialtyId <= 0) return AppointmentErrors.InvalidSpecialty;
-        if (!HourAlignedInstant.IsOnHour(startsAt)) return AppointmentErrors.NotOnHour;
-        if (startsAt < bookingWindow.Start) return AppointmentErrors.TooSoon;
-        if (startsAt >= bookingWindow.End) return AppointmentErrors.BeyondHorizon;
+        var start = ValidateStart(startsAt, bookingWindow);
+        if (start != Error.None) return start;
 
         var reason = string.IsNullOrWhiteSpace(reasonForVisit) ? null : reasonForVisit.Trim();
         if (reason?.Length > ReasonForVisitMaxLength) return AppointmentErrors.ReasonTooLong;
 
-        var start = startsAt.ToUniversalTime();
+        var startUtc = startsAt.ToUniversalTime();
         var appointment = new Appointment
         {
             PatientId = patientId,
             DoctorId = doctorId,
             SpecialtyId = specialtyId,
-            StartsAt = start,
-            EndsAt = start.AddHours(durationHours),
+            StartsAt = startUtc,
+            EndsAt = startUtc.AddHours(durationHours),
             Status = AppointmentStatus.Pending,
             ReasonForVisit = reason
         };
         appointment.Raise(new AppointmentRequestedEvent(appointment));
 
         return appointment;
+    }
+
+    /// <summary>
+    /// Comprueba que la cita pueda empezar en ese instante: en punto y dentro de la ventana de reservas. Permite
+    /// rechazar el horario antes de buscar o bloquear al médico, con el mismo error que <see cref="Request"/>.
+    /// </summary>
+    /// <returns>
+    /// <see cref="Error.None"/>, <see cref="AppointmentErrors.NotOnHour"/>, <see cref="AppointmentErrors.TooSoon"/>
+    /// o <see cref="AppointmentErrors.BeyondHorizon"/>.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">Si la ventana es nula.</exception>
+    public static Error ValidateStart(DateTimeOffset startsAt, TimeRange bookingWindow)
+    {
+        ArgumentNullException.ThrowIfNull(bookingWindow);
+
+        if (!HourAlignedInstant.IsOnHour(startsAt)) return AppointmentErrors.NotOnHour;
+        if (startsAt < bookingWindow.Start) return AppointmentErrors.TooSoon;
+        if (startsAt >= bookingWindow.End) return AppointmentErrors.BeyondHorizon;
+
+        return Error.None;
     }
 }

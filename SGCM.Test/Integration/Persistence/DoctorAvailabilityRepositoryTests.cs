@@ -334,6 +334,83 @@ public sealed class DoctorAvailabilityRepositoryTests(PostgresFixture database) 
         blocks.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task LockOpenBlockAsync_encuentra_el_bloque_abierto_que_contiene_el_rango_incluidos_sus_extremos()
+    {
+        await using var provider = CreateProvider();
+        var doctorId = await InsertDoctorAsync(provider);
+        await SaveBlocksAsync(provider, [Block(doctorId, Start)]);
+
+        (await LockAsync(provider, doctorId, Start, Start.AddHours(2))).ShouldBeTrue();
+        (await LockAsync(provider, doctorId, Start.AddHours(4), Start.AddHours(MinimumHours))).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task LockOpenBlockAsync_no_encuentra_un_rango_que_se_sale_del_bloque_ni_el_bloque_de_otro_medico()
+    {
+        await using var provider = CreateProvider();
+        var doctorId = await InsertDoctorAsync(provider);
+        var otherDoctorId = await InsertDoctorAsync(provider);
+        await SaveBlocksAsync(provider, [Block(doctorId, Start)]);
+
+        (await LockAsync(provider, doctorId, Start.AddHours(5), Start.AddHours(7))).ShouldBeFalse();
+        (await LockAsync(provider, doctorId, Start.AddHours(-1), Start.AddHours(1))).ShouldBeFalse();
+        (await LockAsync(provider, otherDoctorId, Start, Start.AddHours(2))).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task LockOpenBlockAsync_no_encuentra_un_bloque_cerrado()
+    {
+        await using var provider = CreateProvider();
+        var doctorId = await InsertDoctorAsync(provider);
+        await SaveBlocksAsync(provider, [Block(doctorId, Start)]);
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE scheduling.doctor_availability SET is_available = false WHERE doctor_id = {doctorId}");
+        }
+
+        (await LockAsync(provider, doctorId, Start, Start.AddHours(2))).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task LockOpenBlockAsync_hace_esperar_a_otra_transaccion_que_quiere_el_mismo_bloque()
+    {
+        await using var provider = CreateProvider();
+        var doctorId = await InsertDoctorAsync(provider);
+        await SaveBlocksAsync(provider, [Block(doctorId, Start)]);
+
+        await using var firstScope = provider.CreateAsyncScope();
+        var firstUnitOfWork = firstScope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+        await using var firstTransaction = await firstUnitOfWork.BeginTransactionAsync(CancellationToken.None);
+        (await firstScope.ServiceProvider.GetRequiredService<IDoctorAvailabilityRepository>()
+            .LockOpenBlockAsync(doctorId, Start, Start.AddHours(2), CancellationToken.None)).ShouldBeTrue();
+
+        await using var secondScope = provider.CreateAsyncScope();
+        await using var secondTransaction = await secondScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+            .BeginTransactionAsync(CancellationToken.None);
+        var second = secondScope.ServiceProvider.GetRequiredService<IDoctorAvailabilityRepository>()
+            .LockOpenBlockAsync(doctorId, Start.AddHours(2), Start.AddHours(4), CancellationToken.None);
+
+        // Mientras la primera transacción no termina, la segunda queda esperando el mismo bloque.
+        (await Task.WhenAny(second, Task.Delay(TimeSpan.FromMilliseconds(500)))).ShouldNotBe(second);
+
+        await firstTransaction.CommitAsync(CancellationToken.None);
+        (await second.WaitAsync(TimeSpan.FromSeconds(10))).ShouldBeTrue();
+        await secondTransaction.CommitAsync(CancellationToken.None);
+    }
+
+    private static async Task<bool> LockAsync(ServiceProvider provider, int doctorId, DateTimeOffset startsAt, DateTimeOffset endsAt)
+    {
+        await using var scope = provider.CreateAsyncScope();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+        await using var transaction = await unitOfWork.BeginTransactionAsync(CancellationToken.None);
+        var locked = await scope.ServiceProvider.GetRequiredService<IDoctorAvailabilityRepository>()
+            .LockOpenBlockAsync(doctorId, startsAt, endsAt, CancellationToken.None);
+        await transaction.RollbackAsync(CancellationToken.None);
+        return locked;
+    }
+
     private static DoctorAvailability Block(int doctorId, DateTimeOffset startsAt) =>
         DoctorAvailability.Create(doctorId, null, startsAt, startsAt.AddHours(MinimumHours), MinimumHours).Value;
 

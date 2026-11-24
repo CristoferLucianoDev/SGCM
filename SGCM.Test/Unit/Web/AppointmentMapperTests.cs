@@ -1,3 +1,4 @@
+using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorAssignment;
 using SGCM.Web.Contracts.Scheduling;
 using SGCM.Web.Mappers.Scheduling;
@@ -34,5 +35,28 @@ public sealed class AppointmentMapperTests
     {
         Should.Throw<ArgumentNullException>(() => ((DoctorAssignmentRequest)null!).ToQuery());
         Should.Throw<ArgumentNullException>(() => ((DoctorAssignmentDto)null!).ToResponse());
+    }
+
+    [Fact]
+    public void La_solicitud_de_cita_se_convierte_en_el_comando_sin_cambiar_datos()
+    {
+        new RequestAppointmentRequest(5, StartsAt, null, 7, 3, 4, "Control anual").ToCommand()
+            .ShouldBe(new RequestAppointmentCommand(5, StartsAt, null, 7, 3, 4, "Control anual"));
+    }
+
+    [Fact]
+    public void La_cita_creada_se_convierte_en_la_respuesta_sin_cambiar_datos()
+    {
+        var endsAt = StartsAt.AddHours(2);
+
+        new RequestedAppointmentDto(99, 7, "Luis Pérez", 1500m, StartsAt, endsAt, true).ToResponse()
+            .ShouldBe(new RequestAppointmentResponse(99, 7, "Luis Pérez", 1500m, StartsAt, endsAt, true));
+    }
+
+    [Fact]
+    public void Un_argumento_nulo_de_la_solicitud_de_cita_es_un_error_de_programacion()
+    {
+        Should.Throw<ArgumentNullException>(() => ((RequestAppointmentRequest)null!).ToCommand());
+        Should.Throw<ArgumentNullException>(() => ((RequestedAppointmentDto)null!).ToResponse());
     }
 }

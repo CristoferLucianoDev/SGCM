@@ -43,4 +43,8 @@ public static class AppointmentErrors
     /// <summary>Solo un paciente agenda citas.</summary>
     public static readonly Error PatientOnly = Error.Forbidden(
         "Appointment.PatientOnly", "Solo los pacientes pueden agendar citas.");
+
+    /// <summary>El médico que eligió el paciente no atiende la especialidad, o no está activo.</summary>
+    public static readonly Error DoctorNotInSpecialty = Error.Validation(
+        "Appointment.DoctorNotInSpecialty", "El médico elegido no atiende esa especialidad.");
 }

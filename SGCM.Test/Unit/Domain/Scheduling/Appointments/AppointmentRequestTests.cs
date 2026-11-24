@@ -157,3 +157,29 @@ public sealed class AppointmentRequestTests
         result.Error.Type.ShouldBe(ErrorType.Validation);
     }
 }
+
+public sealed class AppointmentValidateStartTests
+{
+    [Fact]
+    public void Un_inicio_en_punto_dentro_de_la_ventana_no_tiene_error()
+    {
+        Appointment.ValidateStart(AppointmentMother.StartsAt, AppointmentMother.BookingWindow).ShouldBe(Error.None);
+    }
+
+    [Fact]
+    public void Devuelve_los_mismos_errores_que_Request()
+    {
+        Appointment.ValidateStart(AppointmentMother.StartsAt.AddMinutes(30), AppointmentMother.BookingWindow)
+            .ShouldBe(AppointmentErrors.NotOnHour);
+        Appointment.ValidateStart(AppointmentMother.WindowStart.AddHours(-1), AppointmentMother.BookingWindow)
+            .ShouldBe(AppointmentErrors.TooSoon);
+        Appointment.ValidateStart(AppointmentMother.WindowEnd, AppointmentMother.BookingWindow)
+            .ShouldBe(AppointmentErrors.BeyondHorizon);
+    }
+
+    [Fact]
+    public void Una_ventana_nula_es_un_error_de_programacion()
+    {
+        Should.Throw<ArgumentNullException>(() => Appointment.ValidateStart(AppointmentMother.StartsAt, null!));
+    }
+}

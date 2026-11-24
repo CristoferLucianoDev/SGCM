@@ -29,6 +29,7 @@ using SGCM.Data.Application.People.Queries.ListMunicipalities;
 using SGCM.Data.Application.People.Queries.ListProvinces;
 using SGCM.Data.Application.People.Queries.ListSpecialties;
 using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAvailabilityBlocks;
@@ -43,6 +44,7 @@ using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Domain.Scheduling;
+using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Data.Domain.Scheduling.Availability.Events;
 using SGCM.Test.Common.Fakes;
@@ -1156,6 +1158,21 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public async Task Una_solicitud_de_cita_invalida_se_rechaza_antes_de_abrir_la_transaccion()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<RequestAppointmentCommand, RequestedAppointmentDto>>();
+        var command = new RequestAppointmentCommand(5, AppointmentMother.StartsAt, DoctorId: 7, AssignedDoctorId: 8);
+
+        handler.ShouldBeOfType<ValidationDecorator<RequestAppointmentCommand, RequestedAppointmentDto>>();
+        var result = await handler.HandleAsync(command, CancellationToken.None);
+
+        result.Error.Code.ShouldBe("Appointment.DoctorAndAssignedDoctor");
+        await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public void El_servicio_de_asignacion_de_medico_se_resuelve_por_scope()
     {
         using var provider = BuildProvider();
@@ -1284,6 +1301,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(_activeDoctorReader);
         services.AddSingleton(_activeAppointmentReader);
         services.AddSingleton(Substitute.For<IRandomNumberGenerator>());
+        services.AddSingleton(Substitute.For<IAppointmentRepository>());
         services.AddSingleton(Options.Create(CreateAvailabilitySeriesCommandMother.Options()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorAssignment;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
@@ -33,5 +34,32 @@ public sealed class AppointmentsController : ApiControllerBase
         var result = await handler.HandleAsync(request.ToQuery(), cancellationToken);
 
         return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
+    }
+
+    /// <summary>Solicita una cita para el paciente autenticado; la cita queda pendiente de 2 horas.</summary>
+    /// <remarks>
+    /// El paciente necesita su perfil completo. Si eligió al médico y ese horario ya no está libre, se rechaza con
+    /// "El horario no está disponible". Si el médico lo asignó el resumen y perdió el horario, se asigna otro médico
+    /// libre de la especialidad y la respuesta lo indica con <c>doctorChanged</c>; solo se rechaza si no queda
+    /// ninguno. También se rechaza si el horario se traslapa con otra cita activa del paciente.
+    /// </remarks>
+    [HttpPost]
+    [Authorize(Roles = nameof(UserRole.Patient))]
+    [ProducesResponseType(typeof(RequestAppointmentResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Create(
+        RequestAppointmentRequest request,
+        [FromServices] ICommandHandler<RequestAppointmentCommand, RequestedAppointmentDto> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToCommand(), cancellationToken);
+
+        return result.IsSuccess
+            ? StatusCode(StatusCodes.Status201Created, result.Value.ToResponse())
+            : ErrorResult(result.Error);
     }
 }

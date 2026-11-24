@@ -1,3 +1,4 @@
+using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorAssignment;
 using SGCM.Web.Contracts.Scheduling;
 
@@ -20,5 +21,35 @@ public static class AppointmentMapper
         ArgumentNullException.ThrowIfNull(assignment);
 
         return new DoctorAssignmentResponse(assignment.DoctorId, assignment.DoctorName, assignment.ConsultationFee);
+    }
+
+    /// <exception cref="ArgumentNullException">Si <paramref name="request"/> es nulo.</exception>
+    public static RequestAppointmentCommand ToCommand(this RequestAppointmentRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return new RequestAppointmentCommand(
+            request.SpecialtyId,
+            request.StartsAt,
+            request.DoctorId,
+            request.AssignedDoctorId,
+            request.ProvinceId,
+            request.MunicipalityId,
+            request.ReasonForVisit);
+    }
+
+    /// <exception cref="ArgumentNullException">Si <paramref name="appointment"/> es nulo.</exception>
+    public static RequestAppointmentResponse ToResponse(this RequestedAppointmentDto appointment)
+    {
+        ArgumentNullException.ThrowIfNull(appointment);
+
+        return new RequestAppointmentResponse(
+            appointment.AppointmentId,
+            appointment.DoctorId,
+            appointment.DoctorName,
+            appointment.ConsultationFee,
+            appointment.StartsAt,
+            appointment.EndsAt,
+            appointment.DoctorChanged);
     }
 }
