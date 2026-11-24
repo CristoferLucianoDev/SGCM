@@ -61,4 +61,15 @@ public static class AppointmentErrors
     public static readonly Error StatusReasonTooLong = Error.Validation(
         "Appointment.StatusReasonTooLong",
         $"El motivo no puede superar los {Appointment.StatusReasonMaxLength} caracteres.");
+
+    /// <summary>
+    /// La cita no existe o no es del paciente; en ambos casos se responde igual para no revelar citas de otros
+    /// pacientes.
+    /// </summary>
+    public static readonly Error NotFound = Error.NotFound(
+        "Appointment.NotFound", "La cita no existe.");
+
+    /// <summary>Solo el paciente dueño de la cita la cancela desde este caso de uso.</summary>
+    public static readonly Error CancellationPatientOnly = Error.Forbidden(
+        "Appointment.CancellationPatientOnly", "Solo el paciente puede cancelar sus citas desde aquí.");
 }

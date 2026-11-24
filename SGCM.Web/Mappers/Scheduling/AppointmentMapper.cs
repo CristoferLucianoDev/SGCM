@@ -1,3 +1,4 @@
+using SGCM.Data.Application.Scheduling.Commands.CancelAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorAssignment;
 using SGCM.Web.Contracts.Scheduling;
@@ -36,6 +37,14 @@ public static class AppointmentMapper
             request.ProvinceId,
             request.MunicipalityId,
             request.ReasonForVisit);
+    }
+
+    /// <exception cref="ArgumentNullException">Si <paramref name="request"/> es nulo.</exception>
+    public static CancelAppointmentCommand ToCommand(this CancelAppointmentRequest request, int appointmentId)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return new CancelAppointmentCommand(appointmentId, request.Reason);
     }
 
     /// <exception cref="ArgumentNullException">Si <paramref name="appointment"/> es nulo.</exception>

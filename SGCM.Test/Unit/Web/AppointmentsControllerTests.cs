@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Scheduling.Commands.CancelAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorAssignment;
 using SGCM.Data.Domain.People.Patients;
@@ -17,6 +18,8 @@ using Shouldly;
 
 namespace SGCM.Test.Unit.Web;
 
+using Unit = SGCM.Data.Domain.Common.Unit;
+
 public sealed class AppointmentsControllerTests
 {
     private static readonly DateTimeOffset StartsAt = new(2027, 1, 12, 9, 0, 0, TimeSpan.FromHours(-4));
@@ -26,6 +29,9 @@ public sealed class AppointmentsControllerTests
 
     private readonly ICommandHandler<RequestAppointmentCommand, RequestedAppointmentDto> _requestHandler =
         Substitute.For<ICommandHandler<RequestAppointmentCommand, RequestedAppointmentDto>>();
+
+    private readonly ICommandHandler<CancelAppointmentCommand, Unit> _cancelHandler =
+        Substitute.For<ICommandHandler<CancelAppointmentCommand, Unit>>();
 
     [Fact]
     public async Task AssignDoctor_pasa_la_consulta_y_el_token_al_handler_y_responde_200_con_el_medico_y_su_tarifa()
@@ -144,5 +150,61 @@ public sealed class AppointmentsControllerTests
         var responses = method.GetCustomAttributes<ProducesResponseTypeAttribute>().ToArray();
         responses.Select(value => value.StatusCode).ShouldBe(new[] { 201, 400, 401, 403, 404, 409 }, ignoreOrder: true);
         responses.Single(value => value.StatusCode == 201).Type.ShouldBe(typeof(RequestAppointmentResponse));
+    }
+
+    [Fact]
+    public async Task Cancel_pasa_el_comando_y_el_token_al_handler_y_responde_204()
+    {
+        using var cancellation = new CancellationTokenSource();
+        _cancelHandler.HandleAsync(Arg.Any<CancelAppointmentCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Success(Unit.Value));
+
+        var result = await new AppointmentsController().Cancel(
+            99, new CancelAppointmentRequest("Tengo un viaje"), _cancelHandler, cancellation.Token);
+
+        result.ShouldBeOfType<NoContentResult>();
+        await _cancelHandler.Received(1).HandleAsync(new CancelAppointmentCommand(99, "Tengo un viaje"), cancellation.Token);
+    }
+
+    public static IEnumerable<object[]> CancelErrors()
+    {
+        yield return [AppointmentErrors.StatusReasonTooLong, 400];
+        yield return [AppointmentErrors.CancellationPatientOnly, 403];
+        yield return [AppointmentErrors.NotFound, 404];
+        yield return [AppointmentErrors.CancellationDeadlinePassed, 409];
+        yield return [AppointmentErrors.InvalidTransition, 409];
+    }
+
+    [Theory]
+    [MemberData(nameof(CancelErrors))]
+    public async Task Cancel_utiliza_ErrorResult_con_estado_codigo_y_descripcion(Error error, int status)
+    {
+        _cancelHandler.HandleAsync(Arg.Any<CancelAppointmentCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Failure(error));
+
+        var result = await new AppointmentsController().Cancel(
+            99, new CancelAppointmentRequest(), _cancelHandler, CancellationToken.None);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(status);
+        var problem = response.Value.ShouldBeOfType<ProblemDetails>();
+        problem.Title.ShouldBe(error.Description);
+        problem.Extensions["code"].ShouldBe(error.Code);
+    }
+
+    [Fact]
+    public void Cancel_es_un_POST_solo_para_pacientes_con_sus_respuestas()
+    {
+        var method = typeof(AppointmentsController).GetMethod(nameof(AppointmentsController.Cancel))!;
+        var verb = method.GetCustomAttributes<HttpMethodAttribute>().ShouldHaveSingleItem();
+        verb.HttpMethods.ShouldBe(new[] { "POST" });
+        verb.Template.ShouldBe("{id:int}/cancel");
+        method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Patient));
+        method.GetCustomAttributes<AllowPendingStepAttribute>().ShouldBeEmpty();
+        var responses = method.GetCustomAttributes<ProducesResponseTypeAttribute>().ToArray();
+        responses.Select(value => value.StatusCode).ShouldBe(new[] { 204, 400, 401, 403, 404, 409 }, ignoreOrder: true);
+        responses.Single(value => value.StatusCode == 400).Type.ShouldBe(typeof(ProblemDetails));
+        responses.Single(value => value.StatusCode == 404).Type.ShouldBe(typeof(ProblemDetails));
+        responses.Single(value => value.StatusCode == 409).Type.ShouldBe(typeof(ProblemDetails));
     }
 }

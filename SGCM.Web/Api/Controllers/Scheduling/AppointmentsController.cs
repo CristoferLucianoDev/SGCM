@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Scheduling.Commands.CancelAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorAssignment;
+using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
 using SGCM.Web.Contracts.Scheduling;
@@ -61,5 +63,31 @@ public sealed class AppointmentsController : ApiControllerBase
         return result.IsSuccess
             ? StatusCode(StatusCodes.Status201Created, result.Value.ToResponse())
             : ErrorResult(result.Error);
+    }
+
+    /// <summary>Cancela una cita pendiente o confirmada del paciente autenticado.</summary>
+    /// <remarks>
+    /// Se permite dentro del plazo de cancelación configurado (Scheduling:PatientCancellationDeadlineHours), con
+    /// un motivo opcional. Fuera de plazo responde 409 indicando que debe llamar al médico. Una cita ajena o
+    /// inexistente responde 404; una cita rechazada, cancelada o completada responde 409. El cuerpo es
+    /// obligatorio; sin motivo se envía {} o { "reason": null }.
+    /// </remarks>
+    [HttpPost("{id:int}/cancel")]
+    [Authorize(Roles = nameof(UserRole.Patient))]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Cancel(
+        int id,
+        CancelAppointmentRequest request,
+        [FromServices] ICommandHandler<CancelAppointmentCommand, Unit> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToCommand(id), cancellationToken);
+
+        return result.IsSuccess ? NoContent() : ErrorResult(result.Error);
     }
 }
