@@ -12,6 +12,9 @@ public sealed class Appointment : AggregateRoot
     /// <summary>Longitud máxima del motivo de la consulta, igual que en la base.</summary>
     public const int ReasonForVisitMaxLength = 500;
 
+    /// <summary>Longitud máxima del motivo de cancelación o rechazo, igual que en la base.</summary>
+    public const int StatusReasonMaxLength = 500;
+
     public int PatientId { get; private set; }
 
     public int DoctorId { get; private set; }
@@ -83,6 +86,45 @@ public sealed class Appointment : AggregateRoot
         appointment.Raise(new AppointmentRequestedEvent(appointment));
 
         return appointment;
+    }
+
+    /// <summary>
+    /// Cancela la cita si está pendiente o confirmada y, cuando la cancela el paciente, si todavía está dentro
+    /// del plazo. Emite <see cref="AppointmentCancelledEvent"/>; ante cualquier error la cita no cambia.
+    /// </summary>
+    /// <param name="cancelledBy">Quién cancela.</param>
+    /// <param name="reason">Motivo opcional; se recorta y, si queda vacío, se guarda <c>null</c>.</param>
+    /// <param name="now">Instante actual, que se compara con el plazo.</param>
+    /// <param name="patientCancellationDeadlineHours">
+    /// Horas de antelación mínima con que el paciente puede cancelar, según la configuración.
+    /// </param>
+    /// <returns>
+    /// Éxito, o <see cref="AppointmentErrors.InvalidTransition"/>, <see cref="AppointmentErrors.CancellationDeadlinePassed"/>
+    /// o <see cref="AppointmentErrors.StatusReasonTooLong"/>.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si el plazo no es positivo o <paramref name="cancelledBy"/> no es válido.</exception>
+    public Result Cancel(
+        AppointmentCanceller cancelledBy,
+        string? reason,
+        DateTimeOffset now,
+        int patientCancellationDeadlineHours)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(patientCancellationDeadlineHours);
+        if (cancelledBy != AppointmentCanceller.Patient) throw new ArgumentOutOfRangeException(nameof(cancelledBy));
+
+        if (Status is not (AppointmentStatus.Pending or AppointmentStatus.Confirmed))
+            return AppointmentErrors.InvalidTransition;
+        if (now > StartsAt.AddHours(-patientCancellationDeadlineHours))
+            return AppointmentErrors.CancellationDeadlinePassed;
+
+        var trimmedReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        if (trimmedReason?.Length > StatusReasonMaxLength) return AppointmentErrors.StatusReasonTooLong;
+
+        Status = AppointmentStatus.Cancelled;
+        StatusReason = trimmedReason;
+        Raise(new AppointmentCancelledEvent(this, cancelledBy));
+
+        return Result.Success();
     }
 
     /// <summary>

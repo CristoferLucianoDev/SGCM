@@ -47,4 +47,18 @@ public static class AppointmentErrors
     /// <summary>El médico que eligió el paciente no atiende la especialidad, o no está activo.</summary>
     public static readonly Error DoctorNotInSpecialty = Error.Validation(
         "Appointment.DoctorNotInSpecialty", "El médico elegido no atiende esa especialidad.");
+
+    /// <summary>La cita no está pendiente ni confirmada, así que ya no se puede cancelar.</summary>
+    public static readonly Error InvalidTransition = Error.Conflict(
+        "Appointment.InvalidTransition", "Solo se puede cancelar una cita pendiente o confirmada.");
+
+    /// <summary>El paciente intentó cancelar después del plazo; esas citas se cancelan por teléfono.</summary>
+    public static readonly Error CancellationDeadlinePassed = Error.Conflict(
+        "Appointment.CancellationDeadlinePassed",
+        "El plazo para cancelar en línea ya pasó; para cancelar esta cita debe llamar al médico.");
+
+    /// <summary>El motivo de la cancelación supera la longitud máxima.</summary>
+    public static readonly Error StatusReasonTooLong = Error.Validation(
+        "Appointment.StatusReasonTooLong",
+        $"El motivo no puede superar los {Appointment.StatusReasonMaxLength} caracteres.");
 }

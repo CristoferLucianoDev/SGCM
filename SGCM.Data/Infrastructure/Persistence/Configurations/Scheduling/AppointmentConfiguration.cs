@@ -33,7 +33,7 @@ internal sealed class AppointmentConfiguration : IEntityTypeConfiguration<Appoin
         builder.Property(appointment => appointment.Status)
             .HasConversion(StatusConverter).HasMaxLength(20).IsRequired().ValueGeneratedNever();
         builder.Property(appointment => appointment.ReasonForVisit).HasMaxLength(Appointment.ReasonForVisitMaxLength);
-        builder.Property(appointment => appointment.StatusReason).HasMaxLength(500);
+        builder.Property(appointment => appointment.StatusReason).HasMaxLength(Appointment.StatusReasonMaxLength);
 
         builder.Ignore(appointment => appointment.DomainEvents);
     }

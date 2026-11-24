@@ -16,6 +16,7 @@ public static class AppointmentMother
     public const int SpecialtyId = 2;
     public const int DurationHours = 2;
     public const string Reason = "Dolor de cabeza frecuente";
+    public const int PatientCancellationDeadlineHours = 24;
 
     public static readonly TimeSpan SantoDomingo = TimeSpan.FromHours(-4);
 
@@ -36,4 +37,17 @@ public static class AppointmentMother
             patientId, doctorId, specialtyId, startsAt ?? StartsAt, reasonForVisit, DurationHours, BookingWindow);
 
     public static Appointment Requested(DateTimeOffset? startsAt = null) => Request(startsAt).Value;
+
+    /// <summary>
+    /// Cita en el estado indicado y sin eventos pendientes. Usa reflexión porque el agregado todavía
+    /// no expone confirmar, rechazar ni completar; cuando existan, debe reemplazarse por ellos.
+    /// </summary>
+    /// <param name="status">Estado en el que queda la cita.</param>
+    public static Appointment InStatus(AppointmentStatus status)
+    {
+        var appointment = Requested();
+        typeof(Appointment).GetProperty(nameof(Appointment.Status))!.SetValue(appointment, status);
+        appointment.ClearDomainEvents();
+        return appointment;
+    }
 }
