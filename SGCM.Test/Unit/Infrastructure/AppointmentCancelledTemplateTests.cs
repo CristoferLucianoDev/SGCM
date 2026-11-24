@@ -108,6 +108,56 @@ public sealed class AppointmentCancelledTemplateTests
         body.ShouldNotContain("<b>viaje</b>");
     }
 
+    [Fact]
+    public void Si_cancela_el_medico_el_correo_va_al_paciente_con_la_plantilla_del_paciente()
+    {
+        var notification = CreateByDoctor(Data, Reason);
+
+        notification.Recipient.ShouldBe(new Recipient("paciente@correo.com", "Ana Pérez"));
+        notification.TemplateKey.ShouldBe(AppointmentCancelledNotification.CancelledForPatientTemplateKey);
+        notification.TemplateKey.ShouldBe("appointment-cancelled-for-patient");
+        notification.CancelledBy.ShouldBe(AppointmentCanceller.Doctor);
+    }
+
+    [Fact]
+    public void La_plantilla_del_paciente_tiene_asunto()
+    {
+        _templates.Get(AppointmentCancelledNotification.CancelledForPatientTemplateKey).Subject
+            .ShouldBe("Su cita fue cancelada");
+    }
+
+    [Fact]
+    public void El_cuerpo_del_paciente_incluye_saludo_medico_hora_motivo_fecha_y_especialidad()
+    {
+        var body = Render(CreateByDoctor(Data, "Emergencia familiar"));
+
+        // El texto fijo de la plantilla va sin codificar; los valores sí se codifican en HTML.
+        body.ShouldContain(WebUtility.HtmlEncode("Hola, Ana Pérez") + ":");
+        body.ShouldContain("Su cita con el doctor " + WebUtility.HtmlEncode("Luis Pérez")
+            + " a las 09:00 fue cancelada por el siguiente motivo:");
+        body.ShouldContain("Emergencia familiar");
+        body.ShouldContain("05/01/2027");
+        body.ShouldContain(WebUtility.HtmlEncode("Cardiología"));
+    }
+
+    [Fact]
+    public void El_cuerpo_del_paciente_no_deja_variables_sin_reemplazar()
+    {
+        TemplatePlaceholders.Extract(Render(CreateByDoctor(Data, Reason))).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void El_cuerpo_del_paciente_codifica_en_HTML_el_motivo_que_escribio_el_medico()
+    {
+        var body = Render(CreateByDoctor(Data, "<b>urgencia</b> & más"));
+
+        body.ShouldContain("&lt;b&gt;urgencia&lt;/b&gt; &amp; " + WebUtility.HtmlEncode("más"));
+        body.ShouldNotContain("<b>urgencia</b>");
+    }
+
+    private static AppointmentCancelledNotification CreateByDoctor(AppointmentNotificationData data, string? reason) =>
+        AppointmentCancelledNotification.Create(data, AppointmentCanceller.Doctor, reason);
+
     private static AppointmentCancelledNotification Create(AppointmentNotificationData data, string? reason) =>
         AppointmentCancelledNotification.Create(data, AppointmentCanceller.Patient, reason);
 
