@@ -84,36 +84,83 @@ public sealed class DoctorAvailability : AggregateRoot
     }
 
     /// <summary>
-    /// Cambia el horario del bloque con las reglas de cualquier bloque: hora en punto, fin después del inicio
-    /// y la duración mínima de la configuración. El bloque no debe haber empezado y el horario nuevo debe
-    /// ser futuro. Que no se traslape con otro bloque del médico lo comprueba aplicación y lo garantiza la base.
+    /// Cambia el horario del bloque con las reglas de cualquier bloque (hora en punto, fin después del inicio y la
+    /// duración mínima de la configuración) y la regla de semanas, que se aplica al día actual y al nuevo. El bloque
+    /// no debe haber empezado y el horario nuevo debe ser futuro. Que no se traslape con otro bloque del médico lo
+    /// comprueba aplicación y lo garantiza la base.
     /// </summary>
     /// <remarks>
-    /// Es el punto único de reprogramación: las reglas por semana y el aviso a las citas afectadas del PBI
-    /// Reprogramar bloque o serie se agregan aquí, y así también aplican a la edición de una ocurrencia.
+    /// Es el punto único de reprogramación, así que la edición de una ocurrencia también sigue la regla de semanas.
+    /// Si el horario nuevo deja de cubrir parte del anterior, emite <see cref="DoctorAvailabilityRescheduledEvent"/>
+    /// con esos rangos y el motivo, para cancelar las citas que quedan fuera.
     /// </remarks>
     /// <param name="now">Instante actual.</param>
-    /// <returns>El primer error de validación; ante un error el bloque no cambia.</returns>
+    /// <param name="calendar">Calendario de la agenda, para la regla de semanas.</param>
+    /// <param name="reason">Motivo del médico; se recorta y, si queda vacío, el evento lleva <c>null</c>.</param>
+    /// <returns>El primer error de validación; ante un error el bloque no cambia ni emite nada.</returns>
     /// <exception cref="ArgumentOutOfRangeException">Si la duración mínima no es positiva.</exception>
-    public Result Reschedule(DateTimeOffset startsAt, DateTimeOffset endsAt, int minimumDurationHours, DateTimeOffset now)
+    /// <exception cref="ArgumentNullException">Si el calendario es nulo.</exception>
+    public Result Reschedule(
+        DateTimeOffset startsAt,
+        DateTimeOffset endsAt,
+        int minimumDurationHours,
+        DateTimeOffset now,
+        BusinessCalendar calendar,
+        string? reason = null)
+    {
+        var valid = ValidateReschedule(startsAt, endsAt, minimumDurationHours, now, calendar);
+        if (valid != Error.None) return valid;
+
+        var previous = TimeRange.Create(StartsAt, EndsAt).Value;
+        StartsAt = startsAt.ToUniversalTime();
+        EndsAt = endsAt.ToUniversalTime();
+
+        var removed = previous.Subtract(TimeRange.Create(StartsAt, EndsAt).Value);
+        if (removed.Count > 0)
+        {
+            var trimmed = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+            Raise(new DoctorAvailabilityRescheduledEvent(Id, DoctorId, removed, trimmed));
+        }
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Comprueba si el bloque se puede reprogramar a ese horario, sin cambiarlo: abierto, sin haber empezado, con un
+    /// horario nuevo válido y futuro, y con la regla de semanas para el día actual y el nuevo. Permite rechazar la
+    /// reprogramación antes de cancelar las citas afectadas, con el mismo error que <see cref="Reschedule"/>.
+    /// </summary>
+    /// <returns><see cref="Error.None"/> o el primer error encontrado.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si la duración mínima no es positiva.</exception>
+    /// <exception cref="ArgumentNullException">Si el calendario es nulo.</exception>
+    public Error ValidateReschedule(
+        DateTimeOffset startsAt,
+        DateTimeOffset endsAt,
+        int minimumDurationHours,
+        DateTimeOffset now,
+        BusinessCalendar calendar)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(minimumDurationHours);
+        ArgumentNullException.ThrowIfNull(calendar);
 
+        if (!IsAvailable) return DoctorAvailabilityErrors.AlreadyClosed;
         if (StartsAt <= now) return DoctorAvailabilityErrors.AlreadyStarted;
         var schedule = ValidateSchedule(startsAt, endsAt, minimumDurationHours);
         if (schedule != Error.None) return schedule;
         if (startsAt <= now) return DoctorAvailabilityErrors.StartsInPast;
 
-        StartsAt = startsAt.ToUniversalTime();
-        EndsAt = endsAt.ToUniversalTime();
-        return Result.Success();
+        var currentWeek = RescheduleWeekRule.Check(calendar.ToLocalDate(StartsAt), now, calendar);
+        if (currentWeek != Error.None) return currentWeek;
+
+        return RescheduleWeekRule.Check(calendar.ToLocalDate(startsAt), now, calendar);
     }
 
     /// <summary>
     /// Edita "solo esta ocurrencia": reprograma el bloque de la serie dentro del mismo día local y lo marca como
     /// modificado, para que editar toda la serie no lo sobrescriba. Los demás días de la serie no cambian.
     /// </summary>
-    /// <param name="calendar">Calendario de la agenda, para decidir el día local del bloque.</param>
+    /// <param name="calendar">Calendario de la agenda, para decidir el día local del bloque y la regla de semanas.</param>
+    /// <param name="reason">Motivo del médico para las citas que queden fuera del horario nuevo.</param>
     /// <returns>El primer error de validación; ante un error el bloque no cambia ni se marca.</returns>
     /// <exception cref="ArgumentOutOfRangeException">Si la duración mínima no es positiva.</exception>
     public Result RescheduleOccurrence(
@@ -121,7 +168,8 @@ public sealed class DoctorAvailability : AggregateRoot
         DateTimeOffset endsAt,
         int minimumDurationHours,
         DateTimeOffset now,
-        BusinessCalendar calendar)
+        BusinessCalendar calendar,
+        string? reason = null)
     {
         ArgumentNullException.ThrowIfNull(calendar);
 
@@ -131,7 +179,7 @@ public sealed class DoctorAvailability : AggregateRoot
         if (calendar.ToLocalDate(startsAt) != calendar.ToLocalDate(StartsAt))
             return DoctorAvailabilityErrors.OccurrenceDayChanged;
 
-        var rescheduled = Reschedule(startsAt, endsAt, minimumDurationHours, now);
+        var rescheduled = Reschedule(startsAt, endsAt, minimumDurationHours, now, calendar, reason);
         if (rescheduled.IsFailure) return rescheduled;
 
         IsModified = true;

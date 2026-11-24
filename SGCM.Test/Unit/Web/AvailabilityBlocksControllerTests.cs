@@ -6,10 +6,12 @@ using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Scheduling.Commands.CloseAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
+using SGCM.Data.Application.Scheduling.Commands.RescheduleAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Queries.GetAffectedAppointments;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Doctors;
+using SGCM.Data.Domain.Scheduling;
 using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Web.Api.Controllers.Scheduling;
@@ -183,5 +185,61 @@ public sealed class AvailabilityBlocksControllerTests
         method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Doctor));
         method.GetCustomAttributes<ProducesResponseTypeAttribute>().Select(value => value.StatusCode)
             .ShouldBe(new[] { 200, 400, 401, 403, 404 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task Reschedule_pasa_el_bloque_el_horario_y_el_motivo_y_responde_200()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = Substitute.For<ICommandHandler<RescheduleAvailabilityBlockCommand, RescheduledAvailabilityBlockDto>>();
+        handler.HandleAsync(Arg.Any<RescheduleAvailabilityBlockCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<RescheduledAvailabilityBlockDto>.Success(new RescheduledAvailabilityBlockDto(1)));
+        var request = new RescheduleAvailabilityBlockRequest(new DateOnly(2027, 1, 20), new TimeOnly(10, 0), new TimeOnly(16, 0), "Motivo");
+
+        var result = await new AvailabilityBlocksController().Reschedule(40, request, handler, cancellation.Token);
+
+        result.ShouldBeOfType<OkObjectResult>().Value.ShouldBe(new RescheduleAvailabilityBlockResponse(1));
+        await handler.Received(1).HandleAsync(
+            new RescheduleAvailabilityBlockCommand(40, request.Date, request.StartTime, request.EndTime, "Motivo"), cancellation.Token);
+    }
+
+    public static IEnumerable<object[]> RescheduleErrors()
+    {
+        yield return [SchedulingErrors.CurrentWeekLocked, 400];
+        yield return [SchedulingErrors.NextWeekLocked, 400];
+        yield return [AppointmentErrors.StatusReasonRequired, 400];
+        yield return [DoctorAvailabilityErrors.NotFound, 404];
+        yield return [DoctorAvailabilityErrors.Overlap, 409];
+    }
+
+    [Theory]
+    [MemberData(nameof(RescheduleErrors))]
+    public async Task Reschedule_utiliza_ErrorResult_con_estado_codigo_y_descripcion(Error error, int status)
+    {
+        var handler = Substitute.For<ICommandHandler<RescheduleAvailabilityBlockCommand, RescheduledAvailabilityBlockDto>>();
+        handler.HandleAsync(Arg.Any<RescheduleAvailabilityBlockCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<RescheduledAvailabilityBlockDto>.Failure(error));
+
+        var result = await new AvailabilityBlocksController().Reschedule(
+            40, new RescheduleAvailabilityBlockRequest(new DateOnly(2027, 1, 20), new TimeOnly(10, 0), new TimeOnly(16, 0)),
+            handler, CancellationToken.None);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(status);
+        var problem = response.Value.ShouldBeOfType<ProblemDetails>();
+        problem.Title.ShouldBe(error.Description);
+        problem.Extensions["code"].ShouldBe(error.Code);
+    }
+
+    [Fact]
+    public void Reschedule_es_un_PUT_solo_para_medicos()
+    {
+        var method = typeof(AvailabilityBlocksController).GetMethod(nameof(AvailabilityBlocksController.Reschedule))!;
+        var verb = method.GetCustomAttributes<HttpMethodAttribute>().ShouldHaveSingleItem();
+        verb.HttpMethods.ShouldBe(new[] { "PUT" });
+        verb.Template.ShouldBe("{blockId:int}");
+        method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Doctor));
+        method.GetCustomAttributes<ProducesResponseTypeAttribute>().Select(value => value.StatusCode)
+            .ShouldBe(new[] { 200, 400, 401, 403, 404, 409 }, ignoreOrder: true);
     }
 }

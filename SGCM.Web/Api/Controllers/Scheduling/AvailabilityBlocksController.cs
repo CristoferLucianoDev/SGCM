@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Scheduling.Commands.CloseAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
+using SGCM.Data.Application.Scheduling.Commands.RescheduleAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Queries.GetAffectedAppointments;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
@@ -82,6 +83,33 @@ public sealed class AvailabilityBlocksController : ApiControllerBase
         [FromRoute] int blockId,
         CloseAvailabilityBlockRequest request,
         [FromServices] ICommandHandler<CloseAvailabilityBlockCommand, ClosedAvailabilityBlockDto> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToCommand(blockId), cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
+    }
+
+    /// <summary>Cambia el horario de un bloque propio.</summary>
+    /// <remarks>
+    /// Un bloque de la semana actual no se reprograma: el error indica que solo se puede cerrar. Los de la semana
+    /// siguiente solo se reprograman de lunes a miércoles, y los de semanas posteriores en cualquier momento. El
+    /// horario nuevo no puede traslaparse con otro bloque del médico. Si quedan citas activas fuera del horario nuevo,
+    /// el motivo es obligatorio y extendido si alguna empieza en menos de 6 horas; antes de confirmar, la web puede
+    /// consultar <c>affected-appointments</c> con el horario nuevo. Un bloque de otro médico responde 404.
+    /// </remarks>
+    [HttpPut("{blockId:int}")]
+    [Authorize(Roles = nameof(UserRole.Doctor))]
+    [ProducesResponseType(typeof(RescheduleAvailabilityBlockResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Reschedule(
+        [FromRoute] int blockId,
+        RescheduleAvailabilityBlockRequest request,
+        [FromServices] ICommandHandler<RescheduleAvailabilityBlockCommand, RescheduledAvailabilityBlockDto> handler,
         CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(request.ToCommand(blockId), cancellationToken);

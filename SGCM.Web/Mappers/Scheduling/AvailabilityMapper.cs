@@ -1,6 +1,7 @@
 using SGCM.Data.Application.Scheduling.Commands.CloseAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
+using SGCM.Data.Application.Scheduling.Commands.RescheduleAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Queries.GetAffectedAppointments;
 using SGCM.Web.Contracts.Scheduling;
 
@@ -23,4 +24,10 @@ public static class AvailabilityMapper
 
     public static CloseAvailabilityBlockResponse ToResponse(this ClosedAvailabilityBlockDto closed) =>
         new(closed.CancelledAppointments);
+
+    public static RescheduleAvailabilityBlockCommand ToCommand(this RescheduleAvailabilityBlockRequest request, int blockId) =>
+        new(blockId, request.Date, request.StartTime, request.EndTime, request.Reason);
+
+    public static RescheduleAvailabilityBlockResponse ToResponse(this RescheduledAvailabilityBlockDto rescheduled) =>
+        new(rescheduled.CancelledAppointments);
 }

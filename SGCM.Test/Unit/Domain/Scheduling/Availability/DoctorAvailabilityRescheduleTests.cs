@@ -1,6 +1,7 @@
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Scheduling;
 using SGCM.Data.Domain.Scheduling.Availability;
+using SGCM.Data.Domain.Scheduling.Availability.Events;
 using SGCM.Test.Common.Mothers;
 using Shouldly;
 
@@ -13,8 +14,9 @@ public sealed class DoctorAvailabilityRescheduleTests
     private static readonly TimeSpan SantoDomingo = TimeSpan.FromHours(-4);
     private static readonly BusinessCalendar Calendar = BusinessCalendar.ForTimeZone(DoctorAvailabilitySeriesMother.TimeZone);
 
-    // Lunes 4 de enero de 2027 a las 7:30 en Santo Domingo; el bloque es el martes 5 de 8:00 a 14:00.
-    private static readonly DateTimeOffset Now = new(2027, 1, 4, 7, 30, 0, SantoDomingo);
+    // Lunes 21 de diciembre de 2026 a las 7:30 en Santo Domingo; el bloque es el martes 5 de enero de 8:00 a 14:00,
+    // dos semanas después, así que la regla de semanas permite reprogramarlo.
+    private static readonly DateTimeOffset Now = new(2026, 12, 21, 7, 30, 0, SantoDomingo);
     private static readonly DateTimeOffset Start = new(2027, 1, 5, 8, 0, 0, SantoDomingo);
 
     [Fact]
@@ -22,7 +24,7 @@ public sealed class DoctorAvailabilityRescheduleTests
     {
         var block = Occurrence();
 
-        var result = block.Reschedule(Start.AddHours(2), Start.AddHours(8), MinimumHours, Now);
+        var result = block.Reschedule(Start.AddHours(2), Start.AddHours(8), MinimumHours, Now, Calendar);
 
         result.IsSuccess.ShouldBeTrue();
         block.StartsAt.ShouldBe(new DateTimeOffset(2027, 1, 5, 14, 0, 0, TimeSpan.Zero));
@@ -32,7 +34,11 @@ public sealed class DoctorAvailabilityRescheduleTests
         block.SeriesId.ShouldBe(15);
         block.IsAvailable.ShouldBeTrue();
         block.IsModified.ShouldBeFalse();
-        block.DomainEvents.ShouldBeEmpty();
+        // De 8:00 a 14:00 pasa a 10:00 a 16:00: deja de cubrir de 8:00 a 10:00.
+        var rescheduled = block.DomainEvents.ShouldHaveSingleItem().ShouldBeOfType<DoctorAvailabilityRescheduledEvent>();
+        rescheduled.DoctorId.ShouldBe(DoctorId);
+        rescheduled.RemovedRanges.ShouldBe(new[] { TimeRange.Create(Start, Start.AddHours(2)).Value });
+        rescheduled.Reason.ShouldBeNull();
     }
 
     [Fact]
@@ -40,7 +46,7 @@ public sealed class DoctorAvailabilityRescheduleTests
     {
         var block = Loose();
 
-        block.Reschedule(Start.AddDays(3), Start.AddDays(3).AddHours(6), MinimumHours, Now).IsSuccess.ShouldBeTrue();
+        block.Reschedule(Start.AddDays(3), Start.AddDays(3).AddHours(6), MinimumHours, Now, Calendar).IsSuccess.ShouldBeTrue();
 
         block.StartsAt.ShouldBe(Start.AddDays(3));
         block.IsModified.ShouldBeFalse();
@@ -56,7 +62,7 @@ public sealed class DoctorAvailabilityRescheduleTests
         var block = Occurrence();
         var newStart = Start.AddMinutes(startMinutes);
 
-        AssertRejectedWithoutChanges(block, block.Reschedule(newStart, newStart.AddHours(hours), MinimumHours, Now), code);
+        AssertRejectedWithoutChanges(block, block.Reschedule(newStart, newStart.AddHours(hours), MinimumHours, Now, Calendar), code);
     }
 
     [Fact]
@@ -64,16 +70,16 @@ public sealed class DoctorAvailabilityRescheduleTests
     {
         var block = Occurrence();
 
-        AssertRejectedWithoutChanges(block, block.Reschedule(Start, Start.AddHours(6), 8, Now), "Availability.DurationTooShort");
+        AssertRejectedWithoutChanges(block, block.Reschedule(Start, Start.AddHours(6), 8, Now, Calendar), "Availability.DurationTooShort");
     }
 
     [Fact]
     public void No_se_reprograma_a_un_horario_pasado()
     {
         var block = Occurrence();
-        var past = new DateTimeOffset(2027, 1, 4, 7, 0, 0, SantoDomingo);
+        var past = new DateTimeOffset(2026, 12, 21, 7, 0, 0, SantoDomingo);
 
-        AssertRejectedWithoutChanges(block, block.Reschedule(past, past.AddHours(6), MinimumHours, Now), "Availability.StartsInPast");
+        AssertRejectedWithoutChanges(block, block.Reschedule(past, past.AddHours(6), MinimumHours, Now, Calendar), "Availability.StartsInPast");
     }
 
     [Fact]
@@ -83,7 +89,7 @@ public sealed class DoctorAvailabilityRescheduleTests
         var during = Start.AddHours(1);
 
         AssertRejectedWithoutChanges(block,
-            block.Reschedule(Start.AddDays(1), Start.AddDays(1).AddHours(6), MinimumHours, during), "Availability.AlreadyStarted");
+            block.Reschedule(Start.AddDays(1), Start.AddDays(1).AddHours(6), MinimumHours, during, Calendar), "Availability.AlreadyStarted");
     }
 
     [Theory]
@@ -91,7 +97,7 @@ public sealed class DoctorAvailabilityRescheduleTests
     [InlineData(-1)]
     public void Una_duracion_minima_no_positiva_es_un_error_de_programacion(int hours)
     {
-        Should.Throw<ArgumentOutOfRangeException>(() => Occurrence().Reschedule(Start, Start.AddHours(6), hours, Now));
+        Should.Throw<ArgumentOutOfRangeException>(() => Occurrence().Reschedule(Start, Start.AddHours(6), hours, Now, Calendar));
     }
 
     [Fact]
@@ -190,5 +196,6 @@ public sealed class DoctorAvailabilityRescheduleTests
         block.StartsAt.ShouldBe(Start);
         block.EndsAt.ShouldBe(Start.AddHours(6));
         block.IsModified.ShouldBeFalse();
+        block.DomainEvents.ShouldBeEmpty();
     }
 }
