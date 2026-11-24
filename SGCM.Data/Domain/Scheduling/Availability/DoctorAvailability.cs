@@ -148,13 +148,26 @@ public sealed class DoctorAvailability : AggregateRoot
     /// <returns>El primer error de validación; ante un error el bloque no cambia ni emite nada.</returns>
     public Result Close(string? reason, DateTimeOffset now)
     {
-        if (!IsAvailable) return DoctorAvailabilityErrors.AlreadyClosed;
-        if (EndsAt <= now) return DoctorAvailabilityErrors.AlreadyEnded;
+        var closable = ValidateClose(now);
+        if (closable != Error.None) return closable;
 
         IsAvailable = false;
         var trimmed = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
         Raise(new DoctorAvailabilityClosedEvent(Id, DoctorId, TimeRange.Create(StartsAt, EndsAt).Value, trimmed));
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Comprueba si el bloque se puede cerrar ahora, sin cerrarlo. Permite rechazar el cierre antes de cancelar las
+    /// citas afectadas, con el mismo error que <see cref="Close"/>.
+    /// </summary>
+    /// <returns><see cref="Error.None"/>, <see cref="DoctorAvailabilityErrors.AlreadyClosed"/> o <see cref="DoctorAvailabilityErrors.AlreadyEnded"/>.</returns>
+    public Error ValidateClose(DateTimeOffset now)
+    {
+        if (!IsAvailable) return DoctorAvailabilityErrors.AlreadyClosed;
+        if (EndsAt <= now) return DoctorAvailabilityErrors.AlreadyEnded;
+
+        return Error.None;
     }
 
     /// <summary>

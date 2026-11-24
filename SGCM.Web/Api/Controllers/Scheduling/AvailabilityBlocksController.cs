@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Scheduling.Commands.CloseAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Queries.GetAffectedAppointments;
 using SGCM.Data.Domain.Identity.Users;
@@ -59,6 +60,31 @@ public sealed class AvailabilityBlocksController : ApiControllerBase
         CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(new GetAffectedAppointmentsQuery(blockId, startsAt, endsAt), cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
+    }
+
+    /// <summary>Cierra un bloque propio en cualquier semana, incluida la actual; deja de ofrecer horarios de inmediato.</summary>
+    /// <remarks>
+    /// Si el bloque tiene citas activas, el motivo es obligatorio: las citas se cancelan con ese motivo y cada paciente
+    /// recibe un correo con su cita y el motivo. Si alguna cita empieza en menos de 6 horas, el motivo debe tener al
+    /// menos 30 palabras. Antes de confirmar, la web puede consultar <c>affected-appointments</c>. Un bloque de otro
+    /// médico responde 404.
+    /// </remarks>
+    [HttpPost("{blockId:int}/close")]
+    [Authorize(Roles = nameof(UserRole.Doctor))]
+    [ProducesResponseType(typeof(CloseAvailabilityBlockResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Close(
+        [FromRoute] int blockId,
+        CloseAvailabilityBlockRequest request,
+        [FromServices] ICommandHandler<CloseAvailabilityBlockCommand, ClosedAvailabilityBlockDto> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToCommand(blockId), cancellationToken);
 
         return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
     }

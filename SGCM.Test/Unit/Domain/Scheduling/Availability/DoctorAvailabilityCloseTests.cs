@@ -115,3 +115,31 @@ public sealed class DoctorAvailabilityCloseTests
         return block;
     }
 }
+
+public sealed class DoctorAvailabilityValidateCloseTests
+{
+    private static readonly DateTimeOffset Start = new(2027, 1, 5, 12, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void Un_bloque_abierto_que_no_termino_se_puede_cerrar_sin_cambiarlo()
+    {
+        var block = Block();
+
+        block.ValidateClose(Start.AddHours(-1)).ShouldBe(Error.None);
+        block.IsAvailable.ShouldBeTrue();
+        block.DomainEvents.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Devuelve_los_mismos_errores_que_Close()
+    {
+        Block().ValidateClose(Start.AddHours(6)).ShouldBe(DoctorAvailabilityErrors.AlreadyEnded);
+
+        var closed = Block();
+        closed.Close(null, Start.AddHours(-1));
+        closed.ValidateClose(Start.AddHours(-1)).ShouldBe(DoctorAvailabilityErrors.AlreadyClosed);
+    }
+
+    private static DoctorAvailability Block() =>
+        DoctorAvailability.Create(DoctorAvailabilitySeriesMother.DoctorId, 15, Start, Start.AddHours(6), 6).Value;
+}

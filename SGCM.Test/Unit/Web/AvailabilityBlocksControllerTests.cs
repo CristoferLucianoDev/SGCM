@@ -4,11 +4,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Scheduling.Commands.CloseAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Queries.GetAffectedAppointments;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Doctors;
+using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Web.Api.Controllers.Scheduling;
 using SGCM.Web.Api.Infrastructure;
@@ -125,6 +127,59 @@ public sealed class AvailabilityBlocksControllerTests
         var verb = method.GetCustomAttributes<HttpMethodAttribute>().ShouldHaveSingleItem();
         verb.HttpMethods.ShouldBe(new[] { "GET" });
         verb.Template.ShouldBe("{blockId:int}/affected-appointments");
+        method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Doctor));
+        method.GetCustomAttributes<ProducesResponseTypeAttribute>().Select(value => value.StatusCode)
+            .ShouldBe(new[] { 200, 400, 401, 403, 404 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task Close_pasa_el_bloque_y_el_motivo_y_responde_200_con_las_citas_canceladas()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = Substitute.For<ICommandHandler<CloseAvailabilityBlockCommand, ClosedAvailabilityBlockDto>>();
+        handler.HandleAsync(Arg.Any<CloseAvailabilityBlockCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ClosedAvailabilityBlockDto>.Success(new ClosedAvailabilityBlockDto(2)));
+
+        var result = await new AvailabilityBlocksController().Close(
+            40, new CloseAvailabilityBlockRequest("Congreso"), handler, cancellation.Token);
+
+        result.ShouldBeOfType<OkObjectResult>().Value.ShouldBe(new CloseAvailabilityBlockResponse(2));
+        await handler.Received(1).HandleAsync(new CloseAvailabilityBlockCommand(40, "Congreso"), cancellation.Token);
+    }
+
+    public static IEnumerable<object[]> CloseErrors()
+    {
+        yield return [AppointmentErrors.StatusReasonRequired, 400];
+        yield return [AppointmentErrors.ShortNoticeReasonTooShort(30), 400];
+        yield return [DoctorAvailabilityErrors.AlreadyClosed, 400];
+        yield return [DoctorAvailabilityErrors.NotFound, 404];
+        yield return [DoctorErrors.NotFound, 404];
+    }
+
+    [Theory]
+    [MemberData(nameof(CloseErrors))]
+    public async Task Close_utiliza_ErrorResult_con_estado_codigo_y_descripcion(Error error, int status)
+    {
+        var handler = Substitute.For<ICommandHandler<CloseAvailabilityBlockCommand, ClosedAvailabilityBlockDto>>();
+        handler.HandleAsync(Arg.Any<CloseAvailabilityBlockCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ClosedAvailabilityBlockDto>.Failure(error));
+
+        var result = await new AvailabilityBlocksController().Close(40, new CloseAvailabilityBlockRequest(), handler, CancellationToken.None);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(status);
+        var problem = response.Value.ShouldBeOfType<ProblemDetails>();
+        problem.Title.ShouldBe(error.Description);
+        problem.Extensions["code"].ShouldBe(error.Code);
+    }
+
+    [Fact]
+    public void Close_es_un_POST_solo_para_medicos()
+    {
+        var method = typeof(AvailabilityBlocksController).GetMethod(nameof(AvailabilityBlocksController.Close))!;
+        var verb = method.GetCustomAttributes<HttpMethodAttribute>().ShouldHaveSingleItem();
+        verb.HttpMethods.ShouldBe(new[] { "POST" });
+        verb.Template.ShouldBe("{blockId:int}/close");
         method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Doctor));
         method.GetCustomAttributes<ProducesResponseTypeAttribute>().Select(value => value.StatusCode)
             .ShouldBe(new[] { 200, 400, 401, 403, 404 }, ignoreOrder: true);
