@@ -14,6 +14,13 @@ internal static class TestDataSeeder
 {
     private static readonly DateOnly PatientBirthDate = new(1990, 5, 20);
 
+    // Estados de cita tal como los guarda la base, en minúsculas.
+    private const string PendingStatus = "pending";
+    private const string ConfirmedStatus = "confirmed";
+    private const string RejectedStatus = "rejected";
+    private const string CancelledStatus = "cancelled";
+    private const string CompletedStatus = "completed";
+
     internal sealed record DoctorSpecialtyData(int DoctorAId, int DoctorBId, int[] SpecialtyIds)
     {
         public int[] DoctorIds => [DoctorAId, DoctorBId];
@@ -117,6 +124,73 @@ internal static class TestDataSeeder
                     'Consulta previamente agendada', 'Reserva de prueba', {patientUserId})
             RETURNING id AS "Value"
             """).ToListAsync()).Single();
+    }
+
+    /// <summary>
+    /// Crea una especialidad con nombre único y descripción de prueba.
+    /// </summary>
+    /// <param name="context">Contexto con el que se ejecuta el SQL.</param>
+    /// <returns>El id de la especialidad creada.</returns>
+    public static async Task<int> InsertSpecialtyAsync(AppDbContext context)
+    {
+        var name = $"Especialidad {Guid.NewGuid():N}";
+        return (await context.Database.SqlQuery<int>(
+            $"""
+            INSERT INTO people.specialty (name, description)
+            VALUES ({name}, 'Descripción de prueba.')
+            RETURNING id AS "Value"
+            """).ToListAsync()).Single();
+    }
+
+    /// <summary>
+    /// Crea una cita del paciente y la lleva al estado pedido con transiciones válidas; el motivo queda en la
+    /// última transición. Así las pruebas preparan citas en cualquier estado sin repetir la secuencia.
+    /// </summary>
+    /// <param name="context">Contexto con el que se ejecuta el SQL.</param>
+    /// <param name="patientId">Id del paciente, no el de su usuario.</param>
+    /// <param name="doctorId">Id del médico de la cita.</param>
+    /// <param name="specialtyId">Id de la especialidad de la cita.</param>
+    /// <param name="startsAtUtc">Inicio de la cita en UTC.</param>
+    /// <param name="durationHours">Duración de la cita en horas.</param>
+    /// <param name="status">Estado final: pending, confirmed, rejected, cancelled o completed.</param>
+    /// <param name="statusReason">Motivo que se guarda en la última transición; <c>null</c> si no hay.</param>
+    /// <returns>El id de la cita creada.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si el estado no está soportado; no se inserta nada.</exception>
+    public static async Task<int> InsertAppointmentInStatusAsync(
+        AppDbContext context,
+        int patientId,
+        int doctorId,
+        int specialtyId,
+        DateTimeOffset startsAtUtc,
+        int durationHours,
+        string status,
+        string? statusReason = null)
+    {
+        // Se calculan las transiciones antes de insertar para que un estado no soportado no deje filas a medias.
+        var insertedAs = status == ConfirmedStatus ? ConfirmedStatus : PendingStatus;
+        var transitions = status switch
+        {
+            PendingStatus or ConfirmedStatus => Array.Empty<string>(),
+            RejectedStatus or CancelledStatus => new[] { status },
+            CompletedStatus => new[] { ConfirmedStatus, CompletedStatus },
+            _ => throw new ArgumentOutOfRangeException(nameof(status))
+        };
+        var endsAtUtc = startsAtUtc.AddHours(durationHours);
+        var appointmentId = (await context.Database.SqlQuery<int>(
+            $"""
+            INSERT INTO scheduling.appointment (patient_id, doctor_id, specialty_id, starts_at, ends_at, status)
+            VALUES ({patientId}, {doctorId}, {specialtyId}, {startsAtUtc}, {endsAtUtc}, {insertedAs})
+            RETURNING id AS "Value"
+            """).ToListAsync()).Single();
+
+        foreach (var transition in transitions)
+        {
+            var reason = transition == status ? statusReason : null;
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE scheduling.appointment SET status = {transition}, status_reason = {reason} WHERE id = {appointmentId}");
+        }
+
+        return appointmentId;
     }
 
     public static async Task<int> InsertDoctorProfileAsync(AppDbContext context, int userId)
