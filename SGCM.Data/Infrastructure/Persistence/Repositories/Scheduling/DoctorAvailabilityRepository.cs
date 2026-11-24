@@ -37,4 +37,24 @@ internal sealed class DoctorAvailabilityRepository(AppDbContext context) : IDoct
             .ThenBy(block => block.Id)
             .ToListAsync(cancellationToken);
     }
+
+    public async Task<bool> LockOpenBlockAsync(
+        int doctorId, DateTimeOffset startsAt, DateTimeOffset endsAt, CancellationToken cancellationToken)
+    {
+        var fromUtc = startsAt.ToUniversalTime();
+        var toUtc = endsAt.ToUniversalTime();
+
+        // FOR UPDATE solo tiene efecto dentro de una transacción; la abre el decorador del comando.
+        var ids = await context.Database.SqlQuery<int>($"""
+            SELECT id AS "Value"
+            FROM scheduling.doctor_availability
+            WHERE doctor_id = {doctorId}
+              AND is_available
+              AND starts_at <= {fromUtc}
+              AND ends_at >= {toUtc}
+            FOR UPDATE
+            """).ToListAsync(cancellationToken);
+
+        return ids.Count > 0;
+    }
 }

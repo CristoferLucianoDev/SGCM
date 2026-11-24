@@ -21,4 +21,13 @@ public interface IDoctorAvailabilityRepository : IRepository<DoctorAvailability>
     /// </summary>
     Task<IReadOnlyList<DoctorAvailability>> ListByDoctorsAsync(
         IReadOnlyCollection<int> doctorIds, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Bloquea, hasta el fin de la transacción, el bloque abierto del médico que contiene [inicio, fin). Dos
+    /// solicitudes para el mismo bloque se ordenan aquí, así que la segunda vuelve a comprobar el horario después
+    /// de que la primera confirme su cita.
+    /// </summary>
+    /// <returns><c>true</c> si el médico tiene un bloque abierto que contiene el rango.</returns>
+    Task<bool> LockOpenBlockAsync(
+        int doctorId, DateTimeOffset startsAt, DateTimeOffset endsAt, CancellationToken cancellationToken);
 }

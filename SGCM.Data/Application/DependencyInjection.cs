@@ -24,6 +24,7 @@ public static class DependencyInjection
         services.AddQueryHandlers();
         services.AddDomainEventHandlers();
         services.AddScoped<AvailabilityBlockGenerator>();
+        services.AddScoped<IDoctorAssignmentService, DoctorAssignmentService>();
         // La zona horaria de la agenda se valida al arrancar, así que el calendario se crea una sola vez.
         services.AddSingleton(provider =>
             BusinessCalendar.ForTimeZone(provider.GetRequiredService<IOptions<SchedulingOptions>>().Value.TimeZone));

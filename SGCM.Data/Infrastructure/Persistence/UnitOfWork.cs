@@ -7,6 +7,7 @@ using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
+using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Data.Infrastructure.Persistence.Interceptors;
 
@@ -45,7 +46,9 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
     // Restricciones EXCLUDE que el dominio reconoce como conflicto, con la misma clave exacta.
     private static readonly Dictionary<(string Schema, string Table, string Constraint), Error> ExclusionConflicts = new()
     {
-        [("scheduling", "doctor_availability", "ex_doctor_availability_no_overlap")] = DoctorAvailabilityErrors.Overlap
+        [("scheduling", "doctor_availability", "ex_doctor_availability_no_overlap")] = DoctorAvailabilityErrors.Overlap,
+        [("scheduling", "appointment", "ex_appointment_doctor_no_overlap")] = AppointmentErrors.SlotUnavailable,
+        [("scheduling", "appointment", "ex_appointment_patient_no_overlap")] = AppointmentErrors.PatientOverlap
     };
 
     private static bool TryGetConflict(DbUpdateException exception, out Error error)
