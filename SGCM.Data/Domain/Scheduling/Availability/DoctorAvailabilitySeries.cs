@@ -93,6 +93,39 @@ public sealed class DoctorAvailabilitySeries : ActivatableAggregateRoot
     }
 
     /// <summary>
+    /// Cambia la recurrencia de la serie desde <paramref name="firstEditableDate"/>, la primera fecha que la regla de
+    /// semanas deja reprogramar, o desde la fecha desde de la serie si es posterior. La serie pasa a empezar en esa
+    /// fecha; los bloques ya generados antes de ella no dependen de la serie y se conservan.
+    /// </summary>
+    /// <param name="minimumDurationHours">Duración mínima de un bloque, en horas, según la configuración.</param>
+    /// <returns>El primer error de validación encontrado, sin cambiar la serie.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si la duración mínima no es positiva.</exception>
+    public Result Update(
+        IEnumerable<DayOfWeek>? daysOfWeek,
+        TimeOnly startTime,
+        TimeOnly endTime,
+        DateOnly? endDate,
+        DateOnly firstEditableDate,
+        int minimumDurationHours)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(minimumDurationHours);
+
+        if (!IsActive) return DoctorAvailabilitySeriesErrors.NotFound;
+
+        var from = firstEditableDate > StartDate ? firstEditableDate : StartDate;
+        var updated = WeeklyRecurrence.Create(daysOfWeek, startTime, endTime, from, endDate, minimumDurationHours);
+        if (updated.IsFailure) return ErrorsByRecurrenceCode[updated.Error.Code];
+        var recurrence = updated.Value;
+
+        _isoDaysOfWeek = recurrence.DaysOfWeek.Select(day => (short)IsoDayNumber(day)).ToArray();
+        StartTime = recurrence.StartTime;
+        EndTime = recurrence.EndTime;
+        StartDate = recurrence.StartDate;
+        EndDate = recurrence.EndDate;
+        return Result.Success();
+    }
+
+    /// <summary>
     /// Días en que se repite la serie entre dos fechas, ambas incluidas, recortados a su vigencia.
     /// Las horas se interpretan en <see cref="TimeZone"/> y se devuelven en UTC.
     /// Un día cuya hora local no existe por un cambio de horario se omite.

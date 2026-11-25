@@ -2,6 +2,8 @@ using SGCM.Data.Application.Scheduling.Commands.CloseAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
 using SGCM.Data.Application.Scheduling.Commands.RescheduleAvailabilityBlock;
+using SGCM.Data.Application.Scheduling.Commands.UpdateAvailabilitySeries;
+using SGCM.Data.Application.Scheduling.Queries.GetAvailabilityBlocks;
 using SGCM.Data.Application.Scheduling.Queries.GetAffectedAppointments;
 using SGCM.Web.Contracts.Scheduling;
 
@@ -30,4 +32,20 @@ public static class AvailabilityMapper
 
     public static RescheduleAvailabilityBlockResponse ToResponse(this RescheduledAvailabilityBlockDto rescheduled) =>
         new(rescheduled.CancelledAppointments);
+
+    public static UpdateAvailabilitySeriesCommand ToCommand(this UpdateAvailabilitySeriesRequest request, int seriesId) =>
+        new(seriesId, request.DaysOfWeek, request.StartTime, request.EndTime, request.EndDate, request.Reason);
+
+    public static UpdateAvailabilitySeriesResponse ToResponse(this UpdatedAvailabilitySeriesDto updated) =>
+        new(updated.EffectiveFrom, updated.CancelledAppointments);
+
+    public static AvailabilityBlocksResponse ToResponse(this IReadOnlyList<AvailabilityBlockDto> blocks)
+    {
+        ArgumentNullException.ThrowIfNull(blocks);
+
+        return new AvailabilityBlocksResponse(blocks
+            .Select(block => new AvailabilityBlockResponse(
+                block.Id, block.SeriesId, block.StartsAt, block.EndsAt, block.IsAvailable, block.IsModified))
+            .ToArray());
+    }
 }

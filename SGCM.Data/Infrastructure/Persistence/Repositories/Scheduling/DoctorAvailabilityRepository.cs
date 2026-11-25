@@ -12,6 +12,8 @@ internal sealed class DoctorAvailabilityRepository(AppDbContext context) : IDoct
 
     public void AddRange(IEnumerable<DoctorAvailability> blocks) => context.DoctorAvailabilities.AddRange(blocks);
 
+    public void Remove(DoctorAvailability block) => context.DoctorAvailabilities.Remove(block);
+
     public async Task<IReadOnlyList<DoctorAvailability>> ListByDoctorAsync(
         int doctorId, DateTimeOffset from, DateTimeOffset? to, CancellationToken cancellationToken)
     {

@@ -8,6 +8,7 @@ using SGCM.Data.Application.Scheduling.Commands.CloseAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.RescheduleAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Queries.GetAffectedAppointments;
+using SGCM.Data.Application.Scheduling.Queries.GetAvailabilityBlocks;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Doctors;
@@ -241,5 +242,52 @@ public sealed class AvailabilityBlocksControllerTests
         method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Doctor));
         method.GetCustomAttributes<ProducesResponseTypeAttribute>().Select(value => value.StatusCode)
             .ShouldBe(new[] { 200, 400, 401, 403, 404, 409 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task List_pasa_el_rango_y_responde_200_con_los_bloques()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var startsAt = new DateTimeOffset(2027, 1, 11, 12, 0, 0, TimeSpan.Zero);
+        var handler = Substitute.For<IQueryHandler<GetAvailabilityBlocksQuery, IReadOnlyList<AvailabilityBlockDto>>>();
+        handler.HandleAsync(Arg.Any<GetAvailabilityBlocksQuery>(), Arg.Any<CancellationToken>())
+            .Returns(Result<IReadOnlyList<AvailabilityBlockDto>>.Success(
+                [new AvailabilityBlockDto(40, 15, startsAt, startsAt.AddHours(6), true, false)]));
+
+        var result = await new AvailabilityBlocksController().List(
+            new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31), handler, cancellation.Token);
+
+        var response = result.ShouldBeOfType<OkObjectResult>().Value.ShouldBeOfType<AvailabilityBlocksResponse>();
+        response.Items.ShouldHaveSingleItem().ShouldBe(new AvailabilityBlockResponse(40, 15, startsAt, startsAt.AddHours(6), true, false));
+        await handler.Received(1).HandleAsync(
+            new GetAvailabilityBlocksQuery(new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31)), cancellation.Token);
+    }
+
+    [Fact]
+    public async Task List_con_un_rango_invalido_responde_400()
+    {
+        var handler = Substitute.For<IQueryHandler<GetAvailabilityBlocksQuery, IReadOnlyList<AvailabilityBlockDto>>>();
+        handler.HandleAsync(Arg.Any<GetAvailabilityBlocksQuery>(), Arg.Any<CancellationToken>())
+            .Returns(Result<IReadOnlyList<AvailabilityBlockDto>>.Failure(
+                Error.Validation("Availability.DateRangeTooLong", "Solo se pueden consultar hasta 31 días a la vez.")));
+
+        var result = await new AvailabilityBlocksController().List(
+            new DateOnly(2027, 1, 1), new DateOnly(2027, 2, 1), handler, CancellationToken.None);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(400);
+        response.Value.ShouldBeOfType<ProblemDetails>().Extensions["code"].ShouldBe("Availability.DateRangeTooLong");
+    }
+
+    [Fact]
+    public void List_es_un_GET_solo_para_medicos()
+    {
+        var method = typeof(AvailabilityBlocksController).GetMethod(nameof(AvailabilityBlocksController.List))!;
+        var verb = method.GetCustomAttributes<HttpMethodAttribute>().ShouldHaveSingleItem();
+        verb.HttpMethods.ShouldBe(new[] { "GET" });
+        verb.Template.ShouldBeNull();
+        method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Doctor));
+        method.GetCustomAttributes<ProducesResponseTypeAttribute>().Select(value => value.StatusCode)
+            .ShouldBe(new[] { 200, 400, 401, 403, 404 }, ignoreOrder: true);
     }
 }

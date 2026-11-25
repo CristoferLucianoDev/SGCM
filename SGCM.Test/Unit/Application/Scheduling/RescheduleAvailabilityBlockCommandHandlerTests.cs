@@ -192,6 +192,42 @@ public sealed class RescheduleAvailabilityBlockCommandHandlerTests
     }
 
     [Fact]
+    public async Task Un_bloque_suelto_no_queda_marcado_como_editado_a_mano()
+    {
+        await Handle(Command(10, 16));
+
+        _block.IsModified.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Un_bloque_de_una_serie_se_edita_como_ocurrencia_y_queda_marcado()
+    {
+        var occurrence = Block(DoctorId, BlockId, BlockStart, seriesId: 15);
+        _blocks.GetByIdAsync(BlockId, Arg.Any<CancellationToken>()).Returns(occurrence);
+        GivenOverlapping(occurrence);
+
+        (await Handle(Command(10, 16))).IsSuccess.ShouldBeTrue();
+
+        occurrence.IsModified.ShouldBeTrue();
+        occurrence.StartsAt.ShouldBe(BlockStart.AddHours(2));
+    }
+
+    [Fact]
+    public async Task Una_ocurrencia_no_se_mueve_a_otro_dia()
+    {
+        var occurrence = Block(DoctorId, BlockId, BlockStart, seriesId: 15);
+        _blocks.GetByIdAsync(BlockId, Arg.Any<CancellationToken>()).Returns(occurrence);
+
+        var result = await Handle(Command(10, 16) with { Date = Day.AddDays(1) });
+
+        result.Error.ShouldBe(DoctorAvailabilityErrors.OccurrenceDayChanged);
+        occurrence.StartsAt.ShouldBe(BlockStart);
+        occurrence.IsModified.ShouldBeFalse();
+        _policy.ReceivedCalls().ShouldBeEmpty();
+        _canceler.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Un_medico_solo_reprograma_sus_propios_bloques()
     {
         _blocks.GetByIdAsync(BlockId, Arg.Any<CancellationToken>()).Returns(Block(99, BlockId, BlockStart));
@@ -241,9 +277,9 @@ public sealed class RescheduleAvailabilityBlockCommandHandlerTests
                 Options.Create(new SchedulingOptions { MinimumBlockDurationHours = 6 }))
             .HandleAsync(command, CancellationToken.None);
 
-    private static DoctorAvailability Block(int doctorId, int id, DateTimeOffset start)
+    private static DoctorAvailability Block(int doctorId, int id, DateTimeOffset start, int? seriesId = null)
     {
-        var block = DoctorAvailability.Create(doctorId, null, start, start.AddHours(6), 6).Value;
+        var block = DoctorAvailability.Create(doctorId, seriesId, start, start.AddHours(6), 6).Value;
         typeof(Entity).GetProperty(nameof(Entity.Id))!.SetValue(block, id);
         return block;
     }

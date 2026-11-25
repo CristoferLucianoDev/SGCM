@@ -12,6 +12,12 @@ public interface IDoctorAvailabilityRepository : IRepository<DoctorAvailability>
     void AddRange(IEnumerable<DoctorAvailability> blocks);
 
     /// <summary>
+    /// Marca el bloque para borrarlo al guardar. La base rechaza borrar un bloque con citas activas dentro, así que
+    /// quien lo use cancela antes esas citas.
+    /// </summary>
+    void Remove(DoctorAvailability block);
+
+    /// <summary>
     /// Bloques del médico, abiertos o cerrados y sin rastrear, que terminan después de <paramref name="from"/>
     /// y, si se indica, empiezan antes de <paramref name="to"/>.
     /// </summary>

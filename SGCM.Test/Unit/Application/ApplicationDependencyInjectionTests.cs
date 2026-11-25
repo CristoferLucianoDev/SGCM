@@ -32,6 +32,8 @@ using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Application.Scheduling.Commands.CloseAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RescheduleAvailabilityBlock;
+using SGCM.Data.Application.Scheduling.Commands.UpdateAvailabilitySeries;
+using SGCM.Data.Application.Scheduling.Queries.GetAvailabilityBlocks;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAvailabilityBlocks;
@@ -1233,6 +1235,32 @@ public sealed class ApplicationDependencyInjectionTests
 
         result.Error.Code.ShouldBe("Availability.InvalidBlockId");
         await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Una_edicion_de_serie_invalida_se_rechaza_antes_de_abrir_la_transaccion()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var handler = scope.ServiceProvider
+            .GetRequiredService<ICommandHandler<UpdateAvailabilitySeriesCommand, UpdatedAvailabilitySeriesDto>>();
+        var command = new UpdateAvailabilitySeriesCommand(15, [], new TimeOnly(10, 0), new TimeOnly(16, 0), null);
+
+        handler.ShouldBeOfType<ValidationDecorator<UpdateAvailabilitySeriesCommand, UpdatedAvailabilitySeriesDto>>();
+        var result = await handler.HandleAsync(command, CancellationToken.None);
+
+        result.Error.Code.ShouldBe("AvailabilitySeries.DaysRequired");
+        await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void La_consulta_de_bloques_del_medico_se_resuelve_por_scope()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<IQueryHandler<GetAvailabilityBlocksQuery, IReadOnlyList<AvailabilityBlockDto>>>()
+            .ShouldNotBeNull();
     }
 
     [Fact]
