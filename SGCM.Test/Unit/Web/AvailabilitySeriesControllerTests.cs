@@ -5,9 +5,11 @@ using Microsoft.AspNetCore.Mvc.Routing;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
+using SGCM.Data.Application.Scheduling.Commands.UpdateAvailabilitySeries;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Doctors;
+using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Web.Api.Controllers.Scheduling;
 using SGCM.Web.Api.Infrastructure;
@@ -93,5 +95,64 @@ public sealed class AvailabilitySeriesControllerTests
         var responses = method.GetCustomAttributes<ProducesResponseTypeAttribute>().ToArray();
         responses.Select(value => value.StatusCode).ShouldBe(new[] { 201, 400, 401, 403, 404, 409 }, ignoreOrder: true);
         responses.Single(value => value.StatusCode == 201).Type.ShouldBe(typeof(CreateAvailabilitySeriesResponse));
+    }
+
+    [Fact]
+    public async Task Update_pasa_la_serie_el_patron_y_el_motivo_y_responde_200()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = Substitute.For<ICommandHandler<UpdateAvailabilitySeriesCommand, UpdatedAvailabilitySeriesDto>>();
+        handler.HandleAsync(Arg.Any<UpdateAvailabilitySeriesCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<UpdatedAvailabilitySeriesDto>.Success(new UpdatedAvailabilitySeriesDto(new DateOnly(2027, 1, 11), 2)));
+        var request = new UpdateAvailabilitySeriesRequest([1, 2], new TimeOnly(10, 0), new TimeOnly(16, 0), null, "Motivo");
+
+        var result = await new AvailabilitySeriesController().Update(15, request, handler, cancellation.Token);
+
+        result.ShouldBeOfType<OkObjectResult>().Value
+            .ShouldBe(new UpdateAvailabilitySeriesResponse(new DateOnly(2027, 1, 11), 2));
+        await handler.Received(1).HandleAsync(
+            Arg.Is<UpdateAvailabilitySeriesCommand>(command => command.SeriesId == 15
+                && command.DaysOfWeek!.SequenceEqual(new[] { 1, 2 })
+                && command.StartTime == request.StartTime && command.EndTime == request.EndTime
+                && command.EndDate == null && command.Reason == "Motivo"),
+            cancellation.Token);
+    }
+
+    public static IEnumerable<object[]> UpdateErrors()
+    {
+        yield return [DoctorAvailabilitySeriesErrors.InvalidDateRange, 400];
+        yield return [AppointmentErrors.StatusReasonRequired, 400];
+        yield return [DoctorAvailabilitySeriesErrors.NotFound, 404];
+        yield return [DoctorAvailabilitySeriesErrors.Overlap, 409];
+    }
+
+    [Theory]
+    [MemberData(nameof(UpdateErrors))]
+    public async Task Update_utiliza_ErrorResult_con_estado_codigo_y_descripcion(Error error, int status)
+    {
+        var handler = Substitute.For<ICommandHandler<UpdateAvailabilitySeriesCommand, UpdatedAvailabilitySeriesDto>>();
+        handler.HandleAsync(Arg.Any<UpdateAvailabilitySeriesCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<UpdatedAvailabilitySeriesDto>.Failure(error));
+
+        var result = await new AvailabilitySeriesController().Update(
+            15, new UpdateAvailabilitySeriesRequest([1], new TimeOnly(10, 0), new TimeOnly(16, 0), null), handler, CancellationToken.None);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(status);
+        var problem = response.Value.ShouldBeOfType<ProblemDetails>();
+        problem.Title.ShouldBe(error.Description);
+        problem.Extensions["code"].ShouldBe(error.Code);
+    }
+
+    [Fact]
+    public void Update_es_un_PUT_solo_para_medicos()
+    {
+        var method = typeof(AvailabilitySeriesController).GetMethod(nameof(AvailabilitySeriesController.Update))!;
+        var verb = method.GetCustomAttributes<HttpMethodAttribute>().ShouldHaveSingleItem();
+        verb.HttpMethods.ShouldBe(new[] { "PUT" });
+        verb.Template.ShouldBe("{seriesId:int}");
+        method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Doctor));
+        method.GetCustomAttributes<ProducesResponseTypeAttribute>().Select(value => value.StatusCode)
+            .ShouldBe(new[] { 200, 400, 401, 403, 404, 409 }, ignoreOrder: true);
     }
 }

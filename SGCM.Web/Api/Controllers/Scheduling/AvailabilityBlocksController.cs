@@ -5,6 +5,7 @@ using SGCM.Data.Application.Scheduling.Commands.CloseAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.RescheduleAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Queries.GetAffectedAppointments;
+using SGCM.Data.Application.Scheduling.Queries.GetAvailabilityBlocks;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
 using SGCM.Web.Contracts.Scheduling;
@@ -96,7 +97,8 @@ public sealed class AvailabilityBlocksController : ApiControllerBase
     /// siguiente solo se reprograman de lunes a miércoles, y los de semanas posteriores en cualquier momento. El
     /// horario nuevo no puede traslaparse con otro bloque del médico. Si quedan citas activas fuera del horario nuevo,
     /// el motivo es obligatorio y extendido si alguna empieza en menos de 6 horas; antes de confirmar, la web puede
-    /// consultar <c>affected-appointments</c> con el horario nuevo. Un bloque de otro médico responde 404.
+    /// consultar <c>affected-appointments</c> con el horario nuevo. Un bloque de una serie se edita solo ese día, sin
+    /// cambiarlo de fecha, y editar la serie después no lo sobrescribe. Un bloque de otro médico responde 404.
     /// </remarks>
     [HttpPut("{blockId:int}")]
     [Authorize(Roles = nameof(UserRole.Doctor))]
@@ -113,6 +115,29 @@ public sealed class AvailabilityBlocksController : ApiControllerBase
         CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(request.ToCommand(blockId), cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
+    }
+
+    /// <summary>Lista los bloques propios, abiertos y cerrados, entre dos fechas locales de la agenda.</summary>
+    /// <remarks>
+    /// Ambas fechas se incluyen y el rango abarca como máximo 31 días. Cada bloque indica si es de una serie, si está
+    /// abierto y si es una ocurrencia editada a mano.
+    /// </remarks>
+    [HttpGet]
+    [Authorize(Roles = nameof(UserRole.Doctor))]
+    [ProducesResponseType(typeof(AvailabilityBlocksResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> List(
+        [FromQuery] DateOnly from,
+        [FromQuery] DateOnly to,
+        [FromServices] IQueryHandler<GetAvailabilityBlocksQuery, IReadOnlyList<AvailabilityBlockDto>> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new GetAvailabilityBlocksQuery(from, to), cancellationToken);
 
         return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
     }

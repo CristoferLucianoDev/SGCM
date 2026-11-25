@@ -43,6 +43,12 @@ internal sealed class RescheduleAvailabilityBlockCommandHandler(
         var valid = block.ValidateReschedule(startsAt, endsAt, minimumHours, now, calendar);
         if (valid != Error.None) return valid;
 
+        // Un bloque de una serie se edita como ocurrencia: no cambia de día y queda marcado para que editar la serie
+        // no lo sobrescriba.
+        var isOccurrence = block.SeriesId is not null;
+        if (isOccurrence && calendar.ToLocalDate(startsAt) != calendar.ToLocalDate(block.StartsAt))
+            return DoctorAvailabilityErrors.OccurrenceDayChanged;
+
         // Bloquea el bloque como la solicitud de cita, para que nadie reserve en él mientras se reprograma.
         await availabilityRepository.LockOpenBlockAsync(doctor.Id, block.StartsAt, block.EndsAt, cancellationToken);
 
@@ -59,7 +65,9 @@ internal sealed class RescheduleAvailabilityBlockCommandHandler(
         var cancelled = await canceler.CancelAsync(doctor.Id, removed, command.Reason, cancellationToken);
         if (cancelled.IsFailure) return cancelled.Error;
 
-        var rescheduled = block.Reschedule(startsAt, endsAt, minimumHours, now, calendar, command.Reason);
+        var rescheduled = isOccurrence
+            ? block.RescheduleOccurrence(startsAt, endsAt, minimumHours, now, calendar, command.Reason)
+            : block.Reschedule(startsAt, endsAt, minimumHours, now, calendar, command.Reason);
         if (rescheduled.IsFailure) return rescheduled.Error;
 
         // El decorador guarda el horario nuevo y confirma la transacción; el correo a cada paciente sale después del commit.

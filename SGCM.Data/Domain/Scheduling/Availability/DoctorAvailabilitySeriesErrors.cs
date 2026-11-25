@@ -37,4 +37,8 @@ public static class DoctorAvailabilitySeriesErrors
     /// <summary>La serie se cruza con un bloque existente o con otra serie activa del mismo médico.</summary>
     public static readonly Error Overlap = Error.Conflict(
         "AvailabilitySeries.Overlap", "La serie se traslapa con otro horario del mismo médico.");
+
+    /// <summary>La serie no existe, está inactiva o es de otro médico.</summary>
+    public static readonly Error NotFound = Error.NotFound(
+        "AvailabilitySeries.NotFound", "La serie no existe.");
 }
