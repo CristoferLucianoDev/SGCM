@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
+using SGCM.Web.Api.Controllers.People;
 
 namespace SGCM.Web.Hosting;
 
@@ -22,6 +23,7 @@ public static class ApiDocumentationRegistration
             });
             options.OperationFilter<AuthorizeOperationFilter>();
             options.OperationFilter<DoctorProfileOperationFilter>();
+            options.OperationFilter<DoctorSearchOperationFilter>();
         });
 
         return services;
