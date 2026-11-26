@@ -50,7 +50,8 @@ public sealed class CancelAppointmentByDoctorCommandHandlerTests
             DoctorLateCancellationThresholdHours = AppointmentMother.ShortNoticeThresholdHours,
             DoctorLateCancellationMinimumWords = AppointmentMother.ShortNoticeMinimumWords
         });
-        _handler = new CancelAppointmentByDoctorCommandHandler(_currentUser, _doctors, _appointments, _clock, options);
+        var access = new DoctorAppointmentAccess(_currentUser, _doctors, _appointments);
+        _handler = new CancelAppointmentByDoctorCommandHandler(access, _clock, options);
     }
 
     [Fact]

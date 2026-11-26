@@ -1188,6 +1188,26 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public void AppointmentConfirmedEvent_incluye_el_manejador_que_envia_la_notificacion()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentConfirmedEvent>>()
+            .Select(handler => handler.GetType()).ShouldContain(typeof(SendAppointmentConfirmedNotification));
+    }
+
+    [Fact]
+    public void AppointmentRejectedEvent_incluye_el_manejador_que_envia_la_notificacion()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentRejectedEvent>>()
+            .Select(handler => handler.GetType()).ShouldContain(typeof(SendAppointmentRejectedNotification));
+    }
+
+    [Fact]
     public void AppointmentCancelledEvent_tiene_un_solo_manejador_que_envia_la_notificacion()
     {
         using var provider = BuildProvider();
@@ -1208,6 +1228,19 @@ public sealed class ApplicationDependencyInjectionTests
 
         policy.ShouldBeOfType<AffectedAppointmentsPolicy>();
         policy.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<IAffectedAppointmentsPolicy>());
+    }
+
+    [Fact]
+    public void El_acceso_a_la_cita_del_medico_se_resuelve_por_scope()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var access = first.ServiceProvider.GetRequiredService<DoctorAppointmentAccess>();
+
+        access.ShouldBeSameAs(first.ServiceProvider.GetRequiredService<DoctorAppointmentAccess>());
+        access.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<DoctorAppointmentAccess>());
     }
 
     [Fact]

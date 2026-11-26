@@ -19,6 +19,8 @@ public static class AppointmentMother
     public const int PatientCancellationDeadlineHours = 24;
     public const int PatientRescheduleDeadlineHours = 48;
     public const int ConfirmationDeadlineHours = 48;
+    public const string RejectionReason = "Agenda completa";
+    public const int EarlyHours = 72;
     public const int ShortNoticeThresholdHours = 6;
     public const int ShortNoticeMinimumWords = 30;
 
@@ -30,6 +32,9 @@ public static class AppointmentMother
 
     /// <summary>Martes 12 de enero de 2027 a las 9:00 en Santo Domingo.</summary>
     public static readonly DateTimeOffset StartsAt = new(2027, 1, 12, 9, 0, 0, SantoDomingo);
+
+    /// <summary>Instante con tiempo de sobra antes de la cita: dentro de todos los plazos.</summary>
+    private static readonly DateTimeOffset EarlyInstant = StartsAt.AddHours(-EarlyHours);
 
     /// <summary>Regla de la cancelación del médico con poco aviso, con los valores de la configuración de pruebas.</summary>
     public static readonly ShortNoticeCancellation ShortNotice = new(ShortNoticeThresholdHours, ShortNoticeMinimumWords);
@@ -50,15 +55,34 @@ public static class AppointmentMother
     public static Appointment Requested(DateTimeOffset? startsAt = null) => Request(startsAt).Value;
 
     /// <summary>
-    /// Cita en el estado indicado y sin eventos pendientes. Usa reflexión porque el agregado todavía
-    /// no expone confirmar, rechazar ni completar; cuando existan, debe reemplazarse por ellos.
+    /// Cita en el estado indicado y sin eventos pendientes. Llega al estado con los métodos del agregado, ejecutados
+    /// con tiempo de sobra respecto de todos los plazos; el rechazo y la cancelación guardan sus motivos. Solo
+    /// Completed usa reflexión, porque el agregado todavía no expone completar; cuando exista, debe reemplazarse.
     /// </summary>
     /// <param name="status">Estado en el que queda la cita.</param>
+    /// <exception cref="InvalidOperationException">Si el agregado rechaza la transición preparada.</exception>
     public static Appointment InStatus(AppointmentStatus status)
     {
         var appointment = Requested();
-        typeof(Appointment).GetProperty(nameof(Appointment.Status))!.SetValue(appointment, status);
+        var transition = status switch
+        {
+            AppointmentStatus.Pending => Result.Success(),
+            AppointmentStatus.Confirmed => appointment.Confirm(EarlyInstant, ConfirmationDeadlineHours),
+            AppointmentStatus.Rejected => appointment.Reject(RejectionReason, EarlyInstant, ConfirmationDeadlineHours),
+            AppointmentStatus.Cancelled => appointment.Cancel(
+                AppointmentCanceller.Patient, null, EarlyInstant, PatientCancellationDeadlineHours, ShortNotice),
+            _ => SetStatusByReflection(appointment, status)
+        };
+        if (transition.IsFailure)
+            throw new InvalidOperationException($"No se pudo preparar la cita en estado {status}: {transition.Error.Code}.");
+
         appointment.ClearDomainEvents();
         return appointment;
+    }
+
+    private static Result SetStatusByReflection(Appointment appointment, AppointmentStatus status)
+    {
+        typeof(Appointment).GetProperty(nameof(Appointment.Status))!.SetValue(appointment, status);
+        return Result.Success();
     }
 }

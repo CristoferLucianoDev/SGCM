@@ -57,6 +57,14 @@ public static class AppointmentErrors
         "Appointment.CancellationDeadlinePassed",
         "El plazo para cancelar en línea ya pasó; para cancelar esta cita debe llamar al médico.");
 
+    /// <summary>La cita no está pendiente, así que el médico ya no puede confirmarla ni rechazarla.</summary>
+    public static readonly Error NotPending = Error.Conflict(
+        "Appointment.NotPending", "Solo se puede confirmar o rechazar una cita pendiente.");
+
+    /// <summary>El médico intentó confirmar o rechazar después del plazo.</summary>
+    public static readonly Error ConfirmationDeadlinePassed = Error.Conflict(
+        "Appointment.ConfirmationDeadlinePassed", "El plazo para confirmar o rechazar esta cita ya pasó.");
+
     /// <summary>El motivo de la cancelación supera la longitud máxima.</summary>
     public static readonly Error StatusReasonTooLong = Error.Validation(
         "Appointment.StatusReasonTooLong",
@@ -86,6 +94,10 @@ public static class AppointmentErrors
     /// <summary>Solo el médico de la cita la cancela desde el caso de uso del médico.</summary>
     public static readonly Error CancellationDoctorOnly = Error.Forbidden(
         "Appointment.CancellationDoctorOnly", "Solo el médico de la cita puede cancelarla desde aquí.");
+
+    /// <summary>Solo el médico de la cita la confirma o la rechaza.</summary>
+    public static readonly Error DecisionDoctorOnly = Error.Forbidden(
+        "Appointment.DecisionDoctorOnly", "Solo el médico de la cita puede confirmarla o rechazarla.");
 
     /// <summary>Solo el paciente dueño de la cita la cancela desde este caso de uso.</summary>
     public static readonly Error CancellationPatientOnly = Error.Forbidden(

@@ -144,6 +144,77 @@ public sealed class Appointment : AggregateRoot
     }
 
     /// <summary>
+    /// Confirma la cita si está pendiente y aún está dentro del plazo para confirmar. Emite
+    /// <see cref="AppointmentConfirmedEvent"/>; ante cualquier error la cita no cambia.
+    /// </summary>
+    /// <param name="now">Instante actual, que se compara con el plazo.</param>
+    /// <param name="confirmationDeadlineHours">
+    /// Horas de antelación mínima con que el médico puede confirmar, según la configuración.
+    /// </param>
+    /// <returns>
+    /// Éxito, o <see cref="AppointmentErrors.NotPending"/> si la cita no está pendiente, o
+    /// <see cref="AppointmentErrors.ConfirmationDeadlinePassed"/> si el plazo ya pasó.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si el plazo no es positivo.</exception>
+    public Result Confirm(DateTimeOffset now, int confirmationDeadlineHours)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(confirmationDeadlineHours);
+
+        var notAwaiting = ValidateAwaitingConfirmation(now, confirmationDeadlineHours);
+        if (notAwaiting != Error.None) return notAwaiting;
+
+        Status = AppointmentStatus.Confirmed;
+        Raise(new AppointmentConfirmedEvent(this));
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Rechaza la cita si está pendiente y aún está dentro del plazo para confirmar o rechazar, con un motivo
+    /// obligatorio y sin mínimo de palabras. Emite <see cref="AppointmentRejectedEvent"/>; ante cualquier error la
+    /// cita no cambia.
+    /// </summary>
+    /// <param name="reason">Motivo del rechazo; se recorta y es obligatorio.</param>
+    /// <param name="now">Instante actual, que se compara con el plazo.</param>
+    /// <param name="confirmationDeadlineHours">
+    /// Horas de antelación mínima con que el médico puede rechazar, según la configuración.
+    /// </param>
+    /// <returns>
+    /// Éxito, o <see cref="AppointmentErrors.NotPending"/> si la cita no está pendiente,
+    /// <see cref="AppointmentErrors.ConfirmationDeadlinePassed"/> si el plazo ya pasó,
+    /// <see cref="AppointmentErrors.StatusReasonRequired"/> si falta el motivo o
+    /// <see cref="AppointmentErrors.StatusReasonTooLong"/> si supera la longitud máxima. Se validan en ese orden.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si el plazo no es positivo.</exception>
+    public Result Reject(string? reason, DateTimeOffset now, int confirmationDeadlineHours)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(confirmationDeadlineHours);
+
+        var notAwaiting = ValidateAwaitingConfirmation(now, confirmationDeadlineHours);
+        if (notAwaiting != Error.None) return notAwaiting;
+
+        var validated = StatusReasonValue.Create(reason);
+        if (validated.IsFailure) return validated.Error;
+
+        Status = AppointmentStatus.Rejected;
+        StatusReason = validated.Value.Value;
+        Raise(new AppointmentRejectedEvent(this));
+
+        return Result.Success();
+    }
+
+    // Confirmar y rechazar comparten estado y plazo: se apoya en IsAwaitingConfirmation, la misma regla que usan
+    // las acciones permitidas, y solo distingue el error para informar si falló el estado o el plazo.
+    private Error ValidateAwaitingConfirmation(DateTimeOffset now, int confirmationDeadlineHours)
+    {
+        if (IsAwaitingConfirmation(now, confirmationDeadlineHours)) return Error.None;
+
+        return Status == AppointmentStatus.Pending
+            ? AppointmentErrors.ConfirmationDeadlinePassed
+            : AppointmentErrors.NotPending;
+    }
+
+    /// <summary>
     /// Calcula qué acciones tiene disponibles quien consulta la cita en ese instante, y los datos que las acompañan.
     /// Solo decide la disponibilidad: ejecutar cada acción es responsabilidad de su propio método.
     /// </summary>
@@ -193,7 +264,7 @@ public sealed class Appointment : AggregateRoot
         var actions = new List<AppointmentAction>();
         if (IsActive()) actions.Add(AppointmentAction.Cancel);
         if (IsActive() && now < StartsAt) actions.Add(AppointmentAction.Reschedule);
-        if (IsAwaitingConfirmation(now, rules))
+        if (IsAwaitingConfirmation(now, rules.ConfirmationDeadlineHours))
         {
             actions.Add(AppointmentAction.Confirm);
             actions.Add(AppointmentAction.Reject);
@@ -208,8 +279,8 @@ public sealed class Appointment : AggregateRoot
         return actions;
     }
 
-    private bool IsAwaitingConfirmation(DateTimeOffset now, AppointmentRules rules) =>
-        Status == AppointmentStatus.Pending && IsWithinDeadline(now, rules.ConfirmationDeadlineHours);
+    private bool IsAwaitingConfirmation(DateTimeOffset now, int confirmationDeadlineHours) =>
+        Status == AppointmentStatus.Pending && IsWithinDeadline(now, confirmationDeadlineHours);
 
     private bool IsInProgress(DateTimeOffset now) =>
         Status == AppointmentStatus.Confirmed && StartsAt <= now && now < EndsAt;

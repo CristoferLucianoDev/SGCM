@@ -46,6 +46,8 @@ public sealed class AppointmentCancelTests
     public void Una_cita_que_no_esta_activa_no_se_puede_cancelar(AppointmentStatus status)
     {
         var appointment = AppointmentMother.InStatus(status);
+        // Una cita rechazada ya trae su motivo de rechazo; lo que importa es que el intento no lo cambie.
+        var reasonBefore = appointment.StatusReason;
 
         var result = Cancel(appointment, "Tengo un viaje", EarlyEnough);
 
@@ -53,7 +55,7 @@ public sealed class AppointmentCancelTests
         result.Error.ShouldBe(AppointmentErrors.InvalidTransition);
         result.Error.Type.ShouldBe(ErrorType.Conflict);
         appointment.Status.ShouldBe(status);
-        appointment.StatusReason.ShouldBeNull();
+        appointment.StatusReason.ShouldBe(reasonBefore);
         appointment.DomainEvents.ShouldBeEmpty();
     }
 
