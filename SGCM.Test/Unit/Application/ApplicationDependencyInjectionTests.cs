@@ -1208,6 +1208,16 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public void AppointmentExpiredEvent_incluye_el_manejador_que_envia_la_notificacion()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentExpiredEvent>>()
+            .Select(handler => handler.GetType()).ShouldContain(typeof(SendAppointmentExpiredNotification));
+    }
+
+    [Fact]
     public void AppointmentCancelledEvent_tiene_un_solo_manejador_que_envia_la_notificacion()
     {
         using var provider = BuildProvider();
