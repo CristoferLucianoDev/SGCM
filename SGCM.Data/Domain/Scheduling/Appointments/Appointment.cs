@@ -17,6 +17,9 @@ public sealed class Appointment : AggregateRoot
     /// <summary>Longitud máxima del motivo de cancelación o rechazo, igual que en la base.</summary>
     public const int StatusReasonMaxLength = StatusReasonValue.MaxLength;
 
+    /// <summary>Motivo con que se guarda la cita pendiente que el médico no confirmó a tiempo.</summary>
+    public const string ExpiredReason = "No confirmada por el médico a tiempo";
+
     public int PatientId { get; private set; }
 
     public int DoctorId { get; private set; }
@@ -199,6 +202,35 @@ public sealed class Appointment : AggregateRoot
         Status = AppointmentStatus.Rejected;
         StatusReason = validated.Value.Value;
         Raise(new AppointmentRejectedEvent(this));
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Vence la cita pendiente que el médico no confirmó a tiempo: pasa a cancelada con el motivo
+    /// <see cref="ExpiredReason"/> y emite <see cref="AppointmentExpiredEvent"/>. Ante cualquier error la cita no
+    /// cambia ni emite eventos.
+    /// </summary>
+    /// <param name="now">Instante actual, que se compara con el plazo.</param>
+    /// <param name="confirmationDeadlineHours">
+    /// Horas de antelación mínima con que el médico puede confirmar, según la configuración.
+    /// </param>
+    /// <returns>
+    /// Éxito, o <see cref="AppointmentErrors.NotPending"/> si la cita no está pendiente, o
+    /// <see cref="AppointmentErrors.ConfirmationDeadlineNotReached"/> si todavía puede confirmarse.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si el plazo no es positivo.</exception>
+    public Result Expire(DateTimeOffset now, int confirmationDeadlineHours)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(confirmationDeadlineHours);
+
+        if (Status != AppointmentStatus.Pending) return AppointmentErrors.NotPending;
+        // Es la negación exacta de Confirm: una pendiente vence justo cuando ya no puede confirmarse.
+        if (IsAwaitingConfirmation(now, confirmationDeadlineHours)) return AppointmentErrors.ConfirmationDeadlineNotReached;
+
+        Status = AppointmentStatus.Cancelled;
+        StatusReason = ExpiredReason;
+        Raise(new AppointmentExpiredEvent(this));
 
         return Result.Success();
     }
