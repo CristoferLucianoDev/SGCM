@@ -16,6 +16,12 @@ namespace SGCM.Test.Integration.Persistence;
 public sealed class AppointmentRepositoryTests(PostgresFixture database) : IntegrationTestBase(database)
 {
     private const int DurationHours = AppointmentMother.DurationHours;
+    private const int ExpirableNowDay = 10;
+    private const int SpacingHours = 3;
+    private const int NoCandidatesYears = 2000;
+    private const int NoLimit = int.MaxValue;
+    private const int SmallBatch = 2;
+    private const string StatusReasonText = "Motivo de la prueba";
 
     // Martes 12 de enero de 2027 a las 9:00 en Santo Domingo; el bloque del médico cubre todo enero.
     private static readonly DateTimeOffset Start = AppointmentMother.StartsAt;
@@ -202,6 +208,85 @@ public sealed class AppointmentRepositoryTests(PostgresFixture database) : Integ
         await SaveAsync(provider, Request(await InsertPatientAsync(provider), doctor, Start));
 
         (await CountAsync(provider, doctor.DoctorId)).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task ListExpirableIdsAsync_devuelve_solo_las_pendientes_con_plazo_vencido_en_orden()
+    {
+        await using var provider = CreateProvider();
+        var doctor = await SeedDoctorAsync(provider);
+        var patientId = await InsertPatientAsync(provider);
+        var now = BlockStart.AddDays(ExpirableNowDay);
+        var limit = now.AddHours(AppointmentMother.ConfirmationDeadlineHours);
+        var late = await InsertAsync(provider, doctor, patientId, limit.AddHours(-SpacingHours), "pending");
+        var started = await InsertAsync(provider, doctor, patientId, now.AddHours(-SpacingHours), "pending");
+        var early = await InsertAsync(provider, doctor, patientId, now.AddHours(SpacingHours), "pending");
+        var atLimit = await InsertAsync(provider, doctor, patientId, limit, "pending");
+        var confirmed = await InsertAsync(provider, doctor, patientId, now.AddHours(SpacingHours * 2), "confirmed");
+        var finals = new[]
+        {
+            await InsertAsync(provider, doctor, patientId, now.AddHours(SpacingHours * 3), "rejected"),
+            await InsertAsync(provider, doctor, patientId, now.AddHours(SpacingHours * 4), "cancelled"),
+            await InsertAsync(provider, doctor, patientId, now.AddHours(SpacingHours * 5), "completed")
+        };
+
+        var ids = await ListExpirableAsync(provider, now, NoLimit);
+
+        // La base se comparte con otras pruebas: solo se examinan las citas sembradas aquí.
+        var seeded = new[] { late, started, early, atLimit, confirmed }.Concat(finals).ToHashSet();
+        ids.Where(seeded.Contains).ToList().ShouldBe([started, early, late]);
+    }
+
+    [Fact]
+    public async Task ListExpirableIdsAsync_sin_candidatas_devuelve_una_lista_vacia()
+    {
+        await using var provider = CreateProvider();
+
+        (await ListExpirableAsync(provider, DateTimeOffset.MinValue.AddYears(NoCandidatesYears), NoLimit)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ListExpirableIdsAsync_con_maxCount_devuelve_solo_las_mas_antiguas()
+    {
+        await using var provider = CreateProvider();
+        var doctor = await SeedDoctorAsync(provider);
+        var patientId = await InsertPatientAsync(provider);
+        var now = BlockStart.AddDays(ExpirableNowDay);
+        var third = await InsertAsync(provider, doctor, patientId, BlockStart.AddHours(SpacingHours * 2), "pending");
+        var first = await InsertAsync(provider, doctor, patientId, BlockStart, "pending");
+        var second = await InsertAsync(provider, doctor, patientId, BlockStart.AddHours(SpacingHours), "pending");
+
+        var ids = await ListExpirableAsync(provider, now, SmallBatch);
+
+        ids.ShouldBe([first, second]);
+        ids.ShouldNotContain(third);
+    }
+
+    [Fact]
+    public async Task ListExpirableIdsAsync_con_maxCount_cero_lanza_ArgumentOutOfRangeException()
+    {
+        await using var provider = CreateProvider();
+
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(() => ListExpirableAsync(provider, BlockStart, 0));
+    }
+
+    private static async Task<IReadOnlyList<int>> ListExpirableAsync(
+        ServiceProvider provider, DateTimeOffset now, int maxCount)
+    {
+        await using var scope = provider.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<IAppointmentRepository>()
+            .ListExpirableIdsAsync(now, AppointmentMother.ConfirmationDeadlineHours, maxCount, CancellationToken.None);
+    }
+
+    private static async Task<int> InsertAsync(
+        ServiceProvider provider, DoctorSeed doctor, int patientId, DateTimeOffset startsAt, string status)
+    {
+        await using var scope = provider.CreateAsyncScope();
+        var statusReason = status is "rejected" or "cancelled" ? StatusReasonText : null;
+
+        return await TestDataSeeder.InsertAppointmentInStatusAsync(
+            scope.ServiceProvider.GetRequiredService<AppDbContext>(),
+            patientId, doctor.DoctorId, doctor.SpecialtyIds[0], startsAt, DurationHours, status, statusReason);
     }
 
     private static Appointment Request(int patientId, DoctorSeed doctor, DateTimeOffset startsAt, string? reason = null) =>
