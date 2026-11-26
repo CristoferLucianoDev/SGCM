@@ -3,16 +3,20 @@ using Microsoft.Extensions.Options;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
+using SGCM.Data.Domain.People.Doctors;
+using SGCM.Data.Domain.People.Specialties;
 using SGCM.Data.Domain.Scheduling;
 using SGCM.Data.Domain.Scheduling.Appointments;
 
 namespace SGCM.Data.Infrastructure.Persistence.Readers;
 
 /// <summary>
-/// Implementación de <see cref="IPatientAppointmentHistoryReader"/> con una consulta de solo lectura sobre
-/// <c>scheduling.appointment</c>, unida a médico y especialidad. Las fechas del filtro se interpretan en la zona
-/// de <see cref="SchedulingOptions"/>, la misma de la agenda, para que coincidan con lo que el paciente ve.
+/// Implementación de <see cref="IPatientAppointmentHistoryReader"/> con consultas de solo lectura sobre
+/// <c>scheduling.appointment</c>, unida a médico y especialidad, tanto para la lista como para el detalle. Las
+/// fechas del filtro se interpretan en la zona de <see cref="SchedulingOptions"/>, la misma de la agenda, para que
+/// coincidan con lo que el paciente ve.
 /// </summary>
 internal sealed class PatientAppointmentHistoryReader(AppDbContext context, IOptions<SchedulingOptions> options)
     : IPatientAppointmentHistoryReader
@@ -63,33 +67,53 @@ internal sealed class PatientAppointmentHistoryReader(AppDbContext context, IOpt
         return query;
     }
 
-    // El médico y la especialidad se unen por clave para que la página traiga todo en una sola consulta.
+    /// <inheritdoc />
+    public async Task<PatientAppointmentDetailDto?> GetAsync(
+        int patientId, int appointmentId, CancellationToken cancellationToken)
+    {
+        var calendar = BusinessCalendar.ForTimeZone(options.Value.TimeZone);
+        // El filtro por paciente va en la misma consulta: una cita ajena no se distingue de una inexistente.
+        var owned = context.Appointments.AsNoTracking()
+            .Where(appointment => appointment.PatientId == patientId && appointment.Id == appointmentId);
+        var row = await ProjectRows(JoinAppointments(owned)).SingleOrDefaultAsync(cancellationToken);
+
+        return row is null ? null : ToDetailDto(row, calendar);
+    }
+
+    // El médico y la especialidad se unen por clave para que la lectura traiga todo en una sola consulta.
+    // AppointmentJoin se crea con inicializador y no con constructor para poder ordenar y paginar sobre él.
+    private IQueryable<AppointmentJoin> JoinAppointments(IQueryable<Appointment> appointments) =>
+        from appointment in appointments
+        join doctor in context.Doctors.AsNoTracking() on appointment.DoctorId equals doctor.Id
+        join specialty in context.Specialties.AsNoTracking() on appointment.SpecialtyId equals specialty.Id
+        select new AppointmentJoin { Appointment = appointment, Doctor = doctor, Specialty = specialty };
+
     // El orden y la página van antes de construir HistoryRow porque EF no traduce miembros de un tipo creado
     // con constructor.
     private async Task<List<HistoryRow>> ReadRowsAsync(
         IQueryable<Appointment> appointments, int offset, int pageSize, CancellationToken cancellationToken)
     {
-        var joined =
-            from appointment in appointments
-            join doctor in context.Doctors.AsNoTracking() on appointment.DoctorId equals doctor.Id
-            join specialty in context.Specialties.AsNoTracking() on appointment.SpecialtyId equals specialty.Id
-            select new { appointment, doctor, specialty };
+        var page = JoinAppointments(appointments)
+            .OrderByDescending(row => row.Appointment.StartsAt).ThenByDescending(row => row.Appointment.Id)
+            .Skip(offset).Take(pageSize);
 
-        return await joined
-            .OrderByDescending(row => row.appointment.StartsAt).ThenByDescending(row => row.appointment.Id)
-            .Skip(offset).Take(pageSize)
-            .Select(row => new HistoryRow(
-                row.appointment.Id,
-                row.appointment.StartsAt,
-                row.appointment.EndsAt,
-                row.appointment.Status,
-                row.doctor.Id,
-                row.doctor.FirstName,
-                row.doctor.LastName,
-                row.specialty.Id,
-                row.specialty.Name))
-            .ToListAsync(cancellationToken);
+        return await ProjectRows(page).ToListAsync(cancellationToken);
     }
+
+    // Proyección única de la fila; la construcción con constructor debe ser el último operador de la consulta.
+    private static IQueryable<HistoryRow> ProjectRows(IQueryable<AppointmentJoin> joined) =>
+        joined.Select(row => new HistoryRow(
+            row.Appointment.Id,
+            row.Appointment.StartsAt,
+            row.Appointment.EndsAt,
+            row.Appointment.Status,
+            row.Doctor.Id,
+            row.Doctor.FirstName,
+            row.Doctor.LastName,
+            row.Specialty.Id,
+            row.Specialty.Name,
+            row.Appointment.ReasonForVisit,
+            row.Appointment.StatusReason));
 
     private static PatientAppointmentDto ToDto(HistoryRow row, BusinessCalendar calendar)
     {
@@ -110,6 +134,25 @@ internal sealed class PatientAppointmentHistoryReader(AppDbContext context, IOpt
             row.Status);
     }
 
+    // El motivo de estado solo tiene sentido en citas canceladas o rechazadas.
+    private static PatientAppointmentDetailDto ToDetailDto(HistoryRow row, BusinessCalendar calendar)
+    {
+        var statusReason = row.Status is AppointmentStatus.Cancelled or AppointmentStatus.Rejected
+            ? row.StatusReason
+            : null;
+
+        return new PatientAppointmentDetailDto(ToDto(row, calendar), row.ReasonForVisit, statusReason);
+    }
+
+    private sealed record AppointmentJoin
+    {
+        public required Appointment Appointment { get; init; }
+
+        public required Doctor Doctor { get; init; }
+
+        public required Specialty Specialty { get; init; }
+    }
+
     private sealed record HistoryRow(
         int AppointmentId,
         DateTimeOffset StartsAt,
@@ -119,5 +162,7 @@ internal sealed class PatientAppointmentHistoryReader(AppDbContext context, IOpt
         string DoctorFirstName,
         string DoctorLastName,
         int SpecialtyId,
-        string SpecialtyName);
+        string SpecialtyName,
+        string? ReasonForVisit,
+        string? StatusReason);
 }
