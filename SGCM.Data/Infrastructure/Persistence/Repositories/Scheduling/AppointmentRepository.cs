@@ -33,6 +33,23 @@ internal sealed class AppointmentRepository(AppDbContext context) : IAppointment
             .SingleOrDefaultAsync(appointment => appointment.Id == id, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<int>> ListExpirableIdsAsync(
+        DateTimeOffset now, int confirmationDeadlineHours, int maxCount, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxCount);
+
+        // Es la misma comparación que niega IsAwaitingConfirmation en el dominio: starts_at - horas < now.
+        var limit = now.AddHours(confirmationDeadlineHours);
+
+        return await context.Appointments.AsNoTracking()
+            .Where(appointment => appointment.Status == AppointmentStatus.Pending && appointment.StartsAt < limit)
+            .OrderBy(appointment => appointment.StartsAt)
+            .ThenBy(appointment => appointment.Id)
+            .Take(maxCount)
+            .Select(appointment => appointment.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     /// <summary>
     /// EF no reemplaza una entidad ya rastreada, así que se descarta solo esa copia para releerla tras el
     /// bloqueo; nunca se descartan cambios pendientes.

@@ -65,6 +65,10 @@ public static class AppointmentErrors
     public static readonly Error ConfirmationDeadlinePassed = Error.Conflict(
         "Appointment.ConfirmationDeadlinePassed", "El plazo para confirmar o rechazar esta cita ya pasó.");
 
+    /// <summary>Se intentó vencer una cita que todavía puede confirmarse.</summary>
+    public static readonly Error ConfirmationDeadlineNotReached = Error.Conflict(
+        "Appointment.ConfirmationDeadlineNotReached", "La cita todavía está dentro del plazo de confirmación.");
+
     /// <summary>El motivo de la cancelación supera la longitud máxima.</summary>
     public static readonly Error StatusReasonTooLong = Error.Validation(
         "Appointment.StatusReasonTooLong",

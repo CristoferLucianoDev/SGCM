@@ -62,4 +62,36 @@ public sealed class JobRegistrationTests
 
         interval.ShouldBe(TimeSpan.FromHours(24));
     }
+
+    [Fact]
+    public void AddSgcmJobs_RegistersExpirePendingAppointmentsJobAsHostedService()
+    {
+        var services = new ServiceCollection();
+
+        services.AddSgcmJobs();
+
+        services.ShouldContain(descriptor =>
+            descriptor.ServiceType == typeof(IHostedService)
+            && descriptor.ImplementationType == typeof(ExpirePendingAppointmentsJob));
+    }
+
+    [Fact]
+    public void ExpirePendingAppointmentsJob_UsesItsOwnInterval()
+    {
+        var intervals = new WorkerIntervalsOptions
+        {
+            ExpirePendingAppointments = TimeSpan.FromMinutes(5),
+            GenerateAvailabilityBlocks = TimeSpan.FromHours(24)
+        };
+        var job = new ExpirePendingAppointmentsJob(
+            new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            Microsoft.Extensions.Options.Options.Create(new WorkerOptions()),
+            Serilog.Core.Logger.None);
+
+        var interval = typeof(ExpirePendingAppointmentsJob)
+            .GetMethod("GetInterval", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(job, [intervals]);
+
+        interval.ShouldBe(TimeSpan.FromMinutes(5));
+    }
 }
