@@ -23,6 +23,15 @@ public sealed class SchedulingOptions
     /// <summary>Regla de cancelación del médico con poco aviso, con los valores de esta configuración.</summary>
     public ShortNoticeCancellation ToShortNoticeCancellation() =>
         new(DoctorLateCancellationThresholdHours, DoctorLateCancellationMinimumWords);
+
+    /// <summary>
+    /// Plazos y regla de poco aviso que deciden las acciones permitidas de una cita, con los valores de esta
+    /// configuración.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Si alguno de los plazos configurados no es positivo.</exception>
+    public AppointmentRules ToAppointmentRules() =>
+        new(PatientCancellationDeadlineHours, PatientRescheduleDeadlineHours, ConfirmationDeadlineHours,
+            ToShortNoticeCancellation());
 }
 
 public sealed class SchedulingOptionsValidator : IValidateOptions<SchedulingOptions>

@@ -68,7 +68,7 @@ internal sealed class PatientAppointmentHistoryReader(AppDbContext context, IOpt
     }
 
     /// <inheritdoc />
-    public async Task<PatientAppointmentDetailDto?> GetAsync(
+    public async Task<PatientAppointmentDetailData?> GetAsync(
         int patientId, int appointmentId, CancellationToken cancellationToken)
     {
         var calendar = BusinessCalendar.ForTimeZone(options.Value.TimeZone);
@@ -77,7 +77,7 @@ internal sealed class PatientAppointmentHistoryReader(AppDbContext context, IOpt
             .Where(appointment => appointment.PatientId == patientId && appointment.Id == appointmentId);
         var row = await ProjectRows(JoinAppointments(owned)).SingleOrDefaultAsync(cancellationToken);
 
-        return row is null ? null : ToDetailDto(row, calendar);
+        return row is null ? null : ToDetailData(row, calendar);
     }
 
     // El médico y la especialidad se unen por clave para que la lectura traiga todo en una sola consulta.
@@ -135,13 +135,13 @@ internal sealed class PatientAppointmentHistoryReader(AppDbContext context, IOpt
     }
 
     // El motivo de estado solo tiene sentido en citas canceladas o rechazadas.
-    private static PatientAppointmentDetailDto ToDetailDto(HistoryRow row, BusinessCalendar calendar)
+    private static PatientAppointmentDetailData ToDetailData(HistoryRow row, BusinessCalendar calendar)
     {
         var statusReason = row.Status is AppointmentStatus.Cancelled or AppointmentStatus.Rejected
             ? row.StatusReason
             : null;
 
-        return new PatientAppointmentDetailDto(ToDto(row, calendar), row.ReasonForVisit, statusReason);
+        return new PatientAppointmentDetailData(ToDto(row, calendar), row.ReasonForVisit, statusReason);
     }
 
     private sealed record AppointmentJoin

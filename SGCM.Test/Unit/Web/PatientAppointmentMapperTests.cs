@@ -11,6 +11,9 @@ namespace SGCM.Test.Unit.Web;
 public sealed class PatientAppointmentMapperTests
 {
     private const string EmptyListMessage = "No tienes citas registradas.";
+    private const int ConfirmationHours = 48;
+
+    private static readonly AllowedAppointmentActions NoActions = new([], false, null, null);
 
     private static readonly DateOnly From = new(2027, 1, 1);
     private static readonly DateOnly To = new(2027, 3, 1);
@@ -125,11 +128,70 @@ public sealed class PatientAppointmentMapperTests
     {
         var appointment = CreateAppointment(4, AppointmentStatus.Cancelled);
 
-        var response = new PatientAppointmentDetailDto(appointment, reasonForVisit, statusReason).ToResponse();
+        var response = new PatientAppointmentDetailDto(appointment, reasonForVisit, statusReason, NoActions).ToResponse();
 
         response.Appointment.ShouldBe(appointment.ToResponse());
         response.ReasonForVisit.ShouldBe(reasonForVisit);
         response.StatusReason.ShouldBe(statusReason);
+    }
+
+    [Fact]
+    public void ToResponse_del_detalle_convierte_cada_accion_a_su_texto_en_camelCase_en_el_mismo_orden()
+    {
+        var allowed = new AllowedAppointmentActions(
+            [
+                AppointmentAction.Cancel, AppointmentAction.Reschedule, AppointmentAction.ChangeDoctor,
+                AppointmentAction.Confirm, AppointmentAction.Reject, AppointmentAction.Extend, AppointmentAction.Complete
+            ],
+            false, null, null);
+
+        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed)
+            .ToResponse();
+
+        response.AllowedActions.ShouldBe(new[]
+        {
+            "cancel", "reschedule", "changeDoctor", "confirm", "reject", "extend", "complete"
+        });
+    }
+
+    [Fact]
+    public void ToResponse_del_detalle_no_convierte_acciones_no_definidas()
+    {
+        var allowed = new AllowedAppointmentActions([(AppointmentAction)int.MaxValue], false, null, null);
+        var detail = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed);
+
+        Should.Throw<ArgumentOutOfRangeException>(() => detail.ToResponse());
+    }
+
+    [Theory]
+    [InlineData(1440, 24)]
+    [InlineData(119, 1)]
+    [InlineData(90, 1)]
+    [InlineData(0, 0)]
+    public void ToResponse_del_detalle_redondea_hacia_abajo_los_minutos_que_faltan_para_confirmar(
+        int seconds, int expectedMinutes)
+    {
+        var deadline = StartsAt.AddHours(-ConfirmationHours);
+        var allowed = new AllowedAppointmentActions([], false, deadline, TimeSpan.FromSeconds(seconds));
+
+        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed)
+            .ToResponse();
+
+        response.ConfirmationDeadline.ShouldBe(deadline);
+        response.MinutesUntilConfirmationDeadline.ShouldBe(expectedMinutes);
+    }
+
+    [Fact]
+    public void ToResponse_del_detalle_sin_plazo_de_confirmacion_deja_ambos_datos_nulos()
+    {
+        var allowed = new AllowedAppointmentActions([], false, null, null);
+
+        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Confirmed), null, null, allowed)
+            .ToResponse();
+
+        response.ConfirmationDeadline.ShouldBeNull();
+        response.MinutesUntilConfirmationDeadline.ShouldBeNull();
+        response.AllowedActions.ShouldBeEmpty();
     }
 
     [Fact]

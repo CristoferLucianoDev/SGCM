@@ -17,6 +17,8 @@ public static class AppointmentMother
     public const int DurationHours = 2;
     public const string Reason = "Dolor de cabeza frecuente";
     public const int PatientCancellationDeadlineHours = 24;
+    public const int PatientRescheduleDeadlineHours = 48;
+    public const int ConfirmationDeadlineHours = 48;
     public const int ShortNoticeThresholdHours = 6;
     public const int ShortNoticeMinimumWords = 30;
 
@@ -31,6 +33,10 @@ public static class AppointmentMother
 
     /// <summary>Regla de la cancelación del médico con poco aviso, con los valores de la configuración de pruebas.</summary>
     public static readonly ShortNoticeCancellation ShortNotice = new(ShortNoticeThresholdHours, ShortNoticeMinimumWords);
+
+    /// <summary>Plazos y regla de poco aviso con los valores de la configuración de pruebas.</summary>
+    public static readonly AppointmentRules Rules = new(
+        PatientCancellationDeadlineHours, PatientRescheduleDeadlineHours, ConfirmationDeadlineHours, ShortNotice);
 
     public static Result<Appointment> Request(
         DateTimeOffset? startsAt = null,

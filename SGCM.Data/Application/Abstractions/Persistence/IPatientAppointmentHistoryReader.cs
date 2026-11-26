@@ -44,7 +44,7 @@ public interface IPatientAppointmentHistoryReader
     /// La cita solo si pertenece al paciente, con la fecha y las horas en la zona local de la agenda y el motivo de
     /// estado únicamente para citas canceladas o rechazadas; <c>null</c> si no existe o es de otro paciente.
     /// </returns>
-    Task<PatientAppointmentDetailDto?> GetAsync(
+    Task<PatientAppointmentDetailData?> GetAsync(
         int patientId,
         int appointmentId,
         CancellationToken cancellationToken);

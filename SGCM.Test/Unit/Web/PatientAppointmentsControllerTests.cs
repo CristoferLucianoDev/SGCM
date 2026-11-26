@@ -25,6 +25,10 @@ public sealed class PatientAppointmentsControllerTests
     private const int PageNumber = 2;
     private const int PageSize = 50;
     private const int TotalCount = 120;
+    private const int ConfirmationHours = 48;
+    private const int HoursLeftToConfirm = 24;
+
+    private static readonly TimeSpan HoursLeft = TimeSpan.FromHours(HoursLeftToConfirm);
 
     private static readonly DateOnly From = new(2027, 1, 1);
     private static readonly DateOnly To = new(2027, 3, 1);
@@ -78,14 +82,23 @@ public sealed class PatientAppointmentsControllerTests
     public async Task Get_pasa_el_id_y_el_token_al_handler_y_responde_200_con_el_detalle()
     {
         using var cancellation = new CancellationTokenSource();
-        var detail = new PatientAppointmentDetailDto(CreateAppointment(AppointmentStatus.Rejected), "Dolor", "Sin cupo");
+        var allowed = new AllowedAppointmentActions(
+            [AppointmentAction.Cancel, AppointmentAction.ChangeDoctor], false, StartsAt.AddHours(-ConfirmationHours), HoursLeft);
+        var detail = new PatientAppointmentDetailDto(
+            CreateAppointment(AppointmentStatus.Rejected), "Dolor", "Sin cupo", allowed);
         _getHandler.HandleAsync(Arg.Any<GetPatientAppointmentDetailQuery>(), Arg.Any<CancellationToken>())
             .Returns(Result<PatientAppointmentDetailDto>.Success(detail));
 
         var result = await new PatientAppointmentsController().Get(AppointmentId, _getHandler, cancellation.Token);
 
         var ok = result.ShouldBeOfType<OkObjectResult>();
-        ok.Value.ShouldBe(detail.ToResponse());
+        var response = ok.Value.ShouldBeOfType<PatientAppointmentDetailResponse>();
+        response.Appointment.ShouldBe(CreateAppointment(AppointmentStatus.Rejected).ToResponse());
+        response.ReasonForVisit.ShouldBe("Dolor");
+        response.StatusReason.ShouldBe("Sin cupo");
+        response.AllowedActions.ShouldBe(new[] { "cancel", "changeDoctor" });
+        response.ConfirmationDeadline.ShouldBe(StartsAt.AddHours(-ConfirmationHours));
+        response.MinutesUntilConfirmationDeadline.ShouldBe((int)HoursLeft.TotalMinutes);
         await _getHandler.Received(1).HandleAsync(new GetPatientAppointmentDetailQuery(AppointmentId), cancellation.Token);
     }
 

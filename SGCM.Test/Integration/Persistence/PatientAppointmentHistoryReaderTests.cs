@@ -269,7 +269,7 @@ public sealed class PatientAppointmentHistoryReaderTests(PostgresFixture databas
             .ListAsync(patientId, status, from, to, pageNumber, pageSize, CancellationToken.None);
     }
 
-    private async Task<PatientAppointmentDetailDto?> GetAsync(int patientId, int appointmentId)
+    private async Task<PatientAppointmentDetailData?> GetAsync(int patientId, int appointmentId)
     {
         await using var context = CreateContext();
         var options = Options.Create(new SchedulingOptions { TimeZone = TimeZone });

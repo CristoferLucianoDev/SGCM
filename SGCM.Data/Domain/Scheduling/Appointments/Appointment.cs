@@ -122,8 +122,7 @@ public sealed class Appointment : AggregateRoot
         if (cancelledBy is not (AppointmentCanceller.Patient or AppointmentCanceller.Doctor))
             throw new ArgumentOutOfRangeException(nameof(cancelledBy));
 
-        if (Status is not (AppointmentStatus.Pending or AppointmentStatus.Confirmed))
-            return AppointmentErrors.InvalidTransition;
+        if (!IsActive()) return AppointmentErrors.InvalidTransition;
 
         var validated = cancelledBy == AppointmentCanceller.Patient
             ? ValidatePatientCancellation(reason, now, patientCancellationDeadlineHours)
@@ -139,10 +138,97 @@ public sealed class Appointment : AggregateRoot
 
     private Result<StatusReasonValue?> ValidatePatientCancellation(string? reason, DateTimeOffset now, int deadlineHours)
     {
-        if (now > StartsAt.AddHours(-deadlineHours)) return AppointmentErrors.CancellationDeadlinePassed;
+        if (!IsWithinDeadline(now, deadlineHours)) return AppointmentErrors.CancellationDeadlinePassed;
 
         return StatusReasonValue.CreateOptional(reason);
     }
+
+    /// <summary>
+    /// Calcula qué acciones tiene disponibles quien consulta la cita en ese instante, y los datos que las acompañan.
+    /// Solo decide la disponibilidad: ejecutar cada acción es responsabilidad de su propio método.
+    /// </summary>
+    /// <param name="viewer">Quién consulta la cita.</param>
+    /// <param name="now">Instante actual, que se compara con los plazos.</param>
+    /// <param name="rules">Plazos y regla de poco aviso de la configuración.</param>
+    /// <returns>Las acciones en el orden de <see cref="AppointmentAction"/> y los datos de plazo.</returns>
+    /// <exception cref="ArgumentNullException">Si <paramref name="rules"/> es nulo.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Si <paramref name="viewer"/> no es válido.</exception>
+    public AllowedAppointmentActions GetAllowedActions(
+        AppointmentParticipant viewer, DateTimeOffset now, AppointmentRules rules)
+    {
+        ArgumentNullException.ThrowIfNull(rules);
+
+        var actions = viewer switch
+        {
+            AppointmentParticipant.Patient => PatientActions(now, rules),
+            AppointmentParticipant.Doctor => DoctorActions(now, rules),
+            _ => throw new ArgumentOutOfRangeException(nameof(viewer))
+        };
+        var requiresExtendedReason = viewer == AppointmentParticipant.Doctor
+            && actions.Contains(AppointmentAction.Cancel)
+            && rules.ShortNotice.AppliesTo(StartsAt, now);
+        var (deadline, remaining) = ConfirmationWindow(now, rules);
+
+        return new AllowedAppointmentActions(actions, requiresExtendedReason, deadline, remaining);
+    }
+
+    // Se agregan en el orden de AppointmentAction para que la lista salga ya ordenada.
+    private List<AppointmentAction> PatientActions(DateTimeOffset now, AppointmentRules rules)
+    {
+        var actions = new List<AppointmentAction>();
+        if (!IsActive()) return actions;
+
+        if (IsWithinDeadline(now, rules.PatientCancellationDeadlineHours)) actions.Add(AppointmentAction.Cancel);
+        if (IsWithinDeadline(now, rules.PatientRescheduleDeadlineHours))
+        {
+            actions.Add(AppointmentAction.Reschedule);
+            actions.Add(AppointmentAction.ChangeDoctor);
+        }
+
+        return actions;
+    }
+
+    private List<AppointmentAction> DoctorActions(DateTimeOffset now, AppointmentRules rules)
+    {
+        var actions = new List<AppointmentAction>();
+        if (IsActive()) actions.Add(AppointmentAction.Cancel);
+        if (IsActive() && now < StartsAt) actions.Add(AppointmentAction.Reschedule);
+        if (IsAwaitingConfirmation(now, rules))
+        {
+            actions.Add(AppointmentAction.Confirm);
+            actions.Add(AppointmentAction.Reject);
+        }
+
+        if (IsInProgress(now))
+        {
+            actions.Add(AppointmentAction.Extend);
+            actions.Add(AppointmentAction.Complete);
+        }
+
+        return actions;
+    }
+
+    private bool IsAwaitingConfirmation(DateTimeOffset now, AppointmentRules rules) =>
+        Status == AppointmentStatus.Pending && IsWithinDeadline(now, rules.ConfirmationDeadlineHours);
+
+    private bool IsInProgress(DateTimeOffset now) =>
+        Status == AppointmentStatus.Confirmed && StartsAt <= now && now < EndsAt;
+
+    private (DateTimeOffset? Deadline, TimeSpan? Remaining) ConfirmationWindow(DateTimeOffset now, AppointmentRules rules)
+    {
+        if (Status != AppointmentStatus.Pending) return (null, null);
+
+        var deadline = StartsAt.AddHours(-rules.ConfirmationDeadlineHours);
+        var remaining = deadline - now;
+
+        return (deadline, remaining < TimeSpan.Zero ? TimeSpan.Zero : remaining);
+    }
+
+    // Activa es la cita pendiente o confirmada: las demás están en un estado final.
+    private bool IsActive() => Status is AppointmentStatus.Pending or AppointmentStatus.Confirmed;
+
+    // El plazo se cumple hasta el instante límite inclusive: StartsAt menos las horas de antelación exigidas.
+    private bool IsWithinDeadline(DateTimeOffset now, int deadlineHours) => now <= StartsAt.AddHours(-deadlineHours);
 
     private Result<StatusReasonValue?> ValidateDoctorCancellation(
         string? reason, DateTimeOffset now, ShortNoticeCancellation shortNotice)

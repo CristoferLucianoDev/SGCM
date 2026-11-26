@@ -21,6 +21,9 @@ public sealed class PatientAppointmentHistoryTests(PostgresFixture database) : A
     private const string DoctorFullName = "Luis Pérez";
     private const string EmptyListMessage = "No tienes citas registradas.";
     private const string StatusReason = "No puedo asistir ese día";
+    private const string CancelAction = "cancel";
+    private const string RescheduleAction = "reschedule";
+    private const string ChangeDoctorAction = "changeDoctor";
     private const int PastDays = 5;
     private const int RecentPastDays = 2;
     private const int FutureDays = 3;
@@ -161,6 +164,33 @@ public sealed class PatientAppointmentHistoryTests(PostgresFixture database) : A
         using var response = await patient.Client.GetAsync($"{PatientAppointmentsUrl}?status={NotDefinedStatus}");
 
         await response.ShouldHaveStatusAsync(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task El_detalle_de_una_cita_pendiente_a_diez_dias_trae_cancelar_reprogramar_y_cambiar_de_medico()
+    {
+        var doctor = await SeedDoctorAsync();
+        var patient = await SeedPatientAsync();
+        var appointmentId = await SeedAppointmentAsync(doctor, patient, Pending, At(DaysAhead));
+
+        var detail = await GetDetailAsync(patient, appointmentId);
+
+        detail.AllowedActions.ShouldBe(new[] { CancelAction, RescheduleAction, ChangeDoctorAction });
+        detail.ConfirmationDeadline.ShouldNotBeNull();
+        detail.MinutesUntilConfirmationDeadline.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task El_detalle_de_una_cita_pendiente_a_menos_de_24_horas_no_trae_acciones()
+    {
+        var doctor = await SeedDoctorAsync();
+        var patient = await SeedPatientAsync();
+        var appointmentId = await SeedAppointmentAsync(doctor, patient, Pending, PastDeadlineStart());
+
+        var detail = await GetDetailAsync(patient, appointmentId);
+
+        detail.AllowedActions.ShouldBeEmpty();
+        detail.MinutesUntilConfirmationDeadline.ShouldBe(0);
     }
 
     [Fact]

@@ -1,12 +1,15 @@
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Application.Abstractions.Security;
+using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.Scheduling.Appointments;
+using SGCM.Test.Common.Fakes;
 using SGCM.Test.Common.Mothers;
 using Shouldly;
 
@@ -19,10 +22,15 @@ public sealed class GetPatientAppointmentDetailQueryHandlerTests
     private const int AppointmentId = 7;
     private const int DoctorId = 3;
     private const int SpecialtyId = 5;
+    private const int HoursBeforeStart = 72;
+    private const int ExpectedHoursLeftToConfirm = HoursBeforeStart - AppointmentMother.ConfirmationDeadlineHours;
 
     private readonly ICurrentUser _currentUser = Substitute.For<ICurrentUser>();
     private readonly IPatientRepository _patients = Substitute.For<IPatientRepository>();
     private readonly IPatientAppointmentHistoryReader _reader = Substitute.For<IPatientAppointmentHistoryReader>();
+    private readonly IAppointmentRepository _appointments = Substitute.For<IAppointmentRepository>();
+    private readonly FakeDateTimeProvider _clock = new();
+    private readonly Appointment _appointment = AppointmentMother.InStatus(AppointmentStatus.Pending);
 
     public GetPatientAppointmentDetailQueryHandlerTests()
     {
@@ -32,21 +40,56 @@ public sealed class GetPatientAppointmentDetailQueryHandlerTests
         var patient = PatientMother.WithRequiredData(UserId);
         typeof(Entity).GetProperty(nameof(Entity.Id))!.SetValue(patient, PatientId);
         _patients.GetByUserIdAsync(UserId, Arg.Any<CancellationToken>()).Returns(patient);
+        _appointments.GetByIdAsync(AppointmentId, Arg.Any<CancellationToken>()).Returns(_appointment);
+        _clock.UtcNow = _appointment.StartsAt.AddHours(-HoursBeforeStart);
     }
 
     [Fact]
     public async Task Devuelve_el_detalle_del_lector_con_el_paciente_autenticado_la_cita_y_el_token()
     {
         using var cancellation = new CancellationTokenSource();
-        var detail = CreateDetail();
-        _reader.GetAsync(PatientId, AppointmentId, cancellation.Token).Returns(detail);
+        var data = CreateData();
+        _reader.GetAsync(PatientId, AppointmentId, cancellation.Token).Returns(data);
 
         var result = await CreateHandler().HandleAsync(
             new GetPatientAppointmentDetailQuery(AppointmentId), cancellation.Token);
 
         result.IsSuccess.ShouldBeTrue();
-        result.Value.ShouldBeSameAs(detail);
+        result.Value.Appointment.ShouldBeSameAs(data.Appointment);
+        result.Value.ReasonForVisit.ShouldBe(data.ReasonForVisit);
+        result.Value.StatusReason.ShouldBe(data.StatusReason);
         await _reader.Received(1).GetAsync(PatientId, AppointmentId, cancellation.Token);
+        await _appointments.Received(1).GetByIdAsync(AppointmentId, cancellation.Token);
+    }
+
+    [Fact]
+    public async Task Las_acciones_calculadas_por_la_cita_llegan_al_resultado()
+    {
+        _reader.GetAsync(PatientId, AppointmentId, Arg.Any<CancellationToken>()).Returns(CreateData());
+
+        var result = await CreateHandler().HandleAsync(
+            new GetPatientAppointmentDetailQuery(AppointmentId), CancellationToken.None);
+
+        var actions = result.Value.AllowedActions;
+        actions.Actions.ShouldBe(new[]
+        {
+            AppointmentAction.Cancel, AppointmentAction.Reschedule, AppointmentAction.ChangeDoctor
+        });
+        actions.RequiresExtendedCancellationReason.ShouldBeFalse();
+        actions.ConfirmationDeadline.ShouldBe(_appointment.StartsAt.AddHours(-AppointmentMother.ConfirmationDeadlineHours));
+        actions.TimeUntilConfirmationDeadline.ShouldBe(TimeSpan.FromHours(ExpectedHoursLeftToConfirm));
+    }
+
+    [Fact]
+    public async Task Si_la_cita_desaparece_entre_las_dos_lecturas_responde_que_no_existe()
+    {
+        _reader.GetAsync(PatientId, AppointmentId, Arg.Any<CancellationToken>()).Returns(CreateData());
+        _appointments.GetByIdAsync(AppointmentId, Arg.Any<CancellationToken>()).Returns((Appointment?)null);
+
+        var result = await CreateHandler().HandleAsync(
+            new GetPatientAppointmentDetailQuery(AppointmentId), CancellationToken.None);
+
+        result.Error.ShouldBe(AppointmentErrors.NotFound);
     }
 
     [Fact]
@@ -96,21 +139,23 @@ public sealed class GetPatientAppointmentDetailQueryHandlerTests
 
         result.Error.ShouldBe(PatientErrors.ProfileNotFound);
         _reader.ReceivedCalls().ShouldBeEmpty();
+        _appointments.ReceivedCalls().ShouldBeEmpty();
     }
 
     [Fact]
     public async Task Si_el_lector_no_devuelve_la_cita_responde_que_no_existe()
     {
         _reader.GetAsync(PatientId, AppointmentId, Arg.Any<CancellationToken>())
-            .Returns((PatientAppointmentDetailDto?)null);
+            .Returns((PatientAppointmentDetailData?)null);
 
         var result = await CreateHandler().HandleAsync(
             new GetPatientAppointmentDetailQuery(AppointmentId), CancellationToken.None);
 
         result.Error.ShouldBe(AppointmentErrors.NotFound);
+        _appointments.ReceivedCalls().ShouldBeEmpty();
     }
 
-    private static PatientAppointmentDetailDto CreateDetail()
+    private static PatientAppointmentDetailData CreateData()
     {
         var startsAt = new DateTimeOffset(2027, 1, 12, 13, 0, 0, TimeSpan.Zero);
         var appointment = new PatientAppointmentDto(
@@ -126,15 +171,26 @@ public sealed class GetPatientAppointmentDetailQueryHandlerTests
             "Cardiología",
             AppointmentStatus.Pending);
 
-        return new PatientAppointmentDetailDto(appointment, "Dolor de cabeza", null);
+        return new PatientAppointmentDetailData(appointment, "Dolor de cabeza", null);
     }
 
     private void AssertNothingQueried()
     {
         _patients.ReceivedCalls().ShouldBeEmpty();
         _reader.ReceivedCalls().ShouldBeEmpty();
+        _appointments.ReceivedCalls().ShouldBeEmpty();
     }
 
     private GetPatientAppointmentDetailQueryHandler CreateHandler() =>
-        new(_currentUser, _patients, _reader, new GetPatientAppointmentDetailQueryValidator());
+        new(_currentUser, _patients, _reader, _appointments, _clock, CreateOptions(),
+            new GetPatientAppointmentDetailQueryValidator());
+
+    private static IOptions<SchedulingOptions> CreateOptions() => Options.Create(new SchedulingOptions
+    {
+        PatientCancellationDeadlineHours = AppointmentMother.PatientCancellationDeadlineHours,
+        PatientRescheduleDeadlineHours = AppointmentMother.PatientRescheduleDeadlineHours,
+        ConfirmationDeadlineHours = AppointmentMother.ConfirmationDeadlineHours,
+        DoctorLateCancellationThresholdHours = AppointmentMother.ShortNoticeThresholdHours,
+        DoctorLateCancellationMinimumWords = AppointmentMother.ShortNoticeMinimumWords
+    });
 }

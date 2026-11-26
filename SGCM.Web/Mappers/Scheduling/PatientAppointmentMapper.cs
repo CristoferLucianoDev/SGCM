@@ -17,6 +17,13 @@ public static class PatientAppointmentMapper
     private const string RejectedText = "rejected";
     private const string CancelledText = "cancelled";
     private const string CompletedText = "completed";
+    private const string CancelActionText = "cancel";
+    private const string RescheduleActionText = "reschedule";
+    private const string ChangeDoctorActionText = "changeDoctor";
+    private const string ConfirmActionText = "confirm";
+    private const string RejectActionText = "reject";
+    private const string ExtendActionText = "extend";
+    private const string CompleteActionText = "complete";
 
     /// <summary>
     /// Convierte los parámetros del historial en la consulta; el filtro de estado pasa al estado del dominio
@@ -82,17 +89,26 @@ public static class PatientAppointmentMapper
     }
 
     /// <summary>
-    /// Copia el detalle al contrato HTTP conservando los dos motivos, incluso si son nulos.
+    /// Copia el detalle al contrato HTTP conservando los dos motivos, incluso si son nulos, con las acciones
+    /// permitidas en camelCase y el tiempo para confirmar en minutos redondeados hacia abajo.
     /// </summary>
     /// <param name="detail">Detalle que devolvió la consulta.</param>
     /// <returns>El contrato de respuesta.</returns>
     /// <exception cref="ArgumentNullException">Si <paramref name="detail"/> es nulo.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Si alguna acción no es un valor definido.</exception>
     public static PatientAppointmentDetailResponse ToResponse(this PatientAppointmentDetailDto detail)
     {
         ArgumentNullException.ThrowIfNull(detail);
 
+        var allowed = detail.AllowedActions;
+
         return new PatientAppointmentDetailResponse(
-            detail.Appointment.ToResponse(), detail.ReasonForVisit, detail.StatusReason);
+            detail.Appointment.ToResponse(),
+            detail.ReasonForVisit,
+            detail.StatusReason,
+            allowed.Actions.Select(ToActionText).ToArray(),
+            allowed.ConfirmationDeadline,
+            allowed.TimeUntilConfirmationDeadline is { } remaining ? (int)Math.Floor(remaining.TotalMinutes) : null);
     }
 
     private static AppointmentStatus ToDomainStatus(AppointmentStatusFilter filter) => filter switch
@@ -104,6 +120,18 @@ public static class PatientAppointmentMapper
         AppointmentStatusFilter.Completed => AppointmentStatus.Completed,
         _ => throw new ArgumentOutOfRangeException(
             nameof(ListPatientAppointmentsRequest.Status), filter, "El estado no es válido.")
+    };
+
+    private static string ToActionText(AppointmentAction action) => action switch
+    {
+        AppointmentAction.Cancel => CancelActionText,
+        AppointmentAction.Reschedule => RescheduleActionText,
+        AppointmentAction.ChangeDoctor => ChangeDoctorActionText,
+        AppointmentAction.Confirm => ConfirmActionText,
+        AppointmentAction.Reject => RejectActionText,
+        AppointmentAction.Extend => ExtendActionText,
+        AppointmentAction.Complete => CompleteActionText,
+        _ => throw new ArgumentOutOfRangeException(nameof(action), action, "La acción no es válida.")
     };
 
     private static string ToStatusText(AppointmentStatus status) => status switch
