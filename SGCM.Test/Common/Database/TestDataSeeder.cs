@@ -154,6 +154,10 @@ internal static class TestDataSeeder
     /// <param name="durationHours">Duración de la cita en horas.</param>
     /// <param name="status">Estado final: pending, confirmed, rejected, cancelled o completed.</param>
     /// <param name="statusReason">Motivo que se guarda en la última transición; <c>null</c> si no hay.</param>
+    /// <param name="reasonForVisit">
+    /// Motivo de consulta que se guarda en el INSERT inicial, antes de las transiciones, porque el trigger T2 no deja
+    /// modificar una cita en estado final; <c>null</c> si no hay.
+    /// </param>
     /// <returns>El id de la cita creada.</returns>
     /// <exception cref="ArgumentOutOfRangeException">Si el estado no está soportado; no se inserta nada.</exception>
     public static async Task<int> InsertAppointmentInStatusAsync(
@@ -164,7 +168,8 @@ internal static class TestDataSeeder
         DateTimeOffset startsAtUtc,
         int durationHours,
         string status,
-        string? statusReason = null)
+        string? statusReason = null,
+        string? reasonForVisit = null)
     {
         // Se calculan las transiciones antes de insertar para que un estado no soportado no deje filas a medias.
         var insertedAs = status == ConfirmedStatus ? ConfirmedStatus : PendingStatus;
@@ -178,8 +183,9 @@ internal static class TestDataSeeder
         var endsAtUtc = startsAtUtc.AddHours(durationHours);
         var appointmentId = (await context.Database.SqlQuery<int>(
             $"""
-            INSERT INTO scheduling.appointment (patient_id, doctor_id, specialty_id, starts_at, ends_at, status)
-            VALUES ({patientId}, {doctorId}, {specialtyId}, {startsAtUtc}, {endsAtUtc}, {insertedAs})
+            INSERT INTO scheduling.appointment
+                (patient_id, doctor_id, specialty_id, starts_at, ends_at, status, reason_for_visit)
+            VALUES ({patientId}, {doctorId}, {specialtyId}, {startsAtUtc}, {endsAtUtc}, {insertedAs}, {reasonForVisit})
             RETURNING id AS "Value"
             """).ToListAsync()).Single();
 
