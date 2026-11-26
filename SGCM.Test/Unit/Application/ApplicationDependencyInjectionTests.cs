@@ -1188,6 +1188,26 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public void AppointmentConfirmedEvent_incluye_el_manejador_que_envia_la_notificacion()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentConfirmedEvent>>()
+            .Select(handler => handler.GetType()).ShouldContain(typeof(SendAppointmentConfirmedNotification));
+    }
+
+    [Fact]
+    public void AppointmentRejectedEvent_incluye_el_manejador_que_envia_la_notificacion()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentRejectedEvent>>()
+            .Select(handler => handler.GetType()).ShouldContain(typeof(SendAppointmentRejectedNotification));
+    }
+
+    [Fact]
     public void AppointmentCancelledEvent_tiene_un_solo_manejador_que_envia_la_notificacion()
     {
         using var provider = BuildProvider();
