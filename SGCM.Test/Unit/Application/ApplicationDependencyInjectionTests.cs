@@ -1211,6 +1211,19 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public void El_acceso_a_la_cita_del_medico_se_resuelve_por_scope()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var access = first.ServiceProvider.GetRequiredService<DoctorAppointmentAccess>();
+
+        access.ShouldBeSameAs(first.ServiceProvider.GetRequiredService<DoctorAppointmentAccess>());
+        access.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<DoctorAppointmentAccess>());
+    }
+
+    [Fact]
     public void El_cancelador_de_citas_afectadas_se_resuelve_por_scope()
     {
         using var provider = BuildProvider();

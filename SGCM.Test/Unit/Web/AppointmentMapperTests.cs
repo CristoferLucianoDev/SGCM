@@ -1,5 +1,6 @@
 using SGCM.Data.Application.Scheduling.Commands.CancelAppointment;
 using SGCM.Data.Application.Scheduling.Commands.CancelAppointmentByDoctor;
+using SGCM.Data.Application.Scheduling.Commands.RejectAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorAssignment;
 using SGCM.Web.Contracts.Scheduling;
@@ -62,6 +63,20 @@ public sealed class AppointmentMapperTests
         Should.Throw<ArgumentNullException>(() => ((RequestedAppointmentDto)null!).ToResponse());
         Should.Throw<ArgumentNullException>(() => ((CancelAppointmentRequest)null!).ToCommand(1));
         Should.Throw<ArgumentNullException>(() => ((CancelAppointmentByDoctorRequest)null!).ToCommand(1));
+        Should.Throw<ArgumentNullException>(() => ((RejectAppointmentRequest)null!).ToCommand(1));
+    }
+
+    [Fact]
+    public void La_solicitud_de_rechazo_se_convierte_en_el_comando_con_el_id_de_la_ruta_y_el_motivo()
+    {
+        new RejectAppointmentRequest("Agenda completa").ToCommand(99)
+            .ShouldBe(new RejectAppointmentCommand(99, "Agenda completa"));
+    }
+
+    [Fact]
+    public void La_solicitud_de_rechazo_sin_motivo_lo_pasa_nulo_para_que_lo_valide_el_caso_de_uso()
+    {
+        new RejectAppointmentRequest().ToCommand(99).ShouldBe(new RejectAppointmentCommand(99, null));
     }
 
     [Fact]
