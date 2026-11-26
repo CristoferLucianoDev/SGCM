@@ -1,11 +1,12 @@
 using SGCM.Data.Application.Common;
+using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
 using SGCM.Data.Domain.Scheduling.Appointments;
 
 namespace SGCM.Data.Application.Abstractions.Persistence;
 
 /// <summary>
-/// Lee el historial paginado de citas de un paciente sin cargar el agregado.
+/// Lee el historial paginado de citas de un paciente y el detalle de una cita suya, sin cargar el agregado.
 /// </summary>
 public interface IPatientAppointmentHistoryReader
 {
@@ -31,5 +32,20 @@ public interface IPatientAppointmentHistoryReader
         DateOnly? to,
         int pageNumber,
         int pageSize,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lee una cita del paciente, en cualquier estado.
+    /// </summary>
+    /// <param name="patientId">Id del paciente, no el de su usuario.</param>
+    /// <param name="appointmentId">Id de la cita.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
+    /// <returns>
+    /// La cita solo si pertenece al paciente, con la fecha y las horas en la zona local de la agenda y el motivo de
+    /// estado únicamente para citas canceladas o rechazadas; <c>null</c> si no existe o es de otro paciente.
+    /// </returns>
+    Task<PatientAppointmentDetailData?> GetAsync(
+        int patientId,
+        int appointmentId,
         CancellationToken cancellationToken);
 }

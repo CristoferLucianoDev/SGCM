@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
@@ -28,6 +29,9 @@ public sealed class PatientAppointmentHistoryReaderTests(PostgresFixture databas
     private const int FirstPageSize = 2;
     private const int SecondPage = 2;
     private const int DayCount = 5;
+    private const int MissingAppointmentOffset = 1000;
+    private const string ReasonForVisit = "Dolor de cabeza persistente";
+    private const string StatusReason = "No puedo asistir ese día";
 
     [Fact]
     public async Task Solo_devuelve_las_citas_del_paciente_pedido_con_medico_especialidad_estado_y_hora_local()
@@ -146,6 +150,89 @@ public sealed class PatientAppointmentHistoryReaderTests(PostgresFixture databas
     }
 
     [Fact]
+    public async Task El_detalle_de_una_cita_pendiente_trae_los_mismos_datos_que_la_lista_y_el_motivo_de_consulta()
+    {
+        await using var context = CreateContext();
+        var doctor = await DoctorPersistenceData.SeedAsync(context, associations: 1);
+        var patient = await InsertPatientAsync(context);
+        var appointmentId = await InsertAppointmentAsync(context, patient, doctor, Utc(2027, 1, 12, 13), "pending");
+        await SetReasonForVisitAsync(context, appointmentId, ReasonForVisit);
+
+        var detail = await GetAsync(patient, appointmentId);
+        var listed = (await ListAsync(patient)).Items.ShouldHaveSingleItem();
+
+        detail.ShouldNotBeNull();
+        detail.Appointment.ShouldBe(listed);
+        detail.ReasonForVisit.ShouldBe(ReasonForVisit);
+        detail.StatusReason.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("cancelled", AppointmentStatus.Cancelled)]
+    [InlineData("rejected", AppointmentStatus.Rejected)]
+    public async Task El_detalle_de_una_cita_cancelada_o_rechazada_trae_el_motivo_de_estado(
+        string status, AppointmentStatus expectedStatus)
+    {
+        await using var context = CreateContext();
+        var doctor = await DoctorPersistenceData.SeedAsync(context, associations: 1);
+        var patient = await InsertPatientAsync(context);
+        var appointmentId = await InsertAppointmentAsync(
+            context, patient, doctor, Utc(2027, 1, 12, 13), status, StatusReason);
+
+        var detail = await GetAsync(patient, appointmentId);
+
+        detail.ShouldNotBeNull();
+        detail.Appointment.Status.ShouldBe(expectedStatus);
+        detail.StatusReason.ShouldBe(StatusReason);
+    }
+
+    [Fact]
+    public async Task El_detalle_de_una_cita_pendiente_sin_motivo_de_consulta_lo_devuelve_nulo()
+    {
+        await using var context = CreateContext();
+        var doctor = await DoctorPersistenceData.SeedAsync(context, associations: 1);
+        var patient = await InsertPatientAsync(context);
+        var appointmentId = await InsertAppointmentAsync(context, patient, doctor, Utc(2027, 1, 12, 13), "pending");
+
+        var detail = await GetAsync(patient, appointmentId);
+
+        detail.ShouldNotBeNull();
+        detail.ReasonForVisit.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("pending", AppointmentStatus.Pending)]
+    [InlineData("confirmed", AppointmentStatus.Confirmed)]
+    public async Task El_detalle_de_una_cita_activa_no_expone_un_motivo_de_estado_guardado(
+        string status, AppointmentStatus expectedStatus)
+    {
+        await using var context = CreateContext();
+        var doctor = await DoctorPersistenceData.SeedAsync(context, associations: 1);
+        var patient = await InsertPatientAsync(context);
+        var appointmentId = await InsertAppointmentAsync(context, patient, doctor, Utc(2027, 1, 12, 13), status);
+        await SetStatusReasonAsync(context, appointmentId, StatusReason);
+
+        var detail = await GetAsync(patient, appointmentId);
+
+        detail.ShouldNotBeNull();
+        detail.Appointment.Status.ShouldBe(expectedStatus);
+        detail.StatusReason.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task El_detalle_de_una_cita_de_otro_paciente_o_inexistente_es_nulo()
+    {
+        await using var context = CreateContext();
+        var doctor = await DoctorPersistenceData.SeedAsync(context, associations: 1);
+        var patient = await InsertPatientAsync(context);
+        var otherPatient = await InsertPatientAsync(context);
+        var appointmentId = await InsertAppointmentAsync(context, patient, doctor, Utc(2027, 1, 12, 13), "pending");
+
+        (await GetAsync(otherPatient, appointmentId)).ShouldBeNull();
+        (await GetAsync(patient, appointmentId + MissingAppointmentOffset)).ShouldBeNull();
+    }
+
+    [Fact]
     public void AddInfrastructure_registra_el_lector_con_alcance_por_solicitud()
     {
         var services = new ServiceCollection();
@@ -182,6 +269,25 @@ public sealed class PatientAppointmentHistoryReaderTests(PostgresFixture databas
             .ListAsync(patientId, status, from, to, pageNumber, pageSize, CancellationToken.None);
     }
 
+    private async Task<PatientAppointmentDetailData?> GetAsync(int patientId, int appointmentId)
+    {
+        await using var context = CreateContext();
+        var options = Options.Create(new SchedulingOptions { TimeZone = TimeZone });
+
+        return await new PatientAppointmentHistoryReader(context, options)
+            .GetAsync(patientId, appointmentId, CancellationToken.None);
+    }
+
+    // El sembrador no escribe el motivo de consulta, así que se completa con una actualización directa.
+    private static Task<int> SetReasonForVisitAsync(AppDbContext context, int appointmentId, string reason) =>
+        context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE scheduling.appointment SET reason_for_visit = {reason} WHERE id = {appointmentId}");
+
+    // El sembrador no escribe el motivo de estado en citas activas, así que se fuerza con una actualización directa.
+    private static Task<int> SetStatusReasonAsync(AppDbContext context, int appointmentId, string reason) =>
+        context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE scheduling.appointment SET status_reason = {reason} WHERE id = {appointmentId}");
+
     private static async Task<int> InsertPatientAsync(AppDbContext context)
     {
         var user = UserMother.WithRole(UserRole.Patient, email: Email.Create($"historial-{Guid.NewGuid():N}@correo.com").Value);
@@ -195,7 +301,12 @@ public sealed class PatientAppointmentHistoryReaderTests(PostgresFixture databas
 
     // El bloque del médico cubre exactamente la cita, para que los bloques de un mismo médico no se crucen.
     private static async Task<int> InsertAppointmentAsync(
-        AppDbContext context, int patientId, DoctorSeed doctor, DateTimeOffset startsAtUtc, string status)
+        AppDbContext context,
+        int patientId,
+        DoctorSeed doctor,
+        DateTimeOffset startsAtUtc,
+        string status,
+        string? statusReason = null)
     {
         await context.Database.ExecuteSqlInterpolatedAsync(
             $"""
@@ -204,7 +315,8 @@ public sealed class PatientAppointmentHistoryReaderTests(PostgresFixture databas
             """);
 
         return await TestDataSeeder.InsertAppointmentInStatusAsync(
-            context, patientId, doctor.DoctorId, doctor.SpecialtyIds[0], startsAtUtc, AppointmentMother.DurationHours, status);
+            context, patientId, doctor.DoctorId, doctor.SpecialtyIds[0], startsAtUtc, AppointmentMother.DurationHours, status,
+            statusReason);
     }
 
     private static Task<string> SpecialtyNameAsync(AppDbContext context, int specialtyId) =>
