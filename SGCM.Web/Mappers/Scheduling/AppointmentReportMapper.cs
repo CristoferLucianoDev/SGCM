@@ -1,5 +1,6 @@
 using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAppointmentReport;
+using SGCM.Data.Application.Scheduling.Queries.GetAppointmentReport;
 using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Data.Domain.Scheduling.Reports;
 using SGCM.Web.Contracts.Scheduling;
@@ -27,20 +28,31 @@ public static class AppointmentReportMapper
     public static GenerateAppointmentReportCommand ToCommand(this GenerateAppointmentReportRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.Type is not { } type)
-            throw new ArgumentException("El tipo de reporte es obligatorio.", nameof(request));
 
-        var criteria = new ReportCriteria(
-            ToDomainType(type),
-            request.From ?? default,
-            request.To ?? default,
-            request.Status is { } status ? ToDomainStatus(status) : null,
-            request.PatientName,
-            request.SpecialtyId,
-            ToDomainSortField(request.SortBy),
-            ToDomainSortDirection(request.SortDirection));
+        var criteria = ToCriteria(
+            request.Type, request.From, request.To, request.Status, request.PatientName, request.SpecialtyId,
+            request.SortBy, request.SortDirection, nameof(request));
 
         return new GenerateAppointmentReportCommand(criteria, request.PageSize);
+    }
+
+    /// <summary>
+    /// Convierte los parámetros del reporte filtrado en la consulta, con las mismas reglas de conversión que
+    /// <see cref="ToCommand"/>, para que filtrar use exactamente los criterios que usaría generar.
+    /// </summary>
+    /// <param name="request">Parámetros recibidos.</param>
+    /// <returns>La consulta de la página pedida.</returns>
+    /// <exception cref="ArgumentNullException">Si <paramref name="request"/> es nulo.</exception>
+    /// <exception cref="ArgumentException">Si falta el tipo, que el modelo de la petición ya exige.</exception>
+    public static GetAppointmentReportQuery ToQuery(this GetAppointmentReportRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var criteria = ToCriteria(
+            request.Type, request.From, request.To, request.Status, request.PatientName, request.SpecialtyId,
+            request.SortBy, request.SortDirection, nameof(request));
+
+        return new GetAppointmentReportQuery(criteria, request.PageNumber, request.PageSize);
     }
 
     /// <summary>
@@ -65,6 +77,33 @@ public static class AppointmentReportMapper
             rows.PageSize,
             rows.TotalCount,
             rows.TotalCount == 0 ? EmptyReportMessage : null);
+    }
+
+    // Las fechas ausentes pasan como valor por defecto y un valor no definido conserva su número, para que los
+    // rechace el validador del caso de uso con su código.
+    private static ReportCriteria ToCriteria(
+        AppointmentReportType? type,
+        DateOnly? from,
+        DateOnly? to,
+        AppointmentStatusFilter? status,
+        string? patientName,
+        int? specialtyId,
+        AppointmentReportSortField sortBy,
+        AppointmentReportSortDirection sortDirection,
+        string parameterName)
+    {
+        if (type is not { } reportType)
+            throw new ArgumentException("El tipo de reporte es obligatorio.", parameterName);
+
+        return new ReportCriteria(
+            ToDomainType(reportType),
+            from ?? default,
+            to ?? default,
+            status is { } value ? ToDomainStatus(value) : null,
+            patientName,
+            specialtyId,
+            ToDomainSortField(sortBy),
+            ToDomainSortDirection(sortDirection));
     }
 
     private static AppointmentReportRowResponse ToResponse(AppointmentReportRow row) =>
