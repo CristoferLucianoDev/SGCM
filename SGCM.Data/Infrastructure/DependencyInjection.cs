@@ -78,6 +78,7 @@ public static class DependencyInjection
         services.AddScoped<IAppointmentRepository, AppointmentRepository>();
         services.AddScoped<IAppointmentReportLogRepository, AppointmentReportLogRepository>();
         services.AddScoped<IMedicalRecordRepository, MedicalRecordRepository>();
+        services.AddScoped<IMedicalRecordAccessLogRepository, MedicalRecordAccessLogRepository>();
         // Un exportador por formato: el caso de uso recibe todos y elige el suyo por ReportFormat.
         services.AddSingleton<IReportExporter, PdfReportExporter>();
         services.AddSingleton<IReportExporter, ExcelReportExporter>();

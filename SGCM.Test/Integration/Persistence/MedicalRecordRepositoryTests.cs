@@ -2,12 +2,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using SGCM.Data.Domain.Clinical.MedicalRecords;
-using SGCM.Data.Domain.Common.ValueObjects;
-using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Infrastructure.Persistence;
 using SGCM.Data.Infrastructure.Persistence.Repositories.Clinical;
 using SGCM.Test.Common.Database;
-using SGCM.Test.Common.Mothers;
 using Shouldly;
 
 namespace SGCM.Test.Integration.Persistence;
@@ -19,16 +16,14 @@ namespace SGCM.Test.Integration.Persistence;
 [Trait("Category", "Integration")]
 public sealed class MedicalRecordRepositoryTests(PostgresFixture database) : IntegrationTestBase(database)
 {
-    // Citas en el pasado: el trigger T5 solo admite registro clínico desde la hora de inicio.
-    private static readonly DateTimeOffset StartsAt = new(2026, 3, 10, 14, 0, 0, TimeSpan.Zero);
-    private static readonly DateTimeOffset RecordedAt = StartsAt.AddMinutes(30);
+    private static readonly DateTimeOffset RecordedAt = ClinicalPersistenceData.PastStartsAt.AddMinutes(30);
     private static readonly DateTimeOffset FutureStartsAt = new(2030, 3, 10, 14, 0, 0, TimeSpan.Zero);
 
     [Fact]
     public async Task Guarda_la_version_en_cada_columna()
     {
         await using var context = CreateContext();
-        var seed = await SeedAppointmentAsync(context, "confirmed");
+        var seed = await ClinicalPersistenceData.SeedAppointmentAsync(context, "confirmed");
         var record = MedicalRecord.Create(
             seed.AppointmentId, seed.PatientId, Content("Faringitis", "Reposo", "Control en 7 días"),
             seed.DoctorUserId, RecordedAt);
@@ -45,7 +40,7 @@ public sealed class MedicalRecordRepositoryTests(PostgresFixture database) : Int
     public async Task Las_partes_vacias_se_guardan_como_null()
     {
         await using var context = CreateContext();
-        var seed = await SeedAppointmentAsync(context, "completed");
+        var seed = await ClinicalPersistenceData.SeedAppointmentAsync(context, "completed");
         var record = MedicalRecord.Create(
             seed.AppointmentId, seed.PatientId, Content(null, null, "Paciente estable"), seed.DoctorUserId, RecordedAt);
 
@@ -61,7 +56,7 @@ public sealed class MedicalRecordRepositoryTests(PostgresFixture database) : Int
     public async Task Corregir_inserta_una_fila_nueva_y_conserva_la_anterior_sin_cambios()
     {
         await using var context = CreateContext();
-        var seed = await SeedAppointmentAsync(context, "confirmed");
+        var seed = await ClinicalPersistenceData.SeedAppointmentAsync(context, "confirmed");
         var original = MedicalRecord.Create(
             seed.AppointmentId, seed.PatientId, Content("Faringitis"), seed.DoctorUserId, RecordedAt);
         await SaveAsync(context, original);
@@ -87,7 +82,7 @@ public sealed class MedicalRecordRepositoryTests(PostgresFixture database) : Int
     public async Task La_vigente_es_la_mas_reciente_y_coincide_con_la_vista()
     {
         await using var context = CreateContext();
-        var seed = await SeedAppointmentAsync(context, "confirmed");
+        var seed = await ClinicalPersistenceData.SeedAppointmentAsync(context, "confirmed");
         var first = MedicalRecord.Create(
             seed.AppointmentId, seed.PatientId, Content("Faringitis"), seed.DoctorUserId, RecordedAt);
         var second = first.Correct(Content("Amigdalitis"), seed.DoctorUserId, RecordedAt.AddHours(1));
@@ -108,8 +103,8 @@ public sealed class MedicalRecordRepositoryTests(PostgresFixture database) : Int
     public async Task Una_cita_sin_registro_no_tiene_version_vigente()
     {
         await using var context = CreateContext();
-        var seed = await SeedAppointmentAsync(context, "confirmed");
-        var other = await SeedAppointmentAsync(context, "confirmed");
+        var seed = await ClinicalPersistenceData.SeedAppointmentAsync(context, "confirmed");
+        var other = await ClinicalPersistenceData.SeedAppointmentAsync(context, "confirmed");
         await SaveAsync(context, MedicalRecord.Create(
             other.AppointmentId, other.PatientId, Content("Gripe"), other.DoctorUserId, RecordedAt));
 
@@ -120,7 +115,7 @@ public sealed class MedicalRecordRepositoryTests(PostgresFixture database) : Int
     public async Task La_base_rechaza_el_registro_de_una_cita_que_aun_no_empieza()
     {
         await using var context = CreateContext();
-        var seed = await SeedAppointmentAsync(context, "confirmed", FutureStartsAt);
+        var seed = await ClinicalPersistenceData.SeedAppointmentAsync(context, "confirmed", FutureStartsAt);
         var record = MedicalRecord.Create(
             seed.AppointmentId, seed.PatientId, Content("Faringitis"), seed.DoctorUserId, RecordedAt);
 
@@ -134,8 +129,8 @@ public sealed class MedicalRecordRepositoryTests(PostgresFixture database) : Int
     public async Task La_base_rechaza_un_paciente_distinto_al_de_la_cita()
     {
         await using var context = CreateContext();
-        var seed = await SeedAppointmentAsync(context, "confirmed");
-        var otherPatientId = await InsertPatientAsync(context);
+        var seed = await ClinicalPersistenceData.SeedAppointmentAsync(context, "confirmed");
+        var otherPatientId = await ClinicalPersistenceData.InsertPatientAsync(context);
         var record = MedicalRecord.Create(
             seed.AppointmentId, otherPatientId, Content("Faringitis"), seed.DoctorUserId, RecordedAt);
 
@@ -176,37 +171,6 @@ public sealed class MedicalRecordRepositoryTests(PostgresFixture database) : Int
         return await new MedicalRecordRepository(context).GetCurrentAsync(appointmentId, CancellationToken.None);
     }
 
-    // El bloque del médico cubre exactamente la cita, como exige el trigger de coherencia de la cita.
-    private static async Task<AppointmentSeed> SeedAppointmentAsync(
-        AppDbContext context, string status, DateTimeOffset? startsAtUtc = null)
-    {
-        var startsAt = startsAtUtc ?? StartsAt;
-        var doctor = await DoctorPersistenceData.SeedAsync(context, associations: 1);
-        var patientId = await InsertPatientAsync(context);
-        await context.Database.ExecuteSqlInterpolatedAsync(
-            $"""
-            INSERT INTO scheduling.doctor_availability (doctor_id, series_id, starts_at, ends_at, is_available)
-            VALUES ({doctor.DoctorId}, NULL, {startsAt}, {startsAt.AddHours(AppointmentMother.DurationHours)}, true)
-            """);
-        var appointmentId = await TestDataSeeder.InsertAppointmentInStatusAsync(
-            context, patientId, doctor.DoctorId, doctor.SpecialtyIds[0], startsAt, AppointmentMother.DurationHours,
-            status);
-
-        return new AppointmentSeed(appointmentId, patientId, doctor.UserId);
-    }
-
-    private static async Task<int> InsertPatientAsync(AppDbContext context)
-    {
-        var user = UserMother.WithRole(
-            UserRole.Patient, email: Email.Create($"registro-{Guid.NewGuid():N}@correo.com").Value);
-        context.Users.Add(user);
-        await context.SaveChangesAsync();
-        await TestDataSeeder.InsertPatientProfileAsync(context, user.Id);
-
-        return await context.Patients.Where(patient => patient.UserId == user.Id)
-            .Select(patient => patient.Id).SingleAsync();
-    }
-
     // Las columnas van en snake_case porque SqlQuery aplica la misma convención de nombres que el contexto.
     private async Task<List<RecordRow>> ReadRowsAsync(int appointmentId)
     {
@@ -229,8 +193,6 @@ public sealed class MedicalRecordRepositoryTests(PostgresFixture database) : Int
             SELECT id AS "Value" FROM clinical.vw_medical_record_current WHERE appointment_id = {appointmentId}
             """).ToListAsync()).Single();
     }
-
-    private sealed record AppointmentSeed(int AppointmentId, int PatientId, int DoctorUserId);
 
     private sealed record RecordRow(
         int Id,
