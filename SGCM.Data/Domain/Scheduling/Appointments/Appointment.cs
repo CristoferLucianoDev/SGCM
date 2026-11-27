@@ -1,5 +1,6 @@
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Scheduling.Appointments.Events;
+using SGCM.Data.Domain.Scheduling.Availability;
 // La propiedad StatusReason de la cita oculta el tipo del mismo nombre dentro de esta clase.
 using StatusReasonValue = SGCM.Data.Domain.Scheduling.Appointments.StatusReason;
 
@@ -19,6 +20,12 @@ public sealed class Appointment : AggregateRoot
 
     /// <summary>Motivo con que se guarda la cita pendiente que el médico no confirmó a tiempo.</summary>
     public const string ExpiredReason = "No confirmada por el médico a tiempo";
+
+    /// <summary>Horas de la ventana de inicio con que se consulta la extensión: solo cabe el fin actual de la cita.</summary>
+    private const int ExtensionStartWindowHours = 1;
+
+    // Los ids reales son positivos y una cita sin guardar tiene Id 0: -1 nunca coincide con una exclusión.
+    private const int UnrelatedIntervalId = -1;
 
     public int PatientId { get; private set; }
 
@@ -235,6 +242,72 @@ public sealed class Appointment : AggregateRoot
         return Result.Success();
     }
 
+    /// <summary>
+    /// Extiende la cita en curso las horas indicadas, si el tramo añadido cabe en un bloque abierto del médico y no
+    /// se cruza con otra cita activa. No emite eventos; ante cualquier error la cita no cambia.
+    /// </summary>
+    /// <param name="additionalHours">Horas que se añaden al fin previsto.</param>
+    /// <param name="now">Instante actual, que decide si la cita está en curso.</param>
+    /// <param name="openBlocks">Bloques abiertos del médico que cubren el tramo; los lee quien llama.</param>
+    /// <param name="otherActiveAppointments">
+    /// Rangos de las demás citas activas del médico; los lee quien llama y no debe incluir esta cita.
+    /// </param>
+    /// <returns>
+    /// Éxito, o <see cref="AppointmentErrors.NotInProgress"/> si no es una cita confirmada en curso, o
+    /// <see cref="AppointmentErrors.ExtensionUnavailable"/> si el nuevo tramo no está libre. Se validan en ese orden.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si las horas no son positivas.</exception>
+    /// <exception cref="ArgumentNullException">Si alguna colección es nula.</exception>
+    public Result Extend(
+        int additionalHours,
+        DateTimeOffset now,
+        IReadOnlyCollection<TimeRange> openBlocks,
+        IReadOnlyCollection<TimeRange> otherActiveAppointments)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(additionalHours);
+        ArgumentNullException.ThrowIfNull(openBlocks);
+        ArgumentNullException.ThrowIfNull(otherActiveAppointments);
+
+        if (!IsInProgress(now)) return AppointmentErrors.NotInProgress;
+        if (!IsExtensionFree(additionalHours, openBlocks, otherActiveAppointments))
+            return AppointmentErrors.ExtensionUnavailable;
+
+        EndsAt = EndsAt.AddHours(additionalHours);
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Termina la cita en curso: queda completada, con la hora actual como fin real, y emite
+    /// <see cref="AppointmentCompletedEvent"/>. Ante cualquier error la cita no cambia ni emite eventos.
+    /// </summary>
+    /// <param name="now">Instante actual, que decide si la cita está en curso y pasa a ser su fin real.</param>
+    /// <returns>
+    /// Éxito, o <see cref="AppointmentErrors.NotInProgress"/> si no es una cita confirmada en curso o si es justo el
+    /// instante de inicio, porque el fin quedaría igual al inicio y la base lo rechaza.
+    /// </returns>
+    public Result Complete(DateTimeOffset now)
+    {
+        if (!CanComplete(now)) return AppointmentErrors.NotInProgress;
+
+        EndsAt = now.ToUniversalTime();
+        Status = AppointmentStatus.Completed;
+        Raise(new AppointmentCompletedEvent(this));
+
+        return Result.Success();
+    }
+
+    // La ventana abarca una sola hora para que el único inicio posible sea el fin actual: así Calculate responde si
+    // el tramo completo [EndsAt, nuevo fin) cabe en UN bloque y está libre, sin duplicar su lógica aquí.
+    private bool IsExtensionFree(
+        int additionalHours, IReadOnlyCollection<TimeRange> openBlocks, IReadOnlyCollection<TimeRange> otherActiveAppointments)
+    {
+        var startWindow = TimeRange.Create(EndsAt, EndsAt.AddHours(ExtensionStartWindowHours)).Value;
+        var blockers = otherActiveAppointments.Select(range => new BookedInterval(UnrelatedIntervalId, range));
+
+        return FreeSlotCalculator.Calculate(openBlocks, blockers, startWindow, additionalHours).Contains(EndsAt);
+    }
+
     // Confirmar y rechazar comparten estado y plazo: se apoya en IsAwaitingConfirmation, la misma regla que usan
     // las acciones permitidas, y solo distingue el error para informar si falló el estado o el plazo.
     private Error ValidateAwaitingConfirmation(DateTimeOffset now, int confirmationDeadlineHours)
@@ -305,7 +378,7 @@ public sealed class Appointment : AggregateRoot
         if (IsInProgress(now))
         {
             actions.Add(AppointmentAction.Extend);
-            actions.Add(AppointmentAction.Complete);
+            if (CanComplete(now)) actions.Add(AppointmentAction.Complete);
         }
 
         return actions;
@@ -316,6 +389,9 @@ public sealed class Appointment : AggregateRoot
 
     private bool IsInProgress(DateTimeOffset now) =>
         Status == AppointmentStatus.Confirmed && StartsAt <= now && now < EndsAt;
+
+    // Terminar justo en el inicio dejaría ends_at igual a starts_at, que la base rechaza.
+    private bool CanComplete(DateTimeOffset now) => IsInProgress(now) && now > StartsAt;
 
     private (DateTimeOffset? Deadline, TimeSpan? Remaining) ConfirmationWindow(DateTimeOffset now, AppointmentRules rules)
     {

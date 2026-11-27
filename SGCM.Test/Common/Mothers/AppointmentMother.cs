@@ -56,8 +56,9 @@ public static class AppointmentMother
 
     /// <summary>
     /// Cita en el estado indicado y sin eventos pendientes. Llega al estado con los métodos del agregado, ejecutados
-    /// con tiempo de sobra respecto de todos los plazos; el rechazo y la cancelación guardan sus motivos. Solo
-    /// Completed usa reflexión, porque el agregado todavía no expone completar; cuando exista, debe reemplazarse.
+    /// con tiempo de sobra respecto de todos los plazos; el rechazo y la cancelación guardan sus motivos. Completed
+    /// usa reflexión a propósito: Complete cambia el fin a la hora real de terminar, y las pruebas de estados finales
+    /// necesitan el horario sembrado (el fin original) para comprobar que no cambia.
     /// </summary>
     /// <param name="status">Estado en el que queda la cita.</param>
     /// <exception cref="InvalidOperationException">Si el agregado rechaza la transición preparada.</exception>

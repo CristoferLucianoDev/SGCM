@@ -69,6 +69,16 @@ public static class AppointmentErrors
     public static readonly Error ConfirmationDeadlineNotReached = Error.Conflict(
         "Appointment.ConfirmationDeadlineNotReached", "La cita todavía está dentro del plazo de confirmación.");
 
+    /// <summary>La cita no es una confirmada en curso, así que el médico no puede extenderla ni terminarla.</summary>
+    public static readonly Error NotInProgress = Error.Conflict(
+        "Appointment.NotInProgress",
+        "Solo se puede extender o terminar una cita confirmada que está en curso.");
+
+    /// <summary>El tramo que se quiere añadir sale del bloque del médico o choca con otra cita activa.</summary>
+    public static readonly Error ExtensionUnavailable = Error.Conflict(
+        "Appointment.ExtensionUnavailable",
+        "La cita no se puede extender: el nuevo fin sale del bloque del médico o choca con otra cita.");
+
     /// <summary>El motivo de la cancelación supera la longitud máxima.</summary>
     public static readonly Error StatusReasonTooLong = Error.Validation(
         "Appointment.StatusReasonTooLong",
