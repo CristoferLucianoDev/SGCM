@@ -1,4 +1,6 @@
 using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Application.Abstractions.Reporting;
+using SGCM.Data.Application.Scheduling.Commands.ExportAppointmentReport;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAppointmentReport;
 using SGCM.Data.Application.Scheduling.Queries.GetAppointmentReport;
 using SGCM.Data.Domain.Scheduling.Appointments;
@@ -79,6 +81,27 @@ public static class AppointmentReportMapper
             rows.TotalCount == 0 ? EmptyReportMessage : null);
     }
 
+    /// <summary>
+    /// Convierte la solicitud de exportación en el comando, con las mismas reglas de conversión de criterios que
+    /// <see cref="ToCommand(GenerateAppointmentReportRequest)"/>, para que el archivo tenga las filas de la pantalla.
+    /// </summary>
+    /// <param name="request">Solicitud recibida.</param>
+    /// <returns>El comando de exportación.</returns>
+    /// <exception cref="ArgumentNullException">Si <paramref name="request"/> es nulo.</exception>
+    /// <exception cref="ArgumentException">Si falta el tipo o el formato, que el modelo de la petición ya exige.</exception>
+    public static ExportAppointmentReportCommand ToCommand(this ExportAppointmentReportRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Format is not { } format)
+            throw new ArgumentException("El formato de exportación es obligatorio.", nameof(request));
+
+        var criteria = ToCriteria(
+            request.Type, request.From, request.To, request.Status, request.PatientName, request.SpecialtyId,
+            request.SortBy, request.SortDirection, nameof(request));
+
+        return new ExportAppointmentReportCommand(criteria, ToDomainFormat(format));
+    }
+
     // Las fechas ausentes pasan como valor por defecto y un valor no definido conserva su número, para que los
     // rechace el validador del caso de uso con su código.
     private static ReportCriteria ToCriteria(
@@ -127,6 +150,14 @@ public static class AppointmentReportMapper
         AppointmentStatusFilter.Cancelled => AppointmentStatus.Cancelled,
         AppointmentStatusFilter.Completed => AppointmentStatus.Completed,
         _ => (AppointmentStatus)(int)status
+    };
+
+    private static ReportFormat ToDomainFormat(AppointmentReportFormat format) => format switch
+    {
+        AppointmentReportFormat.Pdf => ReportFormat.Pdf,
+        AppointmentReportFormat.Xlsx => ReportFormat.Xlsx,
+        AppointmentReportFormat.Docx => ReportFormat.Docx,
+        _ => (ReportFormat)(int)format
     };
 
     private static ReportSortField ToDomainSortField(AppointmentReportSortField field) => field switch
