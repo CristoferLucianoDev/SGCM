@@ -34,6 +34,8 @@ using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RescheduleAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.UpdateAvailabilitySeries;
 using SGCM.Data.Application.Scheduling.Queries.GetAvailabilityBlocks;
+using SGCM.Data.Application.Scheduling.Queries.GetDoctorCalendar;
+using SGCM.Data.Application.Scheduling.Queries.GetDoctorSchedule;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAvailabilityBlocks;
@@ -1305,6 +1307,18 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public void La_agenda_y_el_calendario_del_medico_se_resuelven_por_scope()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<IQueryHandler<GetDoctorScheduleQuery, PagedResult<DoctorScheduleItemDto>>>()
+            .ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<IQueryHandler<GetDoctorCalendarQuery, IReadOnlyList<DoctorScheduleItemDto>>>()
+            .ShouldNotBeNull();
+    }
+
+    [Fact]
     public async Task Una_edicion_de_serie_invalida_se_rechaza_antes_de_abrir_la_transaccion()
     {
         using var provider = BuildProvider();
@@ -1480,6 +1494,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<IPatientAppointmentHistoryReader>());
         services.AddSingleton(Substitute.For<IAppointmentReportReader>());
         services.AddSingleton(Substitute.For<IAppointmentReportLogRepository>());
+        services.AddSingleton(Substitute.For<IDoctorScheduleReader>());
         services.AddSingleton(Options.Create(CreateAvailabilitySeriesCommandMother.Options()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
