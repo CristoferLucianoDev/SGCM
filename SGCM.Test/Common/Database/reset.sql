@@ -6,6 +6,8 @@
 -- en orden de hijas a padres.
 -- Los perfiles no tienen cascada desde el usuario (a propósito, para no perder historial clínico), así que se borran antes.
 -- El trigger de disponibilidad impide borrar bloques con citas activas.
+DELETE FROM clinical.medical_record_access_log;
+DELETE FROM clinical.medical_record;
 DELETE FROM scheduling.appointment_report_log;
 DELETE FROM scheduling.appointment;
 DELETE FROM scheduling.doctor_availability;
