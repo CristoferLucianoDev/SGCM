@@ -296,10 +296,36 @@ public sealed class Appointment : AggregateRoot
         if (!CanComplete(now)) return AppointmentErrors.NotInProgress;
 
         EndsAt = now.ToUniversalTime();
-        Status = AppointmentStatus.Completed;
-        Raise(new AppointmentCompletedEvent(this));
+        MarkCompleted();
 
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Completa la cita confirmada que ya llegó a su fin sin que el médico la cerrara; lo usa el proceso automático.
+    /// El fin previsto se conserva y se emite <see cref="AppointmentCompletedEvent"/>. Ante cualquier error la cita no
+    /// cambia ni emite eventos.
+    /// </summary>
+    /// <param name="now">Instante actual, que se compara con el fin de la cita.</param>
+    /// <returns>
+    /// Éxito, o <see cref="AppointmentErrors.NotConfirmed"/> si la cita no está confirmada, o
+    /// <see cref="AppointmentErrors.NotFinished"/> si todavía no llegó a su fin. Se validan en ese orden.
+    /// </returns>
+    public Result CompleteFinished(DateTimeOffset now)
+    {
+        if (Status != AppointmentStatus.Confirmed) return AppointmentErrors.NotConfirmed;
+        if (!HasReachedEnd(now)) return AppointmentErrors.NotFinished;
+
+        MarkCompleted();
+
+        return Result.Success();
+    }
+
+    // Cambio de estado y evento comunes a las dos formas de completar una cita.
+    private void MarkCompleted()
+    {
+        Status = AppointmentStatus.Completed;
+        Raise(new AppointmentCompletedEvent(this));
     }
 
     // El trigger T3 exige que la cita COMPLETA [StartsAt, nuevo fin) quepa en UN solo bloque, no solo el tramo nuevo.
@@ -397,7 +423,10 @@ public sealed class Appointment : AggregateRoot
         Status == AppointmentStatus.Pending && IsWithinDeadline(now, confirmationDeadlineHours);
 
     private bool IsInProgress(DateTimeOffset now) =>
-        Status == AppointmentStatus.Confirmed && StartsAt <= now && now < EndsAt;
+        Status == AppointmentStatus.Confirmed && StartsAt <= now && !HasReachedEnd(now);
+
+    // El fin se excluye del rango de la cita: en ese instante ya no está en curso y puede completarse sola.
+    private bool HasReachedEnd(DateTimeOffset now) => now >= EndsAt;
 
     // Terminar justo en el inicio dejaría ends_at igual a starts_at, que la base rechaza.
     private bool CanComplete(DateTimeOffset now) => IsInProgress(now) && now > StartsAt;

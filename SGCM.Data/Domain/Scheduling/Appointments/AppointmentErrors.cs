@@ -69,6 +69,14 @@ public static class AppointmentErrors
     public static readonly Error ConfirmationDeadlineNotReached = Error.Conflict(
         "Appointment.ConfirmationDeadlineNotReached", "La cita todavía está dentro del plazo de confirmación.");
 
+    /// <summary>La cita no está confirmada, así que el proceso automático no la completa.</summary>
+    public static readonly Error NotConfirmed = Error.Conflict(
+        "Appointment.NotConfirmed", "Solo se puede completar una cita confirmada.");
+
+    /// <summary>La cita confirmada todavía no llegó a su fin, así que el proceso automático no la completa.</summary>
+    public static readonly Error NotFinished = Error.Conflict(
+        "Appointment.NotFinished", "La cita todavía no termina.");
+
     /// <summary>La cita no es una confirmada en curso, así que el médico no puede extenderla ni terminarla.</summary>
     public static readonly Error NotInProgress = Error.Conflict(
         "Appointment.NotInProgress",

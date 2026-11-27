@@ -270,6 +270,65 @@ public sealed class AppointmentRepositoryTests(PostgresFixture database) : Integ
         await Should.ThrowAsync<ArgumentOutOfRangeException>(() => ListExpirableAsync(provider, BlockStart, 0));
     }
 
+    [Fact]
+    public async Task ListFinishedIdsAsync_devuelve_solo_las_confirmadas_con_fin_hasta_ahora_en_orden()
+    {
+        await using var provider = CreateProvider();
+        var doctor = await SeedDoctorAsync(provider);
+        var patientId = await InsertPatientAsync(provider);
+        var now = BlockStart.AddDays(ExpirableNowDay);
+        // El borde exacto (fin == now) se inserta primero para comprobar que el orden sale del fin y no del id.
+        var atBorder = await InsertAsync(provider, doctor, patientId, now.AddHours(-DurationHours), "confirmed");
+        var older = await InsertAsync(provider, doctor, patientId, now.AddHours(-SpacingHours * 3), "confirmed");
+        var inProgress = await InsertAsync(provider, doctor, patientId, now, "confirmed");
+        var pending = await InsertAsync(provider, doctor, patientId, now.AddHours(-SpacingHours * 2), "pending");
+        var finals = new[]
+        {
+            await InsertAsync(provider, doctor, patientId, now.AddHours(-SpacingHours * 4), "rejected"),
+            await InsertAsync(provider, doctor, patientId, now.AddHours(-SpacingHours * 5), "cancelled"),
+            await InsertAsync(provider, doctor, patientId, now.AddHours(-SpacingHours * 6), "completed")
+        };
+
+        var ids = await ListFinishedAsync(provider, now, NoLimit);
+
+        // La base se comparte con otras pruebas: solo se examinan las citas sembradas aquí.
+        var seeded = new[] { atBorder, older, inProgress, pending }.Concat(finals).ToHashSet();
+        ids.Where(seeded.Contains).ToList().ShouldBe([older, atBorder]);
+    }
+
+    [Fact]
+    public async Task ListFinishedIdsAsync_con_maxCount_devuelve_solo_las_mas_antiguas()
+    {
+        await using var provider = CreateProvider();
+        var doctor = await SeedDoctorAsync(provider);
+        var patientId = await InsertPatientAsync(provider);
+        var now = BlockStart.AddDays(ExpirableNowDay);
+        var third = await InsertAsync(provider, doctor, patientId, BlockStart.AddHours(SpacingHours * 2), "confirmed");
+        var first = await InsertAsync(provider, doctor, patientId, BlockStart, "confirmed");
+        var second = await InsertAsync(provider, doctor, patientId, BlockStart.AddHours(SpacingHours), "confirmed");
+
+        var ids = await ListFinishedAsync(provider, now, SmallBatch);
+
+        ids.ShouldBe([first, second]);
+        ids.ShouldNotContain(third);
+    }
+
+    [Fact]
+    public async Task ListFinishedIdsAsync_con_maxCount_cero_lanza_ArgumentOutOfRangeException()
+    {
+        await using var provider = CreateProvider();
+
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(() => ListFinishedAsync(provider, BlockStart, 0));
+    }
+
+    private static async Task<IReadOnlyList<int>> ListFinishedAsync(
+        ServiceProvider provider, DateTimeOffset now, int maxCount)
+    {
+        await using var scope = provider.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<IAppointmentRepository>()
+            .ListFinishedIdsAsync(now, maxCount, CancellationToken.None);
+    }
+
     private static async Task<IReadOnlyList<int>> ListExpirableAsync(
         ServiceProvider provider, DateTimeOffset now, int maxCount)
     {
