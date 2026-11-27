@@ -157,4 +157,20 @@ public static class AppointmentErrors
     /// <summary>Solo el paciente dueño de la cita la cancela desde este caso de uso.</summary>
     public static readonly Error CancellationPatientOnly = Error.Forbidden(
         "Appointment.CancellationPatientOnly", "Solo el paciente puede cancelar sus citas desde aquí.");
+
+    /// <summary>Solo el médico de la cita registra su información clínica.</summary>
+    public static readonly Error ClinicalRecordDoctorOnly = Error.Forbidden(
+        "Appointment.ClinicalRecordDoctorOnly", "Solo el médico de la cita puede registrar su información clínica.");
+
+    /// <summary>
+    /// Una cita pendiente, cancelada o rechazada no se atendió, así que no admite registro clínico.
+    /// </summary>
+    public static readonly Error ClinicalRecordInvalidStatus = Error.Conflict(
+        "Appointment.ClinicalRecordInvalidStatus",
+        "Solo se puede registrar información clínica de una cita confirmada o completada.");
+
+    /// <summary>La información clínica se registra desde la hora de inicio de la cita, no antes.</summary>
+    public static readonly Error ClinicalRecordNotStarted = Error.Conflict(
+        "Appointment.ClinicalRecordNotStarted",
+        "La información clínica se puede registrar a partir de la hora de inicio de la cita.");
 }
