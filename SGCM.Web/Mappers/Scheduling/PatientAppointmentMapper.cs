@@ -4,6 +4,7 @@ using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
 using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Web.Contracts.Scheduling;
+using SGCM.Web.Mappers.People;
 
 namespace SGCM.Web.Mappers.Scheduling;
 
@@ -106,7 +107,8 @@ public static class PatientAppointmentMapper
 
     /// <summary>
     /// Copia el detalle al contrato HTTP conservando los dos motivos, incluso si son nulos, con las acciones
-    /// permitidas en camelCase y el tiempo para confirmar en minutos redondeados hacia abajo.
+    /// permitidas en camelCase, el tiempo para confirmar en minutos redondeados hacia abajo y el perfil público del
+    /// médico con el mismo formato que su perfil, o nulo si el médico está desactivado.
     /// </summary>
     /// <param name="detail">Detalle que devolvió la consulta.</param>
     /// <returns>El contrato de respuesta.</returns>
@@ -124,7 +126,8 @@ public static class PatientAppointmentMapper
             detail.StatusReason,
             allowed.Actions.Select(ToActionText).ToArray(),
             allowed.ConfirmationDeadline,
-            allowed.TimeUntilConfirmationDeadline is { } remaining ? (int)Math.Floor(remaining.TotalMinutes) : null);
+            allowed.TimeUntilConfirmationDeadline is { } remaining ? (int)Math.Floor(remaining.TotalMinutes) : null,
+            detail.DoctorProfile?.ToResponse());
     }
 
     private static AppointmentStatus ToDomainStatus(AppointmentStatusFilter filter) => filter switch

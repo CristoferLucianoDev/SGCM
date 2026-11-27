@@ -1,9 +1,11 @@
 using SGCM.Data.Application.Common;
+using SGCM.Data.Application.People.Queries.GetDoctorProfile;
 using SGCM.Data.Application.Scheduling.Commands.RescheduleAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
 using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Web.Contracts.Scheduling;
+using SGCM.Web.Mappers.People;
 using SGCM.Web.Mappers.Scheduling;
 using Shouldly;
 
@@ -153,6 +155,33 @@ public sealed class PatientAppointmentMapperTests
         response.Appointment.ShouldBe(appointment.ToResponse());
         response.ReasonForVisit.ShouldBe(reasonForVisit);
         response.StatusReason.ShouldBe(statusReason);
+    }
+
+    [Fact]
+    public void ToResponse_del_detalle_incluye_el_perfil_publico_del_medico_con_el_formato_de_su_perfil()
+    {
+        var profile = new DoctorPublicProfileDto(
+            3, "Luis Pérez", [new(5, "Cardiología")], new(1, "Distrito Nacional"), new(2, "Santo Domingo de Guzmán"),
+            "Av. Abraham Lincoln 100", 2500m, 12, "Cardiólogo.");
+
+        var response = new PatientAppointmentDetailDto(
+            CreateAppointment(4, AppointmentStatus.Pending), null, null, NoActions, profile).ToResponse();
+
+        var expected = profile.ToResponse();
+        response.DoctorProfile.ShouldNotBeNull();
+        response.DoctorProfile.Specialties.ShouldBe(expected.Specialties);
+        response.DoctorProfile.ShouldBe(expected with { Specialties = response.DoctorProfile.Specialties });
+    }
+
+    [Fact]
+    public void ToResponse_del_detalle_con_un_medico_desactivado_deja_el_perfil_nulo()
+    {
+        var response = new PatientAppointmentDetailDto(
+            CreateAppointment(4, AppointmentStatus.Completed), null, null, NoActions, null).ToResponse();
+
+        response.DoctorProfile.ShouldBeNull();
+        response.Appointment.DoctorName.ShouldNotBeNullOrWhiteSpace();
+        response.Appointment.SpecialtyName.ShouldNotBeNullOrWhiteSpace();
     }
 
     [Fact]
