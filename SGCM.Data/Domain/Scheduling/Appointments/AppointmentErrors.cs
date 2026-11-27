@@ -113,6 +113,10 @@ public static class AppointmentErrors
     public static readonly Error DecisionDoctorOnly = Error.Forbidden(
         "Appointment.DecisionDoctorOnly", "Solo el médico de la cita puede confirmarla o rechazarla.");
 
+    /// <summary>Solo el médico de la cita la extiende o la termina.</summary>
+    public static readonly Error ProgressDoctorOnly = Error.Forbidden(
+        "Appointment.ProgressDoctorOnly", "Solo el médico de la cita puede extenderla o terminarla.");
+
     /// <summary>Solo el paciente dueño de la cita la cancela desde este caso de uso.</summary>
     public static readonly Error CancellationPatientOnly = Error.Forbidden(
         "Appointment.CancellationPatientOnly", "Solo el paciente puede cancelar sus citas desde aquí.");

@@ -43,25 +43,24 @@ public sealed class AppointmentExtendTests
     }
 
     [Fact]
-    public void Una_extension_que_cabe_completa_en_un_bloque_contiguo_distinto_se_acepta()
+    public void Una_extension_que_solo_cabe_uniendo_bloques_contiguos_se_rechaza()
     {
         var appointment = AppointmentMother.InStatus(AppointmentStatus.Confirmed);
+        // La base exige que la cita completa quepa en un solo bloque (trigger T3): el tramo nuevo solo no basta.
         TimeRange[] blocks = [Range(StartsAt, EndsAt), Range(EndsAt, EndsAt.AddHours(TwoExtraHours))];
 
         var result = appointment.Extend(TwoExtraHours, InProgressNow, blocks, NoAppointments);
 
-        result.IsSuccess.ShouldBeTrue();
-        appointment.EndsAt.ShouldBe(EndsAt.AddHours(TwoExtraHours));
+        AssertExtensionUnavailable(appointment, result);
     }
 
     [Fact]
-    public void Una_extension_repartida_entre_dos_bloques_contiguos_se_rechaza_porque_no_se_unen()
+    public void Un_bloque_que_cubre_solo_el_tramo_nuevo_y_no_el_inicio_de_la_cita_no_alcanza()
     {
         var appointment = AppointmentMother.InStatus(AppointmentStatus.Confirmed);
-        var middle = EndsAt.AddHours(ExtraHours);
-        TimeRange[] blocks = [Range(StartsAt, middle), Range(middle, EndsAt.AddHours(TwoExtraHours))];
 
-        var result = appointment.Extend(TwoExtraHours, InProgressNow, blocks, NoAppointments);
+        var result = appointment.Extend(
+            TwoExtraHours, InProgressNow, [Range(EndsAt, EndsAt.AddHours(TwoExtraHours))], NoAppointments);
 
         AssertExtensionUnavailable(appointment, result);
     }

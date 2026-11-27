@@ -21,7 +21,7 @@ public sealed class Appointment : AggregateRoot
     /// <summary>Motivo con que se guarda la cita pendiente que el médico no confirmó a tiempo.</summary>
     public const string ExpiredReason = "No confirmada por el médico a tiempo";
 
-    /// <summary>Horas de la ventana de inicio con que se consulta la extensión: solo cabe el fin actual de la cita.</summary>
+    /// <summary>Horas de la ventana de inicio con que se consulta la extensión: solo cabe el inicio de la cita.</summary>
     private const int ExtensionStartWindowHours = 1;
 
     // Los ids reales son positivos y una cita sin guardar tiene Id 0: -1 nunca coincide con una exclusión.
@@ -243,18 +243,23 @@ public sealed class Appointment : AggregateRoot
     }
 
     /// <summary>
-    /// Extiende la cita en curso las horas indicadas, si el tramo añadido cabe en un bloque abierto del médico y no
-    /// se cruza con otra cita activa. No emite eventos; ante cualquier error la cita no cambia.
+    /// Extiende la cita en curso las horas indicadas, si la cita completa, desde su inicio hasta el nuevo fin, cabe
+    /// en UN solo bloque abierto del médico y el tramo añadido no se cruza con otra cita activa. No emite eventos;
+    /// ante cualquier error la cita no cambia.
     /// </summary>
     /// <param name="additionalHours">Horas que se añaden al fin previsto.</param>
     /// <param name="now">Instante actual, que decide si la cita está en curso.</param>
-    /// <param name="openBlocks">Bloques abiertos del médico que cubren el tramo; los lee quien llama.</param>
+    /// <param name="openBlocks">
+    /// Bloques abiertos del médico; los lee quien llama y deben cubrir desde el inicio de la cita, no solo el tramo
+    /// añadido, porque la base exige que la cita completa quepa en un solo bloque.
+    /// </param>
     /// <param name="otherActiveAppointments">
     /// Rangos de las demás citas activas del médico; los lee quien llama y no debe incluir esta cita.
     /// </param>
     /// <returns>
     /// Éxito, o <see cref="AppointmentErrors.NotInProgress"/> si no es una cita confirmada en curso, o
-    /// <see cref="AppointmentErrors.ExtensionUnavailable"/> si el nuevo tramo no está libre. Se validan en ese orden.
+    /// <see cref="AppointmentErrors.ExtensionUnavailable"/> si la cita extendida no cabe en un bloque o el nuevo tramo
+    /// no está libre. Se validan en ese orden.
     /// </returns>
     /// <exception cref="ArgumentOutOfRangeException">Si las horas no son positivas.</exception>
     /// <exception cref="ArgumentNullException">Si alguna colección es nula.</exception>
@@ -297,15 +302,19 @@ public sealed class Appointment : AggregateRoot
         return Result.Success();
     }
 
-    // La ventana abarca una sola hora para que el único inicio posible sea el fin actual: así Calculate responde si
-    // el tramo completo [EndsAt, nuevo fin) cabe en UN bloque y está libre, sin duplicar su lógica aquí.
+    // El trigger T3 exige que la cita COMPLETA [StartsAt, nuevo fin) quepa en UN solo bloque, no solo el tramo nuevo.
+    // La ventana abarca una sola hora para que el único inicio posible sea el de la cita: así Calculate responde en
+    // una llamada si la cita ya extendida cabe en un bloque y está libre, sin duplicar su lógica aquí. Las horas
+    // son enteras porque la cita empieza y termina en punto mientras está confirmada.
     private bool IsExtensionFree(
         int additionalHours, IReadOnlyCollection<TimeRange> openBlocks, IReadOnlyCollection<TimeRange> otherActiveAppointments)
     {
-        var startWindow = TimeRange.Create(EndsAt, EndsAt.AddHours(ExtensionStartWindowHours)).Value;
+        var startWindow = TimeRange.Create(StartsAt, StartsAt.AddHours(ExtensionStartWindowHours)).Value;
+        // Si la duración no fuera de horas enteras, redondear hacia arriba revisa de más en vez de dejar un tramo sin revisar.
+        var extendedHours = (int)Math.Ceiling((EndsAt - StartsAt).TotalHours) + additionalHours;
         var blockers = otherActiveAppointments.Select(range => new BookedInterval(UnrelatedIntervalId, range));
 
-        return FreeSlotCalculator.Calculate(openBlocks, blockers, startWindow, additionalHours).Contains(EndsAt);
+        return FreeSlotCalculator.Calculate(openBlocks, blockers, startWindow, extendedHours).Contains(StartsAt);
     }
 
     // Confirmar y rechazar comparten estado y plazo: se apoya en IsAwaitingConfirmation, la misma regla que usan

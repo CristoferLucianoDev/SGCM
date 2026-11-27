@@ -33,7 +33,7 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
 
     // Índices y restricciones únicas que el dominio reconoce como conflicto. La clave exige esquema,
     // tabla y nombre para no traducir por error una violación de otra tabla.
-    private static readonly Dictionary<(string Schema, string Table, string Constraint), Error> UniqueConflicts = new()
+    private static readonly Dictionary<(string? Schema, string? Table, string Constraint), Error> UniqueConflicts = new()
     {
         [("people", "specialty", "uq_specialty_name")] = SpecialtyErrors.NameAlreadyInUse,
         [("people", "patient", "uq_patient_user_id")] = PatientErrors.ProfileAlreadyExists,
@@ -44,11 +44,19 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
     };
 
     // Restricciones EXCLUDE que el dominio reconoce como conflicto, con la misma clave exacta.
-    private static readonly Dictionary<(string Schema, string Table, string Constraint), Error> ExclusionConflicts = new()
+    private static readonly Dictionary<(string? Schema, string? Table, string Constraint), Error> ExclusionConflicts = new()
     {
         [("scheduling", "doctor_availability", "ex_doctor_availability_no_overlap")] = DoctorAvailabilityErrors.Overlap,
         [("scheduling", "appointment", "ex_appointment_doctor_no_overlap")] = AppointmentErrors.SlotUnavailable,
         [("scheduling", "appointment", "ex_appointment_patient_no_overlap")] = AppointmentErrors.PatientOverlap
+    };
+
+    // Reglas de triggers que el dominio reconoce como conflicto. Un trigger solo informa el nombre de la regla, sin
+    // esquema ni tabla, por eso esos dos campos van en null. Solo ocurre si el bloque se cerró o cambió a la vez, al
+    // agendar o al extender: el horario deja de estar disponible.
+    private static readonly Dictionary<(string? Schema, string? Table, string Constraint), Error> CheckConflicts = new()
+    {
+        [(null, null, "tg_appointment_within_block")] = AppointmentErrors.SlotUnavailable
     };
 
     private static bool TryGetConflict(DbUpdateException exception, out Error error)
@@ -56,8 +64,8 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
         if (exception.InnerException is PostgresException
             {
                 SqlState: var sqlState,
-                SchemaName: { } schema,
-                TableName: { } table,
+                SchemaName: var schema,
+                TableName: var table,
                 ConstraintName: { } constraint
             }
             && ConflictsFor(sqlState) is { } conflicts
@@ -71,11 +79,12 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
         return false;
     }
 
-    private static Dictionary<(string Schema, string Table, string Constraint), Error>? ConflictsFor(string sqlState) =>
+    private static Dictionary<(string? Schema, string? Table, string Constraint), Error>? ConflictsFor(string sqlState) =>
         sqlState switch
         {
             PostgresErrorCodes.UniqueViolation => UniqueConflicts,
             PostgresErrorCodes.ExclusionViolation => ExclusionConflicts,
+            PostgresErrorCodes.CheckViolation => CheckConflicts,
             _ => null
         };
 

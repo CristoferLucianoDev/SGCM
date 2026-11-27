@@ -5,7 +5,9 @@ using Microsoft.AspNetCore.Mvc.Routing;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Scheduling.Commands.CancelAppointmentByDoctor;
+using SGCM.Data.Application.Scheduling.Commands.CompleteAppointment;
 using SGCM.Data.Application.Scheduling.Commands.ConfirmAppointment;
+using SGCM.Data.Application.Scheduling.Commands.ExtendAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RejectAppointment;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
@@ -26,6 +28,8 @@ public sealed class DoctorAppointmentsControllerTests
     private const int MinimumWords = 30;
     private const string Reason = "Emergencia familiar";
     private const string RejectionReason = "Agenda completa";
+    private const int AdditionalHours = 2;
+    private const string InvalidAdditionalHoursCode = "Appointment.InvalidAdditionalHours";
 
     private readonly ICommandHandler<CancelAppointmentByDoctorCommand, Unit> _handler =
         Substitute.For<ICommandHandler<CancelAppointmentByDoctorCommand, Unit>>();
@@ -35,6 +39,12 @@ public sealed class DoctorAppointmentsControllerTests
 
     private readonly ICommandHandler<RejectAppointmentCommand, Unit> _rejectHandler =
         Substitute.For<ICommandHandler<RejectAppointmentCommand, Unit>>();
+
+    private readonly ICommandHandler<ExtendAppointmentCommand, Unit> _extendHandler =
+        Substitute.For<ICommandHandler<ExtendAppointmentCommand, Unit>>();
+
+    private readonly ICommandHandler<CompleteAppointmentCommand, Unit> _completeHandler =
+        Substitute.For<ICommandHandler<CompleteAppointmentCommand, Unit>>();
 
     [Fact]
     public async Task Cancel_pasa_el_comando_y_el_token_al_handler_y_responde_204()
@@ -140,6 +150,83 @@ public sealed class DoctorAppointmentsControllerTests
             AppointmentId, new RejectAppointmentRequest(), _rejectHandler, CancellationToken.None);
 
         AssertProblem(result, error, status);
+    }
+
+    [Fact]
+    public async Task Extend_pasa_el_comando_y_el_token_al_handler_y_responde_204()
+    {
+        using var cancellation = new CancellationTokenSource();
+        _extendHandler.HandleAsync(Arg.Any<ExtendAppointmentCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Success(Unit.Value));
+
+        var result = await new DoctorAppointmentsController().Extend(
+            AppointmentId, new ExtendAppointmentRequest(AdditionalHours), _extendHandler, cancellation.Token);
+
+        result.ShouldBeOfType<NoContentResult>();
+        await _extendHandler.Received(1).HandleAsync(
+            new ExtendAppointmentCommand(AppointmentId, AdditionalHours), cancellation.Token);
+    }
+
+    [Fact]
+    public async Task Complete_pasa_el_comando_y_el_token_al_handler_y_responde_204()
+    {
+        using var cancellation = new CancellationTokenSource();
+        _completeHandler.HandleAsync(Arg.Any<CompleteAppointmentCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Success(Unit.Value));
+
+        var result = await new DoctorAppointmentsController().Complete(AppointmentId, _completeHandler, cancellation.Token);
+
+        result.ShouldBeOfType<NoContentResult>();
+        await _completeHandler.Received(1).HandleAsync(new CompleteAppointmentCommand(AppointmentId), cancellation.Token);
+    }
+
+    public static IEnumerable<object[]> ProgressErrors()
+    {
+        yield return [Error.Validation(InvalidAdditionalHoursCode, "Las horas a sumar no son válidas."), 400];
+        yield return [AppointmentErrors.ProgressDoctorOnly, 403];
+        yield return [DoctorErrors.NotFound, 404];
+        yield return [AppointmentErrors.NotFound, 404];
+        yield return [AppointmentErrors.NotInProgress, 409];
+        yield return [AppointmentErrors.ExtensionUnavailable, 409];
+        yield return [AppointmentErrors.SlotUnavailable, 409];
+    }
+
+    [Theory]
+    [MemberData(nameof(ProgressErrors))]
+    public async Task Extend_utiliza_ErrorResult_con_estado_codigo_y_descripcion(Error error, int status)
+    {
+        _extendHandler.HandleAsync(Arg.Any<ExtendAppointmentCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Failure(error));
+
+        var result = await new DoctorAppointmentsController().Extend(
+            AppointmentId, new ExtendAppointmentRequest(AdditionalHours), _extendHandler, CancellationToken.None);
+
+        AssertProblem(result, error, status);
+    }
+
+    [Theory]
+    [MemberData(nameof(ProgressErrors))]
+    public async Task Complete_utiliza_ErrorResult_con_estado_codigo_y_descripcion(Error error, int status)
+    {
+        _completeHandler.HandleAsync(Arg.Any<CompleteAppointmentCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Failure(error));
+
+        var result = await new DoctorAppointmentsController().Complete(
+            AppointmentId, _completeHandler, CancellationToken.None);
+
+        AssertProblem(result, error, status);
+    }
+
+    [Fact]
+    public void Extend_es_un_POST_solo_para_medicos_con_sus_respuestas()
+    {
+        AssertDoctorPostEndpoint(nameof(DoctorAppointmentsController.Extend), "{id:int}/extend");
+    }
+
+    [Fact]
+    public void Complete_es_un_POST_solo_para_medicos_con_sus_respuestas()
+    {
+        AssertDoctorPostEndpoint(nameof(DoctorAppointmentsController.Complete), "{id:int}/complete");
     }
 
     [Fact]
