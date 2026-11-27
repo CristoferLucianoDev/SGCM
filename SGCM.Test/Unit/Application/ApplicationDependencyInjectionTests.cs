@@ -42,7 +42,9 @@ using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilitySeries;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAvailabilityBlocks;
 using SGCM.Data.Application.Scheduling.EventHandlers;
 using SGCM.Data.Application.Scheduling.Queries.GetAvailableSlots;
+using SGCM.Data.Application.Clinical;
 using SGCM.Data.Application.Common;
+using SGCM.Data.Domain.Clinical.MedicalRecords;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
@@ -186,6 +188,29 @@ public sealed class ApplicationDependencyInjectionTests
         await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public void AddApplication_RegistersTheAccessTrackerPerRequest()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var tracker = first.ServiceProvider.GetRequiredService<MedicalRecordAccessTracker>();
+
+        tracker.ShouldBeSameAs(first.ServiceProvider.GetRequiredService<MedicalRecordAccessTracker>());
+        tracker.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<MedicalRecordAccessTracker>());
+    }
+
+    [Theory]
+    [InlineData(typeof(AccessLoggedTestCommand), true)]
+    [InlineData(typeof(RegisterPatientAccountCommand), false)]
+    public void Only_commands_that_ask_for_it_are_wrapped_in_the_access_log(Type commandType, bool expected)
+    {
+        DependencyInjection.IsAccessLogged(commandType).ShouldBe(expected);
+    }
+
+    public sealed record AccessLoggedTestCommand(string? IpAddress) : IAccessLoggedCommand<Unit>;
 
     [Fact]
     public void AddApplication_ResolvesCommandHandlerWrappedInValidation()
@@ -1497,6 +1522,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<IPatientAppointmentHistoryReader>());
         services.AddSingleton(Substitute.For<IAppointmentReportReader>());
         services.AddSingleton(Substitute.For<IAppointmentReportLogRepository>());
+        services.AddSingleton(Substitute.For<IMedicalRecordAccessLogRepository>());
         services.AddSingleton(Substitute.For<IDoctorScheduleReader>());
         services.AddSingleton(Options.Create(CreateAvailabilitySeriesCommandMother.Options()));
 
