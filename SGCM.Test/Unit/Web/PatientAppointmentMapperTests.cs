@@ -1,9 +1,11 @@
 using SGCM.Data.Application.Common;
+using SGCM.Data.Application.People.Queries.GetDoctorProfile;
 using SGCM.Data.Application.Scheduling.Commands.RescheduleAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
 using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Web.Contracts.Scheduling;
+using SGCM.Web.Mappers.People;
 using SGCM.Web.Mappers.Scheduling;
 using Shouldly;
 
@@ -148,11 +150,38 @@ public sealed class PatientAppointmentMapperTests
     {
         var appointment = CreateAppointment(4, AppointmentStatus.Cancelled);
 
-        var response = new PatientAppointmentDetailDto(appointment, reasonForVisit, statusReason, NoActions).ToResponse();
+        var response = new PatientAppointmentDetailDto(appointment, reasonForVisit, statusReason, NoActions, null).ToResponse();
 
         response.Appointment.ShouldBe(appointment.ToResponse());
         response.ReasonForVisit.ShouldBe(reasonForVisit);
         response.StatusReason.ShouldBe(statusReason);
+    }
+
+    [Fact]
+    public void ToResponse_del_detalle_incluye_el_perfil_publico_del_medico_con_el_formato_de_su_perfil()
+    {
+        var profile = new DoctorPublicProfileDto(
+            3, "Luis Pérez", [new(5, "Cardiología")], new(1, "Distrito Nacional"), new(2, "Santo Domingo de Guzmán"),
+            "Av. Abraham Lincoln 100", 2500m, 12, "Cardiólogo.");
+
+        var response = new PatientAppointmentDetailDto(
+            CreateAppointment(4, AppointmentStatus.Pending), null, null, NoActions, profile).ToResponse();
+
+        var expected = profile.ToResponse();
+        response.DoctorProfile.ShouldNotBeNull();
+        response.DoctorProfile.Specialties.ShouldBe(expected.Specialties);
+        response.DoctorProfile.ShouldBe(expected with { Specialties = response.DoctorProfile.Specialties });
+    }
+
+    [Fact]
+    public void ToResponse_del_detalle_con_un_medico_desactivado_deja_el_perfil_nulo()
+    {
+        var response = new PatientAppointmentDetailDto(
+            CreateAppointment(4, AppointmentStatus.Completed), null, null, NoActions, null).ToResponse();
+
+        response.DoctorProfile.ShouldBeNull();
+        response.Appointment.DoctorName.ShouldNotBeNullOrWhiteSpace();
+        response.Appointment.SpecialtyName.ShouldNotBeNullOrWhiteSpace();
     }
 
     [Fact]
@@ -165,7 +194,7 @@ public sealed class PatientAppointmentMapperTests
             ],
             false, null, null);
 
-        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed)
+        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed, null)
             .ToResponse();
 
         response.AllowedActions.ShouldBe(new[]
@@ -178,7 +207,7 @@ public sealed class PatientAppointmentMapperTests
     public void ToResponse_del_detalle_no_convierte_acciones_no_definidas()
     {
         var allowed = new AllowedAppointmentActions([(AppointmentAction)int.MaxValue], false, null, null);
-        var detail = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed);
+        var detail = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed, null);
 
         Should.Throw<ArgumentOutOfRangeException>(() => detail.ToResponse());
     }
@@ -194,7 +223,7 @@ public sealed class PatientAppointmentMapperTests
         var deadline = StartsAt.AddHours(-ConfirmationHours);
         var allowed = new AllowedAppointmentActions([], false, deadline, TimeSpan.FromSeconds(seconds));
 
-        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed)
+        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed, null)
             .ToResponse();
 
         response.ConfirmationDeadline.ShouldBe(deadline);
@@ -206,7 +235,7 @@ public sealed class PatientAppointmentMapperTests
     {
         var allowed = new AllowedAppointmentActions([], false, null, null);
 
-        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Confirmed), null, null, allowed)
+        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Confirmed), null, null, allowed, null)
             .ToResponse();
 
         response.ConfirmationDeadline.ShouldBeNull();

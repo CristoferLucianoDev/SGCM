@@ -147,7 +147,7 @@ public sealed class PatientAppointmentsControllerTests
         var allowed = new AllowedAppointmentActions(
             [AppointmentAction.Cancel, AppointmentAction.ChangeDoctor], false, StartsAt.AddHours(-ConfirmationHours), HoursLeft);
         var detail = new PatientAppointmentDetailDto(
-            CreateAppointment(AppointmentStatus.Rejected), "Dolor", "Sin cupo", allowed);
+            CreateAppointment(AppointmentStatus.Rejected), "Dolor", "Sin cupo", allowed, null);
         _getHandler.HandleAsync(Arg.Any<GetPatientAppointmentDetailQuery>(), Arg.Any<CancellationToken>())
             .Returns(Result<PatientAppointmentDetailDto>.Success(detail));
 

@@ -53,7 +53,9 @@ public sealed class PatientAppointmentsController : ApiControllerBase
     /// Devuelve el detalle de una cita del paciente autenticado.
     /// </summary>
     /// <remarks>
-    /// Incluye el motivo de consulta y, si la cita fue cancelada o rechazada, su motivo.
+    /// Incluye el motivo de consulta y, si la cita fue cancelada o rechazada, su motivo. Incluye también el perfil
+    /// público del médico, el mismo de su perfil; si el médico está desactivado viene nulo y la cita sigue mostrando su
+    /// nombre y la especialidad, sin error.
     /// 400 responde Appointment.InvalidAppointmentId si el id no es mayor que cero. Un id que no es entero no
     /// coincide con la ruta y responde 404.
     /// 404 responde Patient.ProfileNotFound sin perfil de paciente y Appointment.NotFound si la cita es ajena o no
