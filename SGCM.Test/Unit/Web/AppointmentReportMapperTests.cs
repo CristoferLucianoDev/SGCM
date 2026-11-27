@@ -1,6 +1,7 @@
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAppointmentReport;
+using SGCM.Data.Application.Scheduling.Queries.GetAppointmentReport;
 using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Data.Domain.Scheduling.Reports;
 using SGCM.Web.Contracts.Scheduling;
@@ -123,5 +124,45 @@ public sealed class AppointmentReportMapperTests
         response.Items.ShouldBeEmpty();
         response.Totals.ShouldAllBe(total => total.Count == 0);
         response.Message.ShouldBe(EmptyReportMessage);
+    }
+
+    [Fact]
+    public void Los_parametros_del_reporte_filtrado_se_convierten_en_la_consulta_con_todos_los_criterios()
+    {
+        var request = new GetAppointmentReportRequest(
+            AppointmentReportType.Cancelled, From, To, AppointmentStatusFilter.Rejected, "Ana", 3,
+            AppointmentReportSortField.Status, AppointmentReportSortDirection.Descending, 4, 15);
+
+        request.ToQuery().ShouldBe(new GetAppointmentReportQuery(
+            new ReportCriteria(ReportType.Cancelled, From, To, AppointmentStatus.Rejected, "Ana", 3,
+                ReportSortField.Status, ReportSortDirection.Descending),
+            4, 15));
+    }
+
+    [Fact]
+    public void El_reporte_filtrado_sin_parametros_opcionales_usa_la_primera_pagina_y_el_orden_por_defecto()
+    {
+        new GetAppointmentReportRequest(AppointmentReportType.All, From, To).ToQuery()
+            .ShouldBe(new GetAppointmentReportQuery(new ReportCriteria(ReportType.All, From, To)));
+    }
+
+    [Fact]
+    public void Filtrar_y_generar_producen_los_mismos_criterios_con_los_mismos_parametros()
+    {
+        var generated = new GenerateAppointmentReportRequest(
+            AppointmentReportType.Pending, From, To, AppointmentStatusFilter.Pending, "Ana", 3,
+            AppointmentReportSortField.Patient, AppointmentReportSortDirection.Descending).ToCommand().Criteria;
+        var filtered = new GetAppointmentReportRequest(
+            AppointmentReportType.Pending, From, To, AppointmentStatusFilter.Pending, "Ana", 3,
+            AppointmentReportSortField.Patient, AppointmentReportSortDirection.Descending).ToQuery().Criteria;
+
+        filtered.ShouldBe(generated);
+    }
+
+    [Fact]
+    public void El_reporte_filtrado_sin_tipo_o_nulo_es_un_error_de_programacion()
+    {
+        Should.Throw<ArgumentException>(() => new GetAppointmentReportRequest(null, From, To).ToQuery());
+        Should.Throw<ArgumentNullException>(() => ((GetAppointmentReportRequest)null!).ToQuery());
     }
 }

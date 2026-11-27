@@ -9,6 +9,7 @@ using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAppointmentReport;
+using SGCM.Data.Application.Scheduling.Queries.GetAppointmentReport;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Doctors;
@@ -113,5 +114,74 @@ public sealed class AppointmentReportsControllerTests
         request.SortBy.ShouldBe(AppointmentReportSortField.Patient);
         request.SortDirection.ShouldBe(AppointmentReportSortDirection.Descending);
         request.PageSize.ShouldBe(GenerateAppointmentReportCommand.DefaultPageSize);
+    }
+
+    [Fact]
+    public async Task Filtrar_mapea_la_consulta_y_responde_200_con_el_reporte()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = Substitute.For<IQueryHandler<GetAppointmentReportQuery, AppointmentReport>>();
+        var report = new AppointmentReport(
+            7, new Dictionary<AppointmentStatus, int> { [AppointmentStatus.Cancelled] = 1 },
+            new PagedResult<AppointmentReportRow>([], 2, 5, 1));
+        handler.HandleAsync(Arg.Any<GetAppointmentReportQuery>(), cancellation.Token)
+            .Returns(Result<AppointmentReport>.Success(report));
+        var request = new GetAppointmentReportRequest(
+            AppointmentReportType.Cancelled, new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31), PageNumber: 2, PageSize: 5);
+
+        var result = await new AppointmentReportsController().Get(request, handler, cancellation.Token);
+
+        var response = result.ShouldBeOfType<OkObjectResult>().Value.ShouldBeOfType<AppointmentReportResponse>();
+        response.PageNumber.ShouldBe(2);
+        response.TotalCount.ShouldBe(1);
+        await handler.Received(1).HandleAsync(
+            new GetAppointmentReportQuery(
+                new ReportCriteria(ReportType.Cancelled, new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31)), 2, 5),
+            cancellation.Token);
+    }
+
+    public static IEnumerable<object[]> QueryErrors()
+    {
+        yield return [Error.Validation("Report.InvalidPageNumber", "El número de página debe ser mayor o igual a 1."), 400];
+        yield return [ReportErrors.DoctorOnly, 403];
+        yield return [DoctorErrors.NotFound, 404];
+    }
+
+    [Theory]
+    [MemberData(nameof(QueryErrors))]
+    public async Task Filtrar_utiliza_ErrorResult_con_estado_codigo_y_descripcion(Error error, int status)
+    {
+        var handler = Substitute.For<IQueryHandler<GetAppointmentReportQuery, AppointmentReport>>();
+        handler.HandleAsync(Arg.Any<GetAppointmentReportQuery>(), Arg.Any<CancellationToken>())
+            .Returns(Result<AppointmentReport>.Failure(error));
+        var request = new GetAppointmentReportRequest(
+            AppointmentReportType.All, new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31));
+
+        var result = await new AppointmentReportsController().Get(request, handler, CancellationToken.None);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(status);
+        var problem = response.Value.ShouldBeOfType<ProblemDetails>();
+        problem.Title.ShouldBe(error.Description);
+        problem.Extensions["code"].ShouldBe(error.Code);
+    }
+
+    [Fact]
+    public void Filtrar_es_un_GET_exclusivo_del_rol_Doctor_con_los_parametros_en_la_query()
+    {
+        var method = typeof(AppointmentReportsController).GetMethod(nameof(AppointmentReportsController.Get))!;
+        var verb = method.GetCustomAttributes<HttpMethodAttribute>().ShouldHaveSingleItem();
+        verb.HttpMethods.ShouldBe(new[] { "GET" });
+        verb.Template.ShouldBeNull();
+        method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Doctor));
+        method.GetCustomAttributes<AllowAnonymousAttribute>().ShouldBeEmpty();
+        method.GetParameters()[0].GetCustomAttribute<FromQueryAttribute>().ShouldNotBeNull();
+        typeof(GetAppointmentReportRequest).GetProperties().Select(property => property.Name).ShouldNotContain("DoctorId");
+        typeof(GetAppointmentReportRequest).GetConstructors().ShouldHaveSingleItem()
+            .GetParameters().Single(parameter => parameter.Name == nameof(GetAppointmentReportRequest.Type))
+            .GetCustomAttribute<RequiredAttribute>().ShouldNotBeNull();
+        var responses = method.GetCustomAttributes<ProducesResponseTypeAttribute>().ToArray();
+        responses.Select(value => value.StatusCode).ShouldBe(new[] { 200, 400, 401, 403, 404 }, ignoreOrder: true);
+        responses.Single(value => value.StatusCode == 200).Type.ShouldBe(typeof(AppointmentReportResponse));
     }
 }
