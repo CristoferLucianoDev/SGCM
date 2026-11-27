@@ -280,15 +280,57 @@ public sealed class Appointment : AggregateRoot
         var relocation = ValidatePatientRelocation(newStartsAt, now, patientRescheduleDeadlineHours, bookingWindow);
         if (relocation != Error.None) return relocation;
 
-        var newStartUtc = newStartsAt.ToUniversalTime();
-        // Reprogramar a la misma hora no cambia nada; el cambio de médico sí puede conservarla, por eso va aparte.
-        if (newStartUtc == StartsAt) return AppointmentErrors.SameSchedule;
+        var sameStart = ValidateDifferentStart(newStartsAt);
+        if (sameStart != Error.None) return sameStart;
 
-        var previousStartsAt = StartsAt;
-        StartsAt = newStartUtc;
-        EndsAt = newStartUtc.AddHours(durationHours);
-        Status = AppointmentStatus.Pending;
-        Raise(new AppointmentRescheduledEvent(this, AppointmentParticipant.Patient, previousStartsAt));
+        // Con el cambio del paciente la cita vuelve a pendiente para que el médico la confirme de nuevo.
+        MoveTo(newStartsAt, durationHours, AppointmentParticipant.Patient);
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Reprograma la cita a otra hora por decisión del médico. Mientras la cita no haya empezado, la deja confirmada con
+    /// el nuevo inicio y el fin según la duración, sin el plazo de antelación del paciente. Emite
+    /// <see cref="AppointmentRescheduledEvent"/>; ante cualquier error la cita no cambia ni emite eventos.
+    /// </summary>
+    /// <remarks>
+    /// La confirmación es intencional: si la cita era pendiente y su plazo de confirmación ya pasó, queda confirmada
+    /// igualmente, porque el médico eligió el horario. El bloqueo de la fila serializa esta operación con el proceso de
+    /// vencimiento. No emite <see cref="AppointmentConfirmedEvent"/>, porque el aviso de reprogramación ya informa al
+    /// paciente de que la cita queda confirmada. El médico no recibe <see cref="AppointmentErrors.TooSoon"/> mientras la
+    /// ventana empiece en el instante actual, como la del médico. Que el horario esté libre y dentro de un bloque abierto
+    /// del médico lo comprueba quien llama.
+    /// </remarks>
+    /// <param name="newStartsAt">Nuevo inicio; se guarda en UTC.</param>
+    /// <param name="now">Instante actual, que decide si la cita ya empezó y si la nueva hora es futura.</param>
+    /// <param name="durationHours">Duración de la cita en horas, según la configuración.</param>
+    /// <param name="bookingWindow">
+    /// La ventana del médico, que empieza en el instante actual y termina en el horizonte de reservas, excluido.
+    /// </param>
+    /// <returns>
+    /// Éxito, o <see cref="AppointmentErrors.NotActive"/> si la cita no está pendiente ni confirmada,
+    /// <see cref="AppointmentErrors.AlreadyStarted"/> si ya empezó, <see cref="AppointmentErrors.NewStartNotInFuture"/>
+    /// si la nueva hora no es futura, <see cref="AppointmentErrors.NotOnHour"/> o
+    /// <see cref="AppointmentErrors.BeyondHorizon"/> si la nueva hora no es válida, o
+    /// <see cref="AppointmentErrors.SameSchedule"/> si es el mismo inicio actual. Se validan en ese orden.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si la duración no es positiva.</exception>
+    /// <exception cref="ArgumentNullException">Si la ventana es nula.</exception>
+    public Result RescheduleByDoctor(
+        DateTimeOffset newStartsAt, DateTimeOffset now, int durationHours, TimeRange bookingWindow)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(durationHours);
+        ArgumentNullException.ThrowIfNull(bookingWindow);
+
+        var relocation = ValidateDoctorRelocation(newStartsAt, now, bookingWindow);
+        if (relocation != Error.None) return relocation;
+
+        var sameStart = ValidateDifferentStart(newStartsAt);
+        if (sameStart != Error.None) return sameStart;
+
+        // El médico decide el cambio, así que la cita queda confirmada sin pasar otra vez por su confirmación.
+        MoveTo(newStartsAt, durationHours, AppointmentParticipant.Doctor);
 
         return Result.Success();
     }
@@ -310,6 +352,54 @@ public sealed class Appointment : AggregateRoot
         if (!IsWithinDeadline(now, deadlineHours)) return AppointmentErrors.RescheduleDeadlinePassed;
 
         return ValidateStart(newStartsAt, bookingWindow);
+    }
+
+    /// <summary>
+    /// Validación de la reprogramación del médico: la cita debe poder reprogramarla todavía, la nueva hora debe ser
+    /// futura y estar en punto y dentro de la ventana. La hora futura se comprueba antes que la ventana para que el
+    /// médico nunca reciba <see cref="AppointmentErrors.TooSoon"/>, cuyo mensaje es para el paciente.
+    /// </summary>
+    /// <returns>
+    /// <see cref="Error.None"/>, <see cref="AppointmentErrors.NotActive"/>, <see cref="AppointmentErrors.AlreadyStarted"/>,
+    /// <see cref="AppointmentErrors.NewStartNotInFuture"/> o el error de <see cref="ValidateStart"/>.
+    /// </returns>
+    private Error ValidateDoctorRelocation(DateTimeOffset newStartsAt, DateTimeOffset now, TimeRange bookingWindow)
+    {
+        if (!CanDoctorReschedule(now)) return IsActive() ? AppointmentErrors.AlreadyStarted : AppointmentErrors.NotActive;
+        if (newStartsAt <= now) return AppointmentErrors.NewStartNotInFuture;
+
+        return ValidateStart(newStartsAt, bookingWindow);
+    }
+
+    /// <summary>
+    /// Reprogramar a la misma hora no cambia nada. Lo comparten las dos reprogramaciones; el cambio de médico sí puede
+    /// conservar la hora, por eso no forma parte de la validación de la reubicación.
+    /// </summary>
+    /// <returns><see cref="Error.None"/> o <see cref="AppointmentErrors.SameSchedule"/>.</returns>
+    private Error ValidateDifferentStart(DateTimeOffset newStartsAt) =>
+        newStartsAt.ToUniversalTime() == StartsAt ? AppointmentErrors.SameSchedule : Error.None;
+
+    /// <summary>
+    /// Mueve la cita al nuevo inicio, en UTC, con el fin según la duración, y emite el evento con quién la reprogramó y
+    /// el inicio anterior. El estado de destino depende de quien la reprograma: el paciente la deja pendiente y el médico
+    /// la deja confirmada. Lo comparten las dos reprogramaciones, que ya validaron la nueva hora.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Si <paramref name="rescheduledBy"/> no es el paciente ni el médico.</exception>
+    private void MoveTo(DateTimeOffset newStartsAt, int durationHours, AppointmentParticipant rescheduledBy)
+    {
+        // Se calcula el estado antes de tocar la cita, así que un participante inválido no deja cambios a medias.
+        var status = rescheduledBy switch
+        {
+            AppointmentParticipant.Patient => AppointmentStatus.Pending,
+            AppointmentParticipant.Doctor => AppointmentStatus.Confirmed,
+            _ => throw new ArgumentOutOfRangeException(nameof(rescheduledBy))
+        };
+
+        var previousStartsAt = StartsAt;
+        StartsAt = newStartsAt.ToUniversalTime();
+        EndsAt = StartsAt.AddHours(durationHours);
+        Status = status;
+        Raise(new AppointmentRescheduledEvent(this, rescheduledBy, previousStartsAt));
     }
 
     /// <summary>
@@ -473,7 +563,7 @@ public sealed class Appointment : AggregateRoot
     {
         var actions = new List<AppointmentAction>();
         if (IsActive()) actions.Add(AppointmentAction.Cancel);
-        if (IsActive() && now < StartsAt) actions.Add(AppointmentAction.Reschedule);
+        if (CanDoctorReschedule(now)) actions.Add(AppointmentAction.Reschedule);
         if (IsAwaitingConfirmation(now, rules.ConfirmationDeadlineHours))
         {
             actions.Add(AppointmentAction.Confirm);
@@ -497,6 +587,9 @@ public sealed class Appointment : AggregateRoot
 
     // El fin se excluye del rango de la cita: en ese instante ya no está en curso y puede completarse sola.
     private bool HasReachedEnd(DateTimeOffset now) => now >= EndsAt;
+
+    // El médico puede reprogramar una cita activa hasta el instante en que empieza, sin plazo de antelación.
+    private bool CanDoctorReschedule(DateTimeOffset now) => IsActive() && now < StartsAt;
 
     // Terminar justo en el inicio dejaría ends_at igual a starts_at, que la base rechaza.
     private bool CanComplete(DateTimeOffset now) => IsInProgress(now) && now > StartsAt;

@@ -132,6 +132,7 @@ public sealed class AppointmentRescheduledTemplateTests
             + WebUtility.HtmlEncode("Cardiología"));
         body.ShouldContain("Horario anterior:</strong> 04/01/2027 a las 08:00");
         body.ShouldContain("Nuevo horario:</strong> 05/01/2027, de 09:00 a 11:00");
+        body.ShouldContain("La cita queda confirmada en el nuevo horario.");
         body.ShouldContain(
             "Si el nuevo horario no le conviene, puede cancelar o reprogramar la cita desde el Sistema de Gestión de "
             + "Citas Médicas dentro de los plazos permitidos.");
