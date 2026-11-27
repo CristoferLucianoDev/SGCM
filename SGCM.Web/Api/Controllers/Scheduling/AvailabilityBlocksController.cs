@@ -121,8 +121,9 @@ public sealed class AvailabilityBlocksController : ApiControllerBase
 
     /// <summary>Lista los bloques propios, abiertos y cerrados, entre dos fechas locales de la agenda.</summary>
     /// <remarks>
-    /// Ambas fechas se incluyen y el rango abarca como máximo 31 días. Cada bloque indica si es de una serie, si está
-    /// abierto y si es una ocurrencia editada a mano.
+    /// Ambas fechas se incluyen y el rango abarca como máximo 31 días, así que cubre una semana completa. Cada bloque
+    /// indica si es de una serie, si está abierto, si es una ocurrencia editada a mano y si hoy todavía puede
+    /// reprogramarse según la regla de semanas.
     /// </remarks>
     [HttpGet]
     [Authorize(Roles = nameof(UserRole.Doctor))]

@@ -7,10 +7,12 @@ namespace SGCM.Data.Application.Scheduling.Queries.GetAvailabilityBlocks;
 /// <param name="EndsAt">Fin, en UTC.</param>
 /// <param name="IsAvailable"><c>false</c> si el médico lo cerró.</param>
 /// <param name="IsModified"><c>true</c> si es una ocurrencia editada a mano, que editar la serie no sobrescribe.</param>
+/// <param name="CanReschedule"><c>true</c> si hoy todavía se puede reprogramar, según la regla de semanas.</param>
 public sealed record AvailabilityBlockDto(
     int Id,
     int? SeriesId,
     DateTimeOffset StartsAt,
     DateTimeOffset EndsAt,
     bool IsAvailable,
-    bool IsModified);
+    bool IsModified,
+    bool CanReschedule);

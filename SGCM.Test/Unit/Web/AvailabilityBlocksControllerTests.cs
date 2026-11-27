@@ -252,13 +252,13 @@ public sealed class AvailabilityBlocksControllerTests
         var handler = Substitute.For<IQueryHandler<GetAvailabilityBlocksQuery, IReadOnlyList<AvailabilityBlockDto>>>();
         handler.HandleAsync(Arg.Any<GetAvailabilityBlocksQuery>(), Arg.Any<CancellationToken>())
             .Returns(Result<IReadOnlyList<AvailabilityBlockDto>>.Success(
-                [new AvailabilityBlockDto(40, 15, startsAt, startsAt.AddHours(6), true, false)]));
+                [new AvailabilityBlockDto(40, 15, startsAt, startsAt.AddHours(6), true, false, true)]));
 
         var result = await new AvailabilityBlocksController().List(
             new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31), handler, cancellation.Token);
 
         var response = result.ShouldBeOfType<OkObjectResult>().Value.ShouldBeOfType<AvailabilityBlocksResponse>();
-        response.Items.ShouldHaveSingleItem().ShouldBe(new AvailabilityBlockResponse(40, 15, startsAt, startsAt.AddHours(6), true, false));
+        response.Items.ShouldHaveSingleItem().ShouldBe(new AvailabilityBlockResponse(40, 15, startsAt, startsAt.AddHours(6), true, false, true));
         await handler.Received(1).HandleAsync(
             new GetAvailabilityBlocksQuery(new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31)), cancellation.Token);
     }
