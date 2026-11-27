@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Application.Common;
+using SGCM.Data.Application.People.Queries.GetDoctorProfile;
 using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
@@ -76,8 +77,11 @@ internal sealed class PatientAppointmentHistoryReader(AppDbContext context, IOpt
         var owned = context.Appointments.AsNoTracking()
             .Where(appointment => appointment.PatientId == patientId && appointment.Id == appointmentId);
         var row = await ProjectRows(JoinAppointments(owned)).SingleOrDefaultAsync(cancellationToken);
+        if (row is null) return null;
 
-        return row is null ? null : ToDetailData(row, calendar);
+        // La misma proyección del perfil del médico; un médico desactivado no tiene perfil público.
+        var doctorProfile = await DoctorPublicProfileProjection.GetAsync(context, row.DoctorId, cancellationToken);
+        return ToDetailData(row, calendar, doctorProfile);
     }
 
     // El médico y la especialidad se unen por clave para que la lectura traiga todo en una sola consulta.
@@ -135,13 +139,14 @@ internal sealed class PatientAppointmentHistoryReader(AppDbContext context, IOpt
     }
 
     // El motivo de estado solo tiene sentido en citas canceladas o rechazadas.
-    private static PatientAppointmentDetailData ToDetailData(HistoryRow row, BusinessCalendar calendar)
+    private static PatientAppointmentDetailData ToDetailData(
+        HistoryRow row, BusinessCalendar calendar, DoctorPublicProfileDto? doctorProfile)
     {
         var statusReason = row.Status is AppointmentStatus.Cancelled or AppointmentStatus.Rejected
             ? row.StatusReason
             : null;
 
-        return new PatientAppointmentDetailData(ToDto(row, calendar), row.ReasonForVisit, statusReason);
+        return new PatientAppointmentDetailData(ToDto(row, calendar), row.ReasonForVisit, statusReason, doctorProfile);
     }
 
     private sealed record AppointmentJoin

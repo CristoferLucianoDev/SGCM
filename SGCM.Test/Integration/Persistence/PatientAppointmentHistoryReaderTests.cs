@@ -167,6 +167,44 @@ public sealed class PatientAppointmentHistoryReaderTests(PostgresFixture databas
         detail.StatusReason.ShouldBeNull();
     }
 
+    [Fact]
+    public async Task El_detalle_trae_el_perfil_publico_del_medico_igual_al_de_su_perfil()
+    {
+        await using var context = CreateContext();
+        var doctor = await DoctorPersistenceData.SeedAsync(context, associations: 1);
+        var patient = await InsertPatientAsync(context);
+        var appointmentId = await InsertAppointmentAsync(context, patient, doctor, Utc(2027, 1, 12, 13), "pending");
+
+        var detail = await GetAsync(patient, appointmentId);
+        await using var profileContext = CreateContext();
+        var profile = await new DoctorProfileReader(profileContext).GetPublicAsync(doctor.DoctorId, CancellationToken.None);
+
+        detail.ShouldNotBeNull();
+        profile.ShouldNotBeNull();
+        detail.DoctorProfile.ShouldNotBeNull();
+        detail.DoctorProfile.Specialties.ShouldBe(profile.Specialties);
+        detail.DoctorProfile.ShouldBe(profile with { Specialties = detail.DoctorProfile.Specialties });
+    }
+
+    [Fact]
+    public async Task Con_un_medico_desactivado_el_detalle_trae_su_nombre_y_la_especialidad_sin_perfil()
+    {
+        await using var context = CreateContext();
+        var doctor = await DoctorPersistenceData.SeedAsync(context, associations: 1);
+        var patient = await InsertPatientAsync(context);
+        var appointmentId = await InsertAppointmentAsync(context, patient, doctor, Utc(2027, 1, 12, 13), "pending");
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE people.doctor SET is_active = false WHERE id = {doctor.DoctorId}");
+
+        var detail = await GetAsync(patient, appointmentId);
+
+        detail.ShouldNotBeNull();
+        detail.DoctorProfile.ShouldBeNull();
+        detail.Appointment.DoctorId.ShouldBe(doctor.DoctorId);
+        detail.Appointment.DoctorName.ShouldNotBeNullOrWhiteSpace();
+        detail.Appointment.SpecialtyName.ShouldBe(await SpecialtyNameAsync(context, doctor.SpecialtyIds[0]));
+    }
+
     [Theory]
     [InlineData("cancelled", AppointmentStatus.Cancelled)]
     [InlineData("rejected", AppointmentStatus.Rejected)]

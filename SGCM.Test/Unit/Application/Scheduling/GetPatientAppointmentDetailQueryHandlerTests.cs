@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Application.Abstractions.Security;
+using SGCM.Data.Application.People.Queries.GetDoctorProfile;
 using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
@@ -32,6 +33,10 @@ public sealed class GetPatientAppointmentDetailQueryHandlerTests
     private readonly FakeDateTimeProvider _clock = new();
     private readonly Appointment _appointment = AppointmentMother.InStatus(AppointmentStatus.Pending);
 
+    private static readonly DoctorPublicProfileDto DoctorProfile = new(
+        DoctorId, "Luis Pérez", [new(SpecialtyId, "Cardiología")], new(1, "Distrito Nacional"),
+        new(2, "Santo Domingo de Guzmán"), "Av. Abraham Lincoln 100", 2500m, 12, "Cardiólogo.");
+
     public GetPatientAppointmentDetailQueryHandlerTests()
     {
         _currentUser.IsAuthenticated.Returns(true);
@@ -58,8 +63,24 @@ public sealed class GetPatientAppointmentDetailQueryHandlerTests
         result.Value.Appointment.ShouldBeSameAs(data.Appointment);
         result.Value.ReasonForVisit.ShouldBe(data.ReasonForVisit);
         result.Value.StatusReason.ShouldBe(data.StatusReason);
+        result.Value.DoctorProfile.ShouldBeSameAs(DoctorProfile);
         await _reader.Received(1).GetAsync(PatientId, AppointmentId, cancellation.Token);
         await _appointments.Received(1).GetByIdAsync(AppointmentId, cancellation.Token);
+    }
+
+    [Fact]
+    public async Task Con_un_medico_desactivado_muestra_su_nombre_y_la_especialidad_sin_perfil_y_sin_error()
+    {
+        _reader.GetAsync(PatientId, AppointmentId, Arg.Any<CancellationToken>())
+            .Returns(CreateData() with { DoctorProfile = null });
+
+        var result = await CreateHandler().HandleAsync(
+            new GetPatientAppointmentDetailQuery(AppointmentId), CancellationToken.None);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.DoctorProfile.ShouldBeNull();
+        result.Value.Appointment.DoctorName.ShouldBe("Luis Pérez");
+        result.Value.Appointment.SpecialtyName.ShouldBe("Cardiología");
     }
 
     [Fact]
@@ -171,7 +192,7 @@ public sealed class GetPatientAppointmentDetailQueryHandlerTests
             "Cardiología",
             AppointmentStatus.Pending);
 
-        return new PatientAppointmentDetailData(appointment, "Dolor de cabeza", null);
+        return new PatientAppointmentDetailData(appointment, "Dolor de cabeza", null, DoctorProfile);
     }
 
     private void AssertNothingQueried()

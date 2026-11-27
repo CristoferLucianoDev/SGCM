@@ -148,7 +148,7 @@ public sealed class PatientAppointmentMapperTests
     {
         var appointment = CreateAppointment(4, AppointmentStatus.Cancelled);
 
-        var response = new PatientAppointmentDetailDto(appointment, reasonForVisit, statusReason, NoActions).ToResponse();
+        var response = new PatientAppointmentDetailDto(appointment, reasonForVisit, statusReason, NoActions, null).ToResponse();
 
         response.Appointment.ShouldBe(appointment.ToResponse());
         response.ReasonForVisit.ShouldBe(reasonForVisit);
@@ -165,7 +165,7 @@ public sealed class PatientAppointmentMapperTests
             ],
             false, null, null);
 
-        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed)
+        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed, null)
             .ToResponse();
 
         response.AllowedActions.ShouldBe(new[]
@@ -178,7 +178,7 @@ public sealed class PatientAppointmentMapperTests
     public void ToResponse_del_detalle_no_convierte_acciones_no_definidas()
     {
         var allowed = new AllowedAppointmentActions([(AppointmentAction)int.MaxValue], false, null, null);
-        var detail = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed);
+        var detail = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed, null);
 
         Should.Throw<ArgumentOutOfRangeException>(() => detail.ToResponse());
     }
@@ -194,7 +194,7 @@ public sealed class PatientAppointmentMapperTests
         var deadline = StartsAt.AddHours(-ConfirmationHours);
         var allowed = new AllowedAppointmentActions([], false, deadline, TimeSpan.FromSeconds(seconds));
 
-        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed)
+        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Pending), null, null, allowed, null)
             .ToResponse();
 
         response.ConfirmationDeadline.ShouldBe(deadline);
@@ -206,7 +206,7 @@ public sealed class PatientAppointmentMapperTests
     {
         var allowed = new AllowedAppointmentActions([], false, null, null);
 
-        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Confirmed), null, null, allowed)
+        var response = new PatientAppointmentDetailDto(CreateAppointment(4, AppointmentStatus.Confirmed), null, null, allowed, null)
             .ToResponse();
 
         response.ConfirmationDeadline.ShouldBeNull();

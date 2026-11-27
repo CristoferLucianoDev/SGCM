@@ -1,3 +1,4 @@
+using SGCM.Data.Application.People.Queries.GetDoctorProfile;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
 using SGCM.Data.Domain.Scheduling.Appointments;
 
@@ -5,7 +6,7 @@ namespace SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 
 /// <summary>
 /// Detalle de una cita del paciente: los datos de la cita del historial más el motivo de consulta, el motivo de
-/// cancelación o rechazo y las acciones que el paciente puede hacer con ella.
+/// cancelación o rechazo, las acciones que el paciente puede hacer con ella y el perfil público del médico.
 /// </summary>
 /// <param name="Appointment">Datos de la cita, los mismos que muestra el historial.</param>
 /// <param name="ReasonForVisit">Motivo de consulta; <c>null</c> si el paciente no escribió ninguno.</param>
@@ -14,8 +15,13 @@ namespace SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 /// no se indicó.
 /// </param>
 /// <param name="AllowedActions">Acciones disponibles para el paciente en el instante de la consulta.</param>
+/// <param name="DoctorProfile">
+/// Perfil público del médico, el mismo que devuelve el perfil del médico; <c>null</c> si el médico está desactivado,
+/// y entonces solo se muestran su nombre y la especialidad de la cita, que vienen en <paramref name="Appointment"/>.
+/// </param>
 public sealed record PatientAppointmentDetailDto(
     PatientAppointmentDto Appointment,
     string? ReasonForVisit,
     string? StatusReason,
-    AllowedAppointmentActions AllowedActions);
+    AllowedAppointmentActions AllowedActions,
+    DoctorPublicProfileDto? DoctorProfile);

@@ -54,6 +54,6 @@ internal sealed class GetPatientAppointmentDetailQueryHandler(
             AppointmentParticipant.Patient, clock.UtcNow, schedulingOptions.Value.ToAppointmentRules());
 
         return new PatientAppointmentDetailDto(
-            detail.Appointment, detail.ReasonForVisit, detail.StatusReason, allowedActions);
+            detail.Appointment, detail.ReasonForVisit, detail.StatusReason, allowedActions, detail.DoctorProfile);
     }
 }
