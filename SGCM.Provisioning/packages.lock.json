@@ -38,6 +38,24 @@
         "resolved": "2.7.0",
         "contentHash": "U+12df8UEWHgBi04YVf/Lgi2dy3SItlIYvHjjEVa/BngCQIzDCDRBk50DDByCfDvSbe5pRNFr3b7UrVK2kMcLw=="
       },
+      "ClosedXML.Parser": {
+        "type": "Transitive",
+        "resolved": "2.0.0",
+        "contentHash": "ngTqjYreDYNytG1W5d3ewHsw0ukmmrgV7EKnS4/40rXoYZGt07jrBvo+N+GxT49rcageUMUiprV0jYT4nwVBHQ=="
+      },
+      "DocumentFormat.OpenXml.Framework": {
+        "type": "Transitive",
+        "resolved": "3.5.1",
+        "contentHash": "U5txtc3ORno73xQx9Lf2gWzfaSZnZwKHfLkTAslhlew9lxe5XbUiCt0dY1fHeAf8yRqszUAe5i/+xLC9R/Xfsw==",
+        "dependencies": {
+          "System.IO.Packaging": "8.0.1"
+        }
+      },
+      "ExcelNumberFormat": {
+        "type": "Transitive",
+        "resolved": "1.1.0",
+        "contentHash": "R3BVHPs9O+RkExbZYTGT0+9HLbi8ZrNij1Yziyw6znd3J7P3uoIR07uwTLGOogtz1p6+0sna66eBoXu7tBiVQA=="
+      },
       "Microsoft.AspNetCore.Cryptography.Internal": {
         "type": "Transitive",
         "resolved": "8.0.31",
@@ -266,10 +284,29 @@
           "Microsoft.Extensions.Logging.Abstractions": "8.0.0"
         }
       },
+      "PDFsharp": {
+        "type": "Transitive",
+        "resolved": "6.2.4",
+        "contentHash": "GhTr9F1uOYXHCIEOB5PXIgqn5a8WLsJL2m0eewTA0IvY1j6N4HGXHKKmEyB90/N6vrjmYamf41V9zbmdW2HY3g==",
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.3",
+          "System.Security.Cryptography.Pkcs": "8.0.1"
+        }
+      },
+      "RBush.Signed": {
+        "type": "Transitive",
+        "resolved": "4.0.0",
+        "contentHash": "aP5KQxL5RnFNGW1f0euYVBfCatkLw5iEzMRJcXKq8LWWP4Cp3+qoSq1tDDL2vvJ2rM0ychmVMa2VaEKLS6uX4w=="
+      },
       "System.Formats.Asn1": {
         "type": "Transitive",
         "resolved": "10.0.2",
         "contentHash": "9Hee6iQ74pDgdRNIL6lO8Vlx2onVWd5aDnqwk4Pvo0h5FklBd7QwcQDKgxeLuhiy0o3ibzUVO0KFQe0/hPXU+Q=="
+      },
+      "System.IO.Packaging": {
+        "type": "Transitive",
+        "resolved": "8.0.1",
+        "contentHash": "KYkIOAvPexQOLDxPO2g0BVoWInnQhPpkFzRqvNrNrMhVT6kqhVr0zEb6KCHlptLFukxnZrjuMVAnxK7pOGUYrw=="
       },
       "System.Security.Cryptography.Pkcs": {
         "type": "Transitive",
@@ -291,6 +328,8 @@
       "sgcm.data": {
         "type": "Project",
         "dependencies": {
+          "ClosedXML": "[0.105.1, )",
+          "DocumentFormat.OpenXml": "[3.5.1, )",
           "EFCore.NamingConventions": "[8.0.3, )",
           "FluentValidation": "[12.1.1, )",
           "FluentValidation.DependencyInjectionExtensions": "[12.1.1, )",
@@ -302,8 +341,31 @@
           "Microsoft.Extensions.Options.ConfigurationExtensions": "[8.0.0, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[8.0.11, )",
           "Otp.NET": "[1.4.1, )",
+          "PDFsharp-MigraDoc": "[6.2.4, )",
           "Serilog": "[3.1.1, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )"
+        }
+      },
+      "ClosedXML": {
+        "type": "CentralTransitive",
+        "requested": "[0.105.1, )",
+        "resolved": "0.105.1",
+        "contentHash": "X1ruIP9h2FBEK7jmO0peq3s6/Zqt5ve5a9f9kn6WUjdsUWvGbQlqxuGLz822xuFLlmnSeAfWFTGeX/tZlmAt+g==",
+        "dependencies": {
+          "ClosedXML.Parser": "2.0.0",
+          "DocumentFormat.OpenXml": "[3.1.1, 4.0.0)",
+          "ExcelNumberFormat": "1.1.0",
+          "RBush.Signed": "4.0.0",
+          "SixLabors.Fonts": "[1.0.0, 3.0.0)"
+        }
+      },
+      "DocumentFormat.OpenXml": {
+        "type": "CentralTransitive",
+        "requested": "[3.5.1, )",
+        "resolved": "3.5.1",
+        "contentHash": "zxdOf5VVCe/uNklbRhj8dVBzQGj3DoqkUuqOp9cAZVuN8mNYDjof1lvSQA2OQNr8Ptc9d7pbA7Azq/ReaI3FpA==",
+        "dependencies": {
+          "DocumentFormat.OpenXml.Framework": "3.5.1"
         }
       },
       "EFCore.NamingConventions": {
@@ -428,11 +490,28 @@
         "resolved": "1.4.1",
         "contentHash": "UXjZ80T6BfVACJWmEcz4UFZ93hwX3STKojKvVpPk3qUhubjnLwIiZMsI4Hh91HhYxC0JlatNdNrVK2wkv4O9/Q=="
       },
+      "PDFsharp-MigraDoc": {
+        "type": "CentralTransitive",
+        "requested": "[6.2.4, )",
+        "resolved": "6.2.4",
+        "contentHash": "ZlRUJaAAo4K2oMt1v02GTeGOHIOoOvcH1e1WYMpunCG1MK8jd4EBrbzSHoYSN7yOfKWFtOIUfzvmKhRGPsyWQQ==",
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.3",
+          "PDFsharp": "6.2.4",
+          "System.Security.Cryptography.Pkcs": "8.0.1"
+        }
+      },
       "Serilog": {
         "type": "CentralTransitive",
         "requested": "[3.1.1, )",
         "resolved": "3.1.1",
         "contentHash": "P6G4/4Kt9bT635bhuwdXlJ2SCqqn2nhh4gqFqQueCOr9bK/e7W9ll/IoX1Ter948cV2Z/5+5v8pAfJYUISY03A=="
+      },
+      "SixLabors.Fonts": {
+        "type": "CentralTransitive",
+        "requested": "[1.0.1, )",
+        "resolved": "1.0.1",
+        "contentHash": "ljezRHWc7N0azdQViib7Aa5v+DagRVkKI2/93kEbtjVczLs+yTkSq6gtGmvOcx4IqyNbO3GjLt7SAQTpLkySNw=="
       },
       "System.IdentityModel.Tokens.Jwt": {
         "type": "CentralTransitive",

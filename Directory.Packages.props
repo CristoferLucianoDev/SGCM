@@ -5,7 +5,9 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="Allure.Xunit" Version="2.15.0" />
+    <PackageVersion Include="ClosedXML" Version="0.105.1" />
     <PackageVersion Include="coverlet.collector" Version="10.1.0" />
+    <PackageVersion Include="DocumentFormat.OpenXml" Version="3.5.1" />
     <PackageVersion Include="EFCore.NamingConventions" Version="8.0.3" />
     <PackageVersion Include="FluentValidation" Version="12.1.1" />
     <PackageVersion Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
@@ -23,6 +25,8 @@
     <PackageVersion Include="NSubstitute" Version="6.2.0" />
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
     <PackageVersion Include="Otp.NET" Version="1.4.1" />
+    <!-- ADR 0019: la 6.2.4 es la última versión MIT; desde la 6.5.0 la licencia es AGPL. No actualizar. -->
+    <PackageVersion Include="PDFsharp-MigraDoc" Version="6.2.4" />
     <PackageVersion Include="Reqnroll.xUnit" Version="3.3.4" />
     <PackageVersion Include="Serilog" Version="3.1.1" />
     <PackageVersion Include="Serilog.AspNetCore" Version="8.0.3" />
@@ -40,5 +44,7 @@
     <!-- Dependencias transitivas fijadas para que EF Core e IdentityModel usen la misma version en todos sus paquetes -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="8.0.31" />
     <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.23.0" />
+    <!-- ADR 0019: dependencia de ClosedXML; desde la 2.0 deja de ser Apache 2.0, por eso se fija en la serie 1.x. -->
+    <PackageVersion Include="SixLabors.Fonts" Version="1.0.1" />
   </ItemGroup>
 </Project>
