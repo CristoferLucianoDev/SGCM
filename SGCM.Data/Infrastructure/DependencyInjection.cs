@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using SGCM.Data.Application.Abstractions.Notifications;
 using SGCM.Data.Application.Abstractions.Persistence;
+using SGCM.Data.Application.Abstractions.Reporting;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.InsuranceProviders;
@@ -23,6 +24,7 @@ using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Data.Domain.Scheduling.Reports;
 using SGCM.Data.Infrastructure.Persistence.Repositories.Scheduling;
+using SGCM.Data.Infrastructure.Reporting;
 
 namespace SGCM.Data.Infrastructure;
 
@@ -73,6 +75,10 @@ public static class DependencyInjection
         services.AddScoped<IDoctorAvailabilityRepository, DoctorAvailabilityRepository>();
         services.AddScoped<IAppointmentRepository, AppointmentRepository>();
         services.AddScoped<IAppointmentReportLogRepository, AppointmentReportLogRepository>();
+        // Un exportador por formato: el caso de uso recibe todos y elige el suyo por ReportFormat.
+        services.AddSingleton<IReportExporter, PdfReportExporter>();
+        services.AddSingleton<IReportExporter, ExcelReportExporter>();
+        services.AddSingleton<IReportExporter, WordReportExporter>();
         services.AddScoped<IUserProfileReader, UserProfileReader>();
         services.AddScoped<IDoctorProfileCatalogReader, DoctorProfileCatalogReader>();
         services.AddScoped<ILocationCatalogReader, LocationCatalogReader>();
