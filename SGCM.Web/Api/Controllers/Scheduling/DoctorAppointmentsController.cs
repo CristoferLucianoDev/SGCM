@@ -1,12 +1,16 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Common;
 using SGCM.Data.Application.Scheduling.Commands.CancelAppointmentByDoctor;
 using SGCM.Data.Application.Scheduling.Commands.CompleteAppointment;
 using SGCM.Data.Application.Scheduling.Commands.ConfirmAppointment;
 using SGCM.Data.Application.Scheduling.Commands.ExtendAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RejectAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RescheduleAppointmentByDoctor;
+using SGCM.Data.Application.Scheduling.Queries.GetDoctorAppointmentDetail;
+using SGCM.Data.Application.Scheduling.Queries.GetDoctorCalendar;
+using SGCM.Data.Application.Scheduling.Queries.GetDoctorSchedule;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
@@ -197,5 +201,65 @@ public sealed class DoctorAppointmentsController : ApiControllerBase
         var result = await handler.HandleAsync(new CompleteAppointmentCommand(id), cancellationToken);
 
         return result.IsSuccess ? NoContent() : ErrorResult(result.Error);
+    }
+    /// <summary>Agenda paginada del médico autenticado: sus citas pendientes y confirmadas.</summary>
+    /// <remarks>
+    /// Los filtros por estado, rango de fechas locales y nombre del paciente (parcial, sin mayúsculas ni tildes) se
+    /// combinan. Ordena por fecha en el sentido pedido.
+    /// </remarks>
+    [HttpGet]
+    [Authorize(Roles = nameof(UserRole.Doctor))]
+    [ProducesResponseType(typeof(DoctorScheduleResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> List(
+        [FromQuery] DoctorScheduleRequest request,
+        [FromServices] IQueryHandler<GetDoctorScheduleQuery, PagedResult<DoctorScheduleItemDto>> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToQuery(), cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
+    }
+
+    /// <summary>Todas las citas activas del médico entre dos fechas locales, sin paginar, para el calendario.</summary>
+    /// <remarks>Ambas fechas se incluyen y el rango abarca como máximo 31 días: el día, la semana o el mes completos.</remarks>
+    [HttpGet("calendar")]
+    [Authorize(Roles = nameof(UserRole.Doctor))]
+    [ProducesResponseType(typeof(DoctorCalendarResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Calendar(
+        [FromQuery] DateOnly from,
+        [FromQuery] DateOnly to,
+        [FromServices] IQueryHandler<GetDoctorCalendarQuery, IReadOnlyList<DoctorScheduleItemDto>> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new GetDoctorCalendarQuery(from, to), cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value.ToCalendarResponse()) : ErrorResult(result.Error);
+    }
+
+    /// <summary>Detalle de una cita propia con el motivo de consulta y el contacto del paciente.</summary>
+    /// <remarks>Una cita de otro médico, o que ya no está en la agenda, responde 404.</remarks>
+    [HttpGet("{id:int}")]
+    [Authorize(Roles = nameof(UserRole.Doctor))]
+    [ProducesResponseType(typeof(DoctorAppointmentDetailResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Get(
+        int id,
+        [FromServices] IQueryHandler<GetDoctorAppointmentDetailQuery, DoctorAppointmentDetailDto> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new GetDoctorAppointmentDetailQuery(id), cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
     }
 }

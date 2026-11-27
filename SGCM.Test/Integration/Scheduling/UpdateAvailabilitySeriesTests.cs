@@ -182,8 +182,15 @@ public sealed class UpdateAvailabilitySeriesTests(PostgresFixture database) : Ap
         items.Select(block => LocalDate(block.StartsAt)).ShouldBe(new[] { Day(7), Day(8), Day(10) });
         var own = await ReadBlocksAsync(doctor.DoctorId);
         items.ShouldAllBe(block => own.Any(row => row.Id == block.Id));
+        // Un martes la semana siguiente todavía se reprograma; la actual solo se puede cerrar.
+        items.ShouldAllBe(block => block.CanReschedule);
         await month.ShouldHaveStatusAsync(HttpStatusCode.OK);
         await AssertErrorAsync(tooLong, HttpStatusCode.BadRequest, "Availability.DateRangeTooLong");
+
+        using var currentWeek = await doctor.Client.GetAsync($"{BlocksUrl}?from={Day(0):yyyy-MM-dd}&to={Day(6):yyyy-MM-dd}");
+        var current = (await currentWeek.Content.ReadFromJsonAsync<AvailabilityBlocksResponse>())!.Items;
+        current.Select(block => LocalDate(block.StartsAt)).ShouldBe(new[] { Day(1), Day(3) });
+        current.ShouldAllBe(block => !block.CanReschedule);
     }
 
     private static UpdateAvailabilitySeriesRequest NewSchedule(string? reason = null) =>

@@ -4,12 +4,16 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Common;
 using SGCM.Data.Application.Scheduling.Commands.CancelAppointmentByDoctor;
 using SGCM.Data.Application.Scheduling.Commands.CompleteAppointment;
 using SGCM.Data.Application.Scheduling.Commands.ConfirmAppointment;
 using SGCM.Data.Application.Scheduling.Commands.ExtendAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RejectAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RescheduleAppointmentByDoctor;
+using SGCM.Data.Application.Scheduling.Queries.GetDoctorAppointmentDetail;
+using SGCM.Data.Application.Scheduling.Queries.GetDoctorCalendar;
+using SGCM.Data.Application.Scheduling.Queries.GetDoctorSchedule;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Doctors;
@@ -18,9 +22,6 @@ using SGCM.Web.Api.Controllers.Scheduling;
 using SGCM.Web.Api.Infrastructure;
 using SGCM.Web.Contracts.Scheduling;
 using Shouldly;
-
-namespace SGCM.Test.Unit.Web;
-
 using Unit = SGCM.Data.Domain.Common.Unit;
 
 public sealed class DoctorAppointmentsControllerTests
@@ -321,5 +322,91 @@ public sealed class DoctorAppointmentsControllerTests
         var problem = response.Value.ShouldBeOfType<ProblemDetails>();
         problem.Title.ShouldBe(error.Description);
         problem.Extensions["code"].ShouldBe(error.Code);
+    }
+    private static readonly DateTimeOffset ScheduleStart = new(2027, 1, 12, 13, 0, 0, TimeSpan.Zero);
+
+    private static readonly DoctorScheduleItemDto ScheduleItem = new(
+        AppointmentId, 3, "María Pérez", 5, "Cardiología", ScheduleStart, ScheduleStart.AddHours(2),
+        new DateOnly(2027, 1, 12), new TimeOnly(9, 0), new TimeOnly(11, 0), AppointmentStatus.Confirmed, false);
+
+    private static readonly DoctorScheduleItemResponse ScheduleItemResponse = new(
+        AppointmentId, 3, "María Pérez", 5, "Cardiología", ScheduleStart, ScheduleStart.AddHours(2),
+        new DateOnly(2027, 1, 12), new TimeOnly(9, 0), new TimeOnly(11, 0), "confirmed", false);
+
+    [Fact]
+    public async Task List_pasa_los_filtros_combinados_y_responde_la_pagina()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = Substitute.For<IQueryHandler<GetDoctorScheduleQuery, PagedResult<DoctorScheduleItemDto>>>();
+        handler.HandleAsync(Arg.Any<GetDoctorScheduleQuery>(), Arg.Any<CancellationToken>())
+            .Returns(Result<PagedResult<DoctorScheduleItemDto>>.Success(new PagedResult<DoctorScheduleItemDto>([ScheduleItem], 2, 10, 11)));
+        var request = new DoctorScheduleRequest(
+            AppointmentStatus.Confirmed, new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31), "maria", DoctorScheduleSort.Descending, 2, 10);
+
+        var result = await new DoctorAppointmentsController().List(request, handler, cancellation.Token);
+
+        var response = result.ShouldBeOfType<OkObjectResult>().Value.ShouldBeOfType<DoctorScheduleResponse>();
+        response.Items.ShouldHaveSingleItem().ShouldBe(ScheduleItemResponse);
+        (response.PageNumber, response.PageSize, response.TotalCount).ShouldBe((2, 10, 11));
+        await handler.Received(1).HandleAsync(
+            new GetDoctorScheduleQuery(AppointmentStatus.Confirmed, new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31), "maria",
+                DoctorScheduleSort.Descending, 2, 10),
+            cancellation.Token);
+    }
+
+    [Fact]
+    public async Task Calendar_pasa_el_rango_y_responde_todas_las_citas()
+    {
+        var handler = Substitute.For<IQueryHandler<GetDoctorCalendarQuery, IReadOnlyList<DoctorScheduleItemDto>>>();
+        handler.HandleAsync(Arg.Any<GetDoctorCalendarQuery>(), Arg.Any<CancellationToken>())
+            .Returns(Result<IReadOnlyList<DoctorScheduleItemDto>>.Success([ScheduleItem]));
+
+        var result = await new DoctorAppointmentsController().Calendar(
+            new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31), handler, CancellationToken.None);
+
+        result.ShouldBeOfType<OkObjectResult>().Value.ShouldBeOfType<DoctorCalendarResponse>()
+            .Items.ShouldHaveSingleItem().ShouldBe(ScheduleItemResponse);
+        await handler.Received(1).HandleAsync(
+            new GetDoctorCalendarQuery(new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31)), CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Get_responde_el_detalle_y_una_cita_ajena_responde_404()
+    {
+        var detail = new DoctorAppointmentDetailDto(
+            AppointmentId, 3, "María Pérez", "8095550100", "maria@correo.com", 5, "Cardiología", ScheduleStart,
+            ScheduleStart.AddHours(2), new DateOnly(2027, 1, 12), new TimeOnly(9, 0), new TimeOnly(11, 0),
+            AppointmentStatus.Pending, false, "Dolor de pecho");
+        var handler = Substitute.For<IQueryHandler<GetDoctorAppointmentDetailQuery, DoctorAppointmentDetailDto>>();
+        handler.HandleAsync(new GetDoctorAppointmentDetailQuery(AppointmentId), Arg.Any<CancellationToken>())
+            .Returns(Result<DoctorAppointmentDetailDto>.Success(detail));
+        handler.HandleAsync(new GetDoctorAppointmentDetailQuery(100), Arg.Any<CancellationToken>())
+            .Returns(Result<DoctorAppointmentDetailDto>.Failure(AppointmentErrors.NotFound));
+
+        var found = await new DoctorAppointmentsController().Get(AppointmentId, handler, CancellationToken.None);
+        var missing = await new DoctorAppointmentsController().Get(100, handler, CancellationToken.None);
+
+        found.ShouldBeOfType<OkObjectResult>().Value.ShouldBe(new DoctorAppointmentDetailResponse(
+            AppointmentId, 3, "María Pérez", "8095550100", "maria@correo.com", 5, "Cardiología", ScheduleStart,
+            ScheduleStart.AddHours(2), new DateOnly(2027, 1, 12), new TimeOnly(9, 0), new TimeOnly(11, 0),
+            "pending", false, "Dolor de pecho"));
+        var notFound = missing.ShouldBeOfType<ObjectResult>();
+        notFound.StatusCode.ShouldBe(404);
+        notFound.Value.ShouldBeOfType<ProblemDetails>().Extensions["code"].ShouldBe("Appointment.NotFound");
+    }
+
+    [Theory]
+    [InlineData(nameof(DoctorAppointmentsController.List), null)]
+    [InlineData(nameof(DoctorAppointmentsController.Calendar), "calendar")]
+    [InlineData(nameof(DoctorAppointmentsController.Get), "{id:int}")]
+    public void La_agenda_y_el_detalle_son_GET_solo_para_medicos(string action, string? template)
+    {
+        var method = typeof(DoctorAppointmentsController).GetMethod(action)!;
+        var verb = method.GetCustomAttributes<HttpMethodAttribute>().ShouldHaveSingleItem();
+        verb.HttpMethods.ShouldBe(new[] { "GET" });
+        verb.Template.ShouldBe(template);
+        method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Doctor));
+        method.GetCustomAttributes<ProducesResponseTypeAttribute>().Select(value => value.StatusCode)
+            .ShouldBe(new[] { 200, 400, 401, 403, 404 }, ignoreOrder: true);
     }
 }

@@ -7,10 +7,12 @@ namespace SGCM.Web.Contracts.Scheduling;
 /// <param name="EndsAt">Fin, en UTC.</param>
 /// <param name="IsAvailable"><c>false</c> si el médico lo cerró.</param>
 /// <param name="IsModified"><c>true</c> si es una ocurrencia editada a mano.</param>
+/// <param name="CanReschedule"><c>true</c> si hoy todavía se puede reprogramar; si no, solo se puede cerrar.</param>
 public sealed record AvailabilityBlockResponse(
     int Id,
     int? SeriesId,
     DateTimeOffset StartsAt,
     DateTimeOffset EndsAt,
     bool IsAvailable,
-    bool IsModified);
+    bool IsModified,
+    bool CanReschedule);

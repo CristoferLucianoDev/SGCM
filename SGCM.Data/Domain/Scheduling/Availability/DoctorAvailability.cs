@@ -187,6 +187,18 @@ public sealed class DoctorAvailability : AggregateRoot
     }
 
     /// <summary>
+    /// Indica si el bloque todavía puede reprogramarse: está abierto, no ha empezado y la regla de semanas permite
+    /// moverlo (no es de la semana actual, y si es de la siguiente, hoy es de lunes a miércoles).
+    /// </summary>
+    public bool CanReschedule(DateTimeOffset now, BusinessCalendar calendar)
+    {
+        ArgumentNullException.ThrowIfNull(calendar);
+
+        return IsAvailable && StartsAt > now
+            && RescheduleWeekRule.Check(calendar.ToLocalDate(StartsAt), now, calendar) == Error.None;
+    }
+
+    /// <summary>
     /// Cierra el bloque en cualquier semana, incluida la actual: deja de ofrecer horarios de inmediato. Emite
     /// <see cref="DoctorAvailabilityClosedEvent"/> con el rango del bloque y el motivo, para cancelar las citas
     /// activas que quedan dentro. Si el motivo es obligatorio lo decide la política de citas afectadas, no el bloque.

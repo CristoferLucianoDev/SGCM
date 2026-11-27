@@ -45,7 +45,7 @@ public static class AvailabilityMapper
 
         return new AvailabilityBlocksResponse(blocks
             .Select(block => new AvailabilityBlockResponse(
-                block.Id, block.SeriesId, block.StartsAt, block.EndsAt, block.IsAvailable, block.IsModified))
+                block.Id, block.SeriesId, block.StartsAt, block.EndsAt, block.IsAvailable, block.IsModified, block.CanReschedule))
             .ToArray());
     }
 }
