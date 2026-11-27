@@ -15,6 +15,7 @@ using SGCM.Data.Application.Identity.Commands.ChangePassword;
 using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
 using SGCM.Test.Unit.Domain.Identity.Users;
 using SGCM.Data.Application.Messaging;
+using SGCM.Data.Application.Messaging.Commands.SendDueReminders;
 using SGCM.Data.Application.Messaging.EventHandlers;
 using SGCM.Data.Application.People.Commands.ActivateSpecialty;
 using SGCM.Data.Application.People.Commands.AssociateDoctorSpecialty;
@@ -1366,6 +1367,16 @@ public sealed class ApplicationDependencyInjectionTests
             .ShouldContain(handler => handler is CancelRemindersOnAppointmentCancelled);
         scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentExpiredEvent>>()
             .ShouldContain(handler => handler is CancelRemindersOnAppointmentExpired);
+    }
+
+    [Fact]
+    public void El_envio_de_recordatorios_vencidos_se_resuelve_con_sus_decoradores()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<ICommandHandler<SendDueRemindersCommand, int>>()
+            .ShouldBeOfType<ValidationDecorator<SendDueRemindersCommand, int>>();
     }
 
     [Fact]

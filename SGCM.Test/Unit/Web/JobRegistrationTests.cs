@@ -126,4 +126,36 @@ public sealed class JobRegistrationTests
 
         interval.ShouldBe(TimeSpan.FromMinutes(10));
     }
+
+    [Fact]
+    public void AddSgcmJobs_RegistersSendDueRemindersJobAsHostedService()
+    {
+        var services = new ServiceCollection();
+
+        services.AddSgcmJobs();
+
+        services.ShouldContain(descriptor =>
+            descriptor.ServiceType == typeof(IHostedService)
+            && descriptor.ImplementationType == typeof(SendDueRemindersJob));
+    }
+
+    [Fact]
+    public void SendDueRemindersJob_UsesItsOwnInterval()
+    {
+        var intervals = new WorkerIntervalsOptions
+        {
+            SendDueReminders = TimeSpan.FromMinutes(1),
+            CompleteFinishedAppointments = TimeSpan.FromMinutes(10)
+        };
+        var job = new SendDueRemindersJob(
+            new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            Microsoft.Extensions.Options.Options.Create(new WorkerOptions()),
+            Serilog.Core.Logger.None);
+
+        var interval = typeof(SendDueRemindersJob)
+            .GetMethod("GetInterval", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(job, [intervals]);
+
+        interval.ShouldBe(TimeSpan.FromMinutes(1));
+    }
 }
