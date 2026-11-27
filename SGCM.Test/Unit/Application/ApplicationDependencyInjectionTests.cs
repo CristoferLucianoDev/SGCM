@@ -34,6 +34,7 @@ using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RescheduleAvailabilityBlock;
 using SGCM.Data.Application.Scheduling.Commands.UpdateAvailabilitySeries;
 using SGCM.Data.Application.Scheduling.Queries.GetAvailabilityBlocks;
+using SGCM.Data.Application.Scheduling.Queries.GetDoctorAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorCalendar;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorSchedule;
 using SGCM.Data.Application.Scheduling.Commands.CreateAvailabilityBlock;
@@ -1307,7 +1308,7 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
-    public void La_agenda_y_el_calendario_del_medico_se_resuelven_por_scope()
+    public void La_agenda_el_calendario_y_el_detalle_del_medico_se_resuelven_por_scope()
     {
         using var provider = BuildProvider();
         using var scope = provider.CreateScope();
@@ -1315,6 +1316,8 @@ public sealed class ApplicationDependencyInjectionTests
         scope.ServiceProvider.GetRequiredService<IQueryHandler<GetDoctorScheduleQuery, PagedResult<DoctorScheduleItemDto>>>()
             .ShouldNotBeNull();
         scope.ServiceProvider.GetRequiredService<IQueryHandler<GetDoctorCalendarQuery, IReadOnlyList<DoctorScheduleItemDto>>>()
+            .ShouldNotBeNull();
+        scope.ServiceProvider.GetRequiredService<IQueryHandler<GetDoctorAppointmentDetailQuery, DoctorAppointmentDetailDto>>()
             .ShouldNotBeNull();
     }
 

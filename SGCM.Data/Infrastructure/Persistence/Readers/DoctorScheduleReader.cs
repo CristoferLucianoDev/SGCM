@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Application.Scheduling.Queries.GetDoctorAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorSchedule;
 using SGCM.Data.Domain.Scheduling;
 using SGCM.Data.Domain.Scheduling.Appointments;
@@ -41,6 +42,44 @@ internal sealed class DoctorScheduleReader(AppDbContext context, IOptions<Schedu
             .ToListAsync(cancellationToken);
 
         return rows.Select(ToDto).ToList();
+    }
+
+    public async Task<DoctorAppointmentDetailDto?> GetDetailAsync(
+        int doctorId, int appointmentId, CancellationToken cancellationToken)
+    {
+        // El correo del paciente no está en la vista; sale de su cuenta.
+        var row = await context.Database.SqlQuery<DetailRow>($"""
+            SELECT schedule.id, schedule.patient_id, schedule.patient_first_name, schedule.patient_last_name,
+                   schedule.patient_phone_number, patient_user.email AS patient_email, schedule.specialty_id,
+                   schedule.specialty_name, schedule.starts_at, schedule.ends_at, schedule.status,
+                   schedule.is_in_progress, schedule.reason_for_visit
+            FROM scheduling.vw_doctor_schedule schedule
+            JOIN people.patient patient ON patient.id = schedule.patient_id
+            JOIN app."user" patient_user ON patient_user.id = patient.user_id
+            WHERE schedule.id = {appointmentId} AND schedule.doctor_id = {doctorId}
+            """).SingleOrDefaultAsync(cancellationToken);
+
+        if (row is null) return null;
+
+        var start = _calendar.ToLocal(row.StartsAt);
+        var end = _calendar.ToLocal(row.EndsAt);
+
+        return new DoctorAppointmentDetailDto(
+            row.Id,
+            row.PatientId,
+            $"{row.PatientFirstName.Trim()} {row.PatientLastName.Trim()}",
+            row.PatientPhoneNumber,
+            row.PatientEmail,
+            row.SpecialtyId,
+            row.SpecialtyName,
+            row.StartsAt,
+            row.EndsAt,
+            DateOnly.FromDateTime(start.DateTime),
+            TimeOnly.FromDateTime(start.DateTime),
+            TimeOnly.FromDateTime(end.DateTime),
+            Enum.Parse<AppointmentStatus>(row.Status, ignoreCase: true),
+            row.IsInProgress,
+            row.ReasonForVisit);
     }
 
     private IQueryable<ScheduleRow> Schedule(int doctorId) =>
@@ -117,4 +156,19 @@ internal sealed class DoctorScheduleReader(AppDbContext context, IOptions<Schedu
         public string Status { get; init; } = null!;
         public bool IsInProgress { get; init; }
     }
+
+    private sealed record DetailRow(
+        int Id,
+        int PatientId,
+        string PatientFirstName,
+        string PatientLastName,
+        string PatientPhoneNumber,
+        string PatientEmail,
+        int SpecialtyId,
+        string SpecialtyName,
+        DateTimeOffset StartsAt,
+        DateTimeOffset EndsAt,
+        string Status,
+        bool IsInProgress,
+        string? ReasonForVisit);
 }

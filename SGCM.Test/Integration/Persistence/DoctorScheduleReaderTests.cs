@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Application.Scheduling.Queries.GetDoctorAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorSchedule;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
@@ -181,6 +182,42 @@ public sealed class DoctorScheduleReaderTests(PostgresFixture database) : Integr
     }
 
     [Fact]
+    public async Task El_detalle_trae_el_motivo_de_consulta_y_el_contacto_del_paciente()
+    {
+        await using var context = CreateContext();
+        var doctor = await DoctorPersistenceData.SeedAsync(context, associations: 1);
+        var email = $"detalle-{Guid.NewGuid():N}@correo.com";
+        var patient = await InsertPatientAsync(context, "María", "Pérez", email);
+        var startsAt = Utc(2027, 1, 12, 13);
+        var id = await InsertAppointmentAsync(context, patient, doctor, startsAt, "pending");
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE scheduling.appointment SET reason_for_visit = 'Dolor de pecho' WHERE id = {id}");
+
+        var detail = await DetailAsync(doctor, id);
+
+        detail.ShouldBe(new DoctorAppointmentDetailDto(
+            id, patient, "María Pérez", "8095550100", email, doctor.SpecialtyIds[0],
+            await SpecialtyNameAsync(context, doctor.SpecialtyIds[0]), startsAt, startsAt.AddHours(AppointmentMother.DurationHours),
+            new DateOnly(2027, 1, 12), new TimeOnly(9, 0), new TimeOnly(9 + AppointmentMother.DurationHours, 0),
+            AppointmentStatus.Pending, false, "Dolor de pecho"));
+    }
+
+    [Fact]
+    public async Task El_detalle_de_una_cita_de_otro_medico_o_que_ya_no_esta_activa_es_nulo()
+    {
+        await using var context = CreateContext();
+        var doctor = await DoctorPersistenceData.SeedAsync(context, associations: 1);
+        var other = await DoctorPersistenceData.SeedAsync(context, associations: 1);
+        var patient = await InsertPatientAsync(context, "Ana", "Pérez");
+        var others = await InsertAppointmentAsync(context, patient, other, Utc(2027, 1, 12, 13), "pending");
+        var cancelled = await InsertAppointmentAsync(context, patient, doctor, Utc(2027, 1, 13, 13), "cancelled");
+
+        (await DetailAsync(doctor, others)).ShouldBeNull();
+        (await DetailAsync(doctor, cancelled)).ShouldBeNull();
+        (await DetailAsync(doctor, int.MaxValue)).ShouldBeNull();
+    }
+
+    [Fact]
     public void AddInfrastructure_registra_el_lector_con_alcance_por_solicitud()
     {
         var services = new ServiceCollection();
@@ -210,9 +247,17 @@ public sealed class DoctorScheduleReaderTests(PostgresFixture database) : Integr
             .ListAsync(doctor.DoctorId, filter, pageNumber, pageSize, CancellationToken.None);
     }
 
-    private static async Task<int> InsertPatientAsync(AppDbContext context, string firstName, string lastName)
+    private async Task<DoctorAppointmentDetailDto?> DetailAsync(DoctorSeed doctor, int appointmentId)
     {
-        var user = UserMother.WithRole(UserRole.Patient, email: Email.Create($"agenda-{Guid.NewGuid():N}@correo.com").Value);
+        await using var context = CreateContext();
+        return await new DoctorScheduleReader(context, Options.Create(new SchedulingOptions { TimeZone = TimeZone }))
+            .GetDetailAsync(doctor.DoctorId, appointmentId, CancellationToken.None);
+    }
+
+    private static async Task<int> InsertPatientAsync(AppDbContext context, string firstName, string lastName, string? email = null)
+    {
+        var user = UserMother.WithRole(
+            UserRole.Patient, email: Email.Create(email ?? $"agenda-{Guid.NewGuid():N}@correo.com").Value);
         context.Users.Add(user);
         await context.SaveChangesAsync();
         return (await context.Database.SqlQuery<int>(
