@@ -79,8 +79,7 @@ public sealed class RescheduleAppointmentCommandHandlerTests
             _currentUser,
             _patients,
             _appointments,
-            _blocks,
-            _booked,
+            new AppointmentSlotChecker(_blocks, _booked),
             _clock,
             BusinessCalendar.ForTimeZone(DoctorAvailabilitySeriesMother.TimeZone),
             options);
@@ -102,58 +101,12 @@ public sealed class RescheduleAppointmentCommandHandlerTests
         domainEvent.PreviousStartsAt.ShouldBe(_previousStartsAt);
     }
 
+    // Los casos del horario (bloqueo, lecturas, propia cita, sin bloque) los prueba AppointmentSlotCheckerTests; aquí
+    // solo se comprueba que el handler propaga su resultado.
     [Fact]
-    public async Task Pasa_al_bloqueo_y_a_las_lecturas_el_medico_el_nuevo_inicio_y_fin_y_el_token()
-    {
-        using var cancellation = new CancellationTokenSource();
-
-        await _handler.HandleAsync(new RescheduleAppointmentCommand(AppointmentId, NewStartsAt), cancellation.Token);
-
-        await _blocks.Received(1).LockOpenBlockAsync(
-            AppointmentMother.DoctorId, NewStartsAt, NewEndsAt, cancellation.Token);
-        await _blocks.Received(1).ListByDoctorAsync(
-            AppointmentMother.DoctorId, NewStartsAt, NewEndsAt, cancellation.Token);
-        await _booked.Received(1).ListActiveIntervalsAsync(
-            Arg.Is<IReadOnlyCollection<int>>(ids => ids.SequenceEqual(new[] { AppointmentMother.DoctorId })),
-            NewStartsAt,
-            NewEndsAt,
-            cancellation.Token);
-    }
-
-    [Fact]
-    public async Task Excluye_la_propia_cita_de_las_citas_leidas()
-    {
-        GivenBooked(new BookedInterval(AppointmentId, Range(NewStartsAt, NewEndsAt)));
-
-        var result = await Handle(NewStartsAt);
-
-        result.IsSuccess.ShouldBeTrue();
-        _appointment.StartsAt.ShouldBe(NewStartsAt);
-    }
-
-    [Fact]
-    public async Task Otra_cita_en_el_nuevo_horario_se_rechaza_como_horario_no_disponible()
+    public async Task Si_el_horario_no_esta_libre_se_rechaza_como_horario_no_disponible()
     {
         GivenBooked(new BookedInterval(OtherAppointmentId, Range(NewStartsAt, NewEndsAt)));
-
-        AssertRejected(await Handle(NewStartsAt), AppointmentErrors.SlotUnavailable);
-    }
-
-    [Fact]
-    public async Task Sin_bloque_abierto_en_el_bloqueo_se_rechaza_sin_leer_citas()
-    {
-        _blocks.LockOpenBlockAsync(
-                Arg.Any<int>(), Arg.Any<DateTimeOffset>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>())
-            .Returns(false);
-
-        AssertRejected(await Handle(NewStartsAt), AppointmentErrors.SlotUnavailable);
-        _booked.ReceivedCalls().ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task Si_las_lecturas_no_devuelven_un_bloque_abierto_que_cubra_el_horario_se_rechaza()
-    {
-        GivenBlocks();
 
         AssertRejected(await Handle(NewStartsAt), AppointmentErrors.SlotUnavailable);
     }

@@ -9,6 +9,7 @@ using SGCM.Data.Application.Scheduling.Commands.CompleteAppointment;
 using SGCM.Data.Application.Scheduling.Commands.ConfirmAppointment;
 using SGCM.Data.Application.Scheduling.Commands.ExtendAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RejectAppointment;
+using SGCM.Data.Application.Scheduling.Commands.RescheduleAppointmentByDoctor;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Data.Domain.People.Doctors;
@@ -39,6 +40,9 @@ public sealed class DoctorAppointmentsControllerTests
 
     private readonly ICommandHandler<RejectAppointmentCommand, Unit> _rejectHandler =
         Substitute.For<ICommandHandler<RejectAppointmentCommand, Unit>>();
+
+    private readonly ICommandHandler<RescheduleAppointmentByDoctorCommand, Unit> _rescheduleHandler =
+        Substitute.For<ICommandHandler<RescheduleAppointmentByDoctorCommand, Unit>>();
 
     private readonly ICommandHandler<ExtendAppointmentCommand, Unit> _extendHandler =
         Substitute.For<ICommandHandler<ExtendAppointmentCommand, Unit>>();
@@ -150,6 +154,51 @@ public sealed class DoctorAppointmentsControllerTests
             AppointmentId, new RejectAppointmentRequest(), _rejectHandler, CancellationToken.None);
 
         AssertProblem(result, error, status);
+    }
+
+    [Fact]
+    public async Task Reschedule_pasa_el_comando_y_el_token_al_handler_y_responde_204()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var startsAt = new DateTimeOffset(2027, 1, 20, 13, 0, 0, TimeSpan.Zero);
+        _rescheduleHandler.HandleAsync(Arg.Any<RescheduleAppointmentByDoctorCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Success(Unit.Value));
+
+        var result = await new DoctorAppointmentsController().Reschedule(
+            AppointmentId, new RescheduleAppointmentByDoctorRequest(startsAt), _rescheduleHandler, cancellation.Token);
+
+        result.ShouldBeOfType<NoContentResult>();
+        await _rescheduleHandler.Received(1).HandleAsync(
+            new RescheduleAppointmentByDoctorCommand(AppointmentId, startsAt), cancellation.Token);
+    }
+
+    public static IEnumerable<object[]> RescheduleErrors()
+    {
+        yield return [Error.Validation("Appointment.StartsAtRequired", "Debe indicar la nueva hora de la cita."), 400];
+        yield return [AppointmentErrors.NewStartNotInFuture, 400];
+        yield return [AppointmentErrors.RescheduleDoctorOnly, 403];
+        yield return [AppointmentErrors.NotFound, 404];
+        yield return [AppointmentErrors.AlreadyStarted, 409];
+        yield return [AppointmentErrors.SlotUnavailable, 409];
+    }
+
+    [Theory]
+    [MemberData(nameof(RescheduleErrors))]
+    public async Task Reschedule_utiliza_ErrorResult_con_estado_codigo_y_descripcion(Error error, int status)
+    {
+        _rescheduleHandler.HandleAsync(Arg.Any<RescheduleAppointmentByDoctorCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Failure(error));
+
+        var result = await new DoctorAppointmentsController().Reschedule(
+            AppointmentId, new RescheduleAppointmentByDoctorRequest(), _rescheduleHandler, CancellationToken.None);
+
+        AssertProblem(result, error, status);
+    }
+
+    [Fact]
+    public void Reschedule_es_un_POST_solo_para_medicos_con_sus_respuestas()
+    {
+        AssertDoctorPostEndpoint(nameof(DoctorAppointmentsController.Reschedule), "{id:int}/reschedule");
     }
 
     [Fact]

@@ -1264,6 +1264,19 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public void El_verificador_de_horario_de_citas_se_resuelve_por_scope()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var checker = first.ServiceProvider.GetRequiredService<AppointmentSlotChecker>();
+
+        checker.ShouldBeSameAs(first.ServiceProvider.GetRequiredService<AppointmentSlotChecker>());
+        checker.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<AppointmentSlotChecker>());
+    }
+
+    [Fact]
     public void El_cancelador_de_citas_afectadas_se_resuelve_por_scope()
     {
         using var provider = BuildProvider();
