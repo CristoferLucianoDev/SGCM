@@ -82,6 +82,14 @@ public static class AppointmentErrors
     public static readonly Error SameSchedule = Error.Validation(
         "Appointment.SameSchedule", "La nueva hora es la misma de la cita.");
 
+    /// <summary>La cita ya empezó, así que el médico ya no puede reprogramarla.</summary>
+    public static readonly Error AlreadyStarted = Error.Conflict(
+        "Appointment.AlreadyStarted", "La cita ya empezó; no se puede reprogramar.");
+
+    /// <summary>La nueva hora que eligió el médico no es posterior al instante actual.</summary>
+    public static readonly Error NewStartNotInFuture = Error.Validation(
+        "Appointment.NewStartNotInFuture", "La nueva hora debe ser futura.");
+
     /// <summary>La cita no está confirmada, así que el proceso automático no la completa.</summary>
     public static readonly Error NotConfirmed = Error.Conflict(
         "Appointment.NotConfirmed", "Solo se puede completar una cita confirmada.");
