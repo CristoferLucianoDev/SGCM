@@ -6,8 +6,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Abstractions.Reporting;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Application.Scheduling.Commands.ExportAppointmentReport;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAppointmentReport;
 using SGCM.Data.Application.Scheduling.Queries.GetAppointmentReport;
 using SGCM.Data.Domain.Common;
@@ -183,5 +185,71 @@ public sealed class AppointmentReportsControllerTests
         var responses = method.GetCustomAttributes<ProducesResponseTypeAttribute>().ToArray();
         responses.Select(value => value.StatusCode).ShouldBe(new[] { 200, 400, 401, 403, 404 }, ignoreOrder: true);
         responses.Single(value => value.StatusCode == 200).Type.ShouldBe(typeof(AppointmentReportResponse));
+    }
+
+    [Fact]
+    public async Task Exportar_mapea_el_comando_y_devuelve_el_archivo_con_su_nombre_y_tipo()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = Substitute.For<ICommandHandler<ExportAppointmentReportCommand, ExportedFile>>();
+        var file = new ExportedFile("reporte-citas-20270112-0930.pdf", "application/pdf", [1, 2, 3]);
+        handler.HandleAsync(Arg.Any<ExportAppointmentReportCommand>(), cancellation.Token)
+            .Returns(Result<ExportedFile>.Success(file));
+        var request = new ExportAppointmentReportRequest(
+            AppointmentReportFormat.Pdf, AppointmentReportType.All, new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31));
+
+        var result = await new AppointmentReportsController().Export(request, handler, cancellation.Token);
+
+        var content = result.ShouldBeOfType<FileContentResult>();
+        content.FileContents.ShouldBe(file.Content);
+        content.ContentType.ShouldBe(file.ContentType);
+        content.FileDownloadName.ShouldBe(file.FileName);
+        await handler.Received(1).HandleAsync(
+            new ExportAppointmentReportCommand(
+                new ReportCriteria(ReportType.All, new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31)), ReportFormat.Pdf),
+            cancellation.Token);
+    }
+
+    public static IEnumerable<object[]> ExportErrors()
+    {
+        yield return [ReportErrors.EmptyReport, 400];
+        yield return [ReportErrors.DoctorOnly, 403];
+        yield return [DoctorErrors.NotFound, 404];
+    }
+
+    [Theory]
+    [MemberData(nameof(ExportErrors))]
+    public async Task Exportar_utiliza_ErrorResult_con_estado_codigo_y_descripcion(Error error, int status)
+    {
+        var handler = Substitute.For<ICommandHandler<ExportAppointmentReportCommand, ExportedFile>>();
+        handler.HandleAsync(Arg.Any<ExportAppointmentReportCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ExportedFile>.Failure(error));
+        var request = new ExportAppointmentReportRequest(
+            AppointmentReportFormat.Xlsx, AppointmentReportType.All, new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31));
+
+        var result = await new AppointmentReportsController().Export(request, handler, CancellationToken.None);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(status);
+        var problem = response.Value.ShouldBeOfType<ProblemDetails>();
+        problem.Title.ShouldBe(error.Description);
+        problem.Extensions["code"].ShouldBe(error.Code);
+    }
+
+    [Fact]
+    public void Exportar_es_un_POST_en_export_exclusivo_del_rol_Doctor_con_formato_y_tipo_obligatorios()
+    {
+        var method = typeof(AppointmentReportsController).GetMethod(nameof(AppointmentReportsController.Export))!;
+        var verb = method.GetCustomAttributes<HttpMethodAttribute>().ShouldHaveSingleItem();
+        verb.HttpMethods.ShouldBe(new[] { "POST" });
+        verb.Template.ShouldBe("export");
+        method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Doctor));
+        method.GetCustomAttributes<AllowAnonymousAttribute>().ShouldBeEmpty();
+        var parameters = typeof(ExportAppointmentReportRequest).GetConstructors().ShouldHaveSingleItem().GetParameters();
+        parameters.Single(parameter => parameter.Name == "Format").GetCustomAttribute<RequiredAttribute>().ShouldNotBeNull();
+        parameters.Single(parameter => parameter.Name == "Type").GetCustomAttribute<RequiredAttribute>().ShouldNotBeNull();
+        typeof(ExportAppointmentReportRequest).GetProperties().Select(property => property.Name).ShouldNotContain("DoctorId");
+        method.GetCustomAttributes<ProducesResponseTypeAttribute>().Select(value => value.StatusCode)
+            .ShouldBe(new[] { 200, 400, 401, 403, 404 }, ignoreOrder: true);
     }
 }

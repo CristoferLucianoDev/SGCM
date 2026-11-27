@@ -1,5 +1,7 @@
+using SGCM.Data.Application.Abstractions.Reporting;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Application.Scheduling;
+using SGCM.Data.Application.Scheduling.Commands.ExportAppointmentReport;
 using SGCM.Data.Application.Scheduling.Commands.GenerateAppointmentReport;
 using SGCM.Data.Application.Scheduling.Queries.GetAppointmentReport;
 using SGCM.Data.Domain.Scheduling.Appointments;
@@ -164,5 +166,51 @@ public sealed class AppointmentReportMapperTests
     {
         Should.Throw<ArgumentException>(() => new GetAppointmentReportRequest(null, From, To).ToQuery());
         Should.Throw<ArgumentNullException>(() => ((GetAppointmentReportRequest)null!).ToQuery());
+    }
+
+    [Theory]
+    [InlineData(AppointmentReportFormat.Pdf, ReportFormat.Pdf)]
+    [InlineData(AppointmentReportFormat.Xlsx, ReportFormat.Xlsx)]
+    [InlineData(AppointmentReportFormat.Docx, ReportFormat.Docx)]
+    public void La_solicitud_de_exportacion_se_convierte_en_el_comando_con_el_formato_y_los_criterios(
+        AppointmentReportFormat format, ReportFormat expected)
+    {
+        var request = new ExportAppointmentReportRequest(
+            format, AppointmentReportType.Pending, From, To, AppointmentStatusFilter.Confirmed, "Ana", 3,
+            AppointmentReportSortField.Patient, AppointmentReportSortDirection.Descending);
+
+        request.ToCommand().ShouldBe(new ExportAppointmentReportCommand(
+            new ReportCriteria(ReportType.Pending, From, To, AppointmentStatus.Confirmed, "Ana", 3,
+                ReportSortField.Patient, ReportSortDirection.Descending),
+            expected));
+    }
+
+    [Fact]
+    public void Exportar_y_filtrar_producen_los_mismos_criterios_con_los_mismos_parametros()
+    {
+        var exported = new ExportAppointmentReportRequest(
+            AppointmentReportFormat.Pdf, AppointmentReportType.All, From, To, SortBy: AppointmentReportSortField.Status)
+            .ToCommand().Criteria;
+        var filtered = new GetAppointmentReportRequest(
+            AppointmentReportType.All, From, To, SortBy: AppointmentReportSortField.Status).ToQuery().Criteria;
+
+        exported.ShouldBe(filtered);
+    }
+
+    [Fact]
+    public void Un_formato_no_definido_pasa_tal_cual_para_que_lo_rechace_el_validador()
+    {
+        new ExportAppointmentReportRequest((AppointmentReportFormat)UndefinedValue, AppointmentReportType.All, From, To)
+            .ToCommand().Format.ShouldBe((ReportFormat)UndefinedValue);
+    }
+
+    [Fact]
+    public void Una_solicitud_de_exportacion_sin_formato_sin_tipo_o_nula_es_un_error_de_programacion()
+    {
+        Should.Throw<ArgumentException>(() =>
+            new ExportAppointmentReportRequest(null, AppointmentReportType.All, From, To).ToCommand());
+        Should.Throw<ArgumentException>(() =>
+            new ExportAppointmentReportRequest(AppointmentReportFormat.Pdf, null, From, To).ToCommand());
+        Should.Throw<ArgumentNullException>(() => ((ExportAppointmentReportRequest)null!).ToCommand());
     }
 }
