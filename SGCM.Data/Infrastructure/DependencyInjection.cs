@@ -98,6 +98,7 @@ public static class DependencyInjection
         services.AddScoped<IDoctorProfileReader, DoctorProfileReader>();
         services.AddScoped<IInsuranceProviderReader, InsuranceProviderReader>();
         services.AddScoped<IActiveDoctorReader, ActiveDoctorReader>();
+        services.AddScoped<IDoctorPatientRelationshipReader, DoctorPatientRelationshipReader>();
         services.AddScoped<IActiveAppointmentReader, ActiveAppointmentReader>();
         services.AddScoped<IAppointmentNotificationReader, AppointmentNotificationReader>();
         services.AddScoped<IPatientAppointmentHistoryReader, PatientAppointmentHistoryReader>();

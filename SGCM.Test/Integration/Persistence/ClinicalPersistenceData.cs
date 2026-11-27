@@ -32,10 +32,14 @@ internal static class ClinicalPersistenceData
             """);
         var appointmentId = await TestDataSeeder.InsertAppointmentInStatusAsync(
             context, patientId, doctor.DoctorId, doctor.SpecialtyIds[0], startsAt, AppointmentMother.DurationHours,
-            status);
+            status, StatusReasonFor(status));
 
-        return new ClinicalAppointmentSeed(appointmentId, patientId, doctor.UserId);
+        return new ClinicalAppointmentSeed(appointmentId, patientId, doctor.UserId, doctor.DoctorId);
     }
+
+    // La base exige motivo en una cita rechazada; en una cancelada se pone también, como en el uso real.
+    private static string? StatusReasonFor(string status) =>
+        status is "rejected" or "cancelled" ? "Motivo registrado en la prueba" : null;
 
     /// <summary>Siembra una cita confirmada en el pasado y la primera versión de su registro clínico.</summary>
     public static async Task<(ClinicalAppointmentSeed Seed, MedicalRecord Record)> SeedMedicalRecordAsync(
@@ -70,4 +74,5 @@ internal static class ClinicalPersistenceData
 /// <param name="AppointmentId">Id de la cita.</param>
 /// <param name="PatientId">Id del perfil de paciente.</param>
 /// <param name="DoctorUserId">Id de la cuenta del médico, que es quien registra.</param>
-internal sealed record ClinicalAppointmentSeed(int AppointmentId, int PatientId, int DoctorUserId);
+/// <param name="DoctorId">Id del perfil del médico de la cita.</param>
+internal sealed record ClinicalAppointmentSeed(int AppointmentId, int PatientId, int DoctorUserId, int DoctorId);
