@@ -94,6 +94,19 @@ public class UnitOfWorkConflictTests
         conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);
     }
 
+    [Fact]
+    public async Task SaveChangesAsync_traduce_el_registro_clinico_de_una_cita_no_iniciada_del_trigger()
+    {
+        var postgres = CreatePostgresException("23514", "tg_medical_record_appointment_started", null, null);
+        var original = new DbUpdateException("Error de prueba.", postgres);
+
+        var conflict = await Should.ThrowAsync<PersistenceConflictException>(() => SaveThrowingAsync(original));
+
+        conflict.Error.ShouldBe(AppointmentErrors.ClinicalRecordNotStarted);
+        conflict.Error.Type.ShouldBe(ErrorType.Conflict);
+        conflict.InnerException.ShouldBeSameAs(original);
+    }
+
     [Theory]
     [InlineData("23505", "tg_appointment_within_block", null, null)]
     [InlineData("23P01", "tg_appointment_within_block", null, null)]

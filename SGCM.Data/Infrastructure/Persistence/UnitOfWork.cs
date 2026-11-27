@@ -52,11 +52,14 @@ internal sealed class UnitOfWork(AppDbContext context, DomainEventsQueue queue, 
     };
 
     // Reglas de triggers que el dominio reconoce como conflicto. Un trigger solo informa el nombre de la regla, sin
-    // esquema ni tabla, por eso esos dos campos van en null. Solo ocurre si el bloque se cerró o cambió a la vez, al
-    // agendar o al extender: el horario deja de estar disponible.
+    // esquema ni tabla, por eso esos dos campos van en null. El del bloque solo ocurre si el bloque se cerró o cambió
+    // a la vez, al agendar o al extender: el horario deja de estar disponible.
     private static readonly Dictionary<(string? Schema, string? Table, string Constraint), Error> CheckConflicts = new()
     {
-        [(null, null, "tg_appointment_within_block")] = AppointmentErrors.SlotUnavailable
+        [(null, null, "tg_appointment_within_block")] = AppointmentErrors.SlotUnavailable,
+        // Solo ocurre si el reloj de la aplicación va adelantado respecto al de la base: la cita está bloqueada, así
+        // que su estado no cambia mientras se registra.
+        [(null, null, "tg_medical_record_appointment_started")] = AppointmentErrors.ClinicalRecordNotStarted
     };
 
     private static bool TryGetConflict(DbUpdateException exception, out Error error)
