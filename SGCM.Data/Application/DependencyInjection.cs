@@ -6,6 +6,7 @@ using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Behaviors;
 using SGCM.Data.Application.Clinical;
 using SGCM.Data.Application.Identity.EventHandlers;
+using SGCM.Data.Application.Messaging;
 using SGCM.Data.Application.Scheduling;
 using SGCM.Data.Domain.Scheduling;
 
@@ -32,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<AppointmentSlotChecker>();
         services.AddScoped<IAppointmentReportBuilder, AppointmentReportBuilder>();
         services.AddScoped<MedicalRecordAccessTracker>();
+        services.AddScoped<ReminderComposer>();
         // La zona horaria de la agenda se valida al arrancar, así que el calendario se crea una sola vez.
         services.AddSingleton(provider =>
             BusinessCalendar.ForTimeZone(provider.GetRequiredService<IOptions<SchedulingOptions>>().Value.TimeZone));

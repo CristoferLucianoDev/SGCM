@@ -14,6 +14,7 @@ using SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
 using SGCM.Data.Application.Identity.Commands.ChangePassword;
 using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
 using SGCM.Test.Unit.Domain.Identity.Users;
+using SGCM.Data.Application.Messaging;
 using SGCM.Data.Application.People.Commands.ActivateSpecialty;
 using SGCM.Data.Application.People.Commands.AssociateDoctorSpecialty;
 using SGCM.Data.Application.People.Commands.DisassociateDoctorSpecialty;
@@ -1347,6 +1348,19 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public void El_compositor_de_recordatorios_se_resuelve_por_scope()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var composer = first.ServiceProvider.GetRequiredService<ReminderComposer>();
+
+        composer.ShouldBeSameAs(first.ServiceProvider.GetRequiredService<ReminderComposer>());
+        composer.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<ReminderComposer>());
+    }
+
+    [Fact]
     public void La_agenda_el_calendario_y_el_detalle_del_medico_se_resuelven_por_scope()
     {
         using var provider = BuildProvider();
@@ -1511,6 +1525,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<IPasswordHasher>());
         services.AddSingleton(Substitute.For<ISecureTokenGenerator>());
         services.AddSingleton(Substitute.For<INotificationService>());
+        services.AddSingleton(Substitute.For<ITemplateRenderer>());
         services.AddSingleton<IDateTimeProvider>(new FakeDateTimeProvider());
         services.AddSingleton(Options.Create(new AccountsOptions { EmailConfirmationTokenMinutes = 15 }));
         services.AddSingleton(Substitute.For<IAttemptLimiter>());
