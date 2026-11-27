@@ -14,6 +14,9 @@ using SGCM.Data.Application.Identity.Commands.RegisterPatientAccount;
 using SGCM.Data.Application.Identity.Commands.ChangePassword;
 using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
 using SGCM.Test.Unit.Domain.Identity.Users;
+using SGCM.Data.Application.Messaging;
+using SGCM.Data.Application.Messaging.Commands.SendDueReminders;
+using SGCM.Data.Application.Messaging.EventHandlers;
 using SGCM.Data.Application.People.Commands.ActivateSpecialty;
 using SGCM.Data.Application.People.Commands.AssociateDoctorSpecialty;
 using SGCM.Data.Application.People.Commands.DisassociateDoctorSpecialty;
@@ -49,6 +52,8 @@ using SGCM.Data.Domain.Clinical.MedicalRecords;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.ValueObjects;
 using SGCM.Data.Domain.Identity.Users;
+using SGCM.Data.Domain.Messaging.Reminders;
+using SGCM.Data.Domain.Messaging.ReminderTemplates;
 using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
@@ -1271,13 +1276,15 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
-    public void AppointmentCancelledEvent_tiene_un_solo_manejador_que_envia_la_notificacion()
+    public void AppointmentCancelledEvent_tiene_el_manejador_que_envia_la_notificacion_y_el_que_anula_los_recordatorios()
     {
         using var provider = BuildProvider();
         using var scope = provider.CreateScope();
 
         scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentCancelledEvent>>()
-            .ShouldHaveSingleItem().ShouldBeOfType<SendAppointmentCancelledNotification>();
+            .Select(handler => handler.GetType())
+            .ShouldBe(new[] { typeof(SendAppointmentCancelledNotification), typeof(CancelRemindersOnAppointmentCancelled) },
+                ignoreOrder: true);
     }
 
     [Fact]
@@ -1344,6 +1351,45 @@ public sealed class ApplicationDependencyInjectionTests
 
         result.Error.Code.ShouldBe("Availability.InvalidBlockId");
         await _unitOfWork.DidNotReceive().BeginTransactionAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void Los_manejadores_del_recordatorio_automatico_se_registran_para_los_eventos_de_la_cita()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentConfirmedEvent>>()
+            .ShouldContain(handler => handler is ScheduleReminderOnAppointmentConfirmed);
+        scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentRescheduledEvent>>()
+            .ShouldContain(handler => handler is RecalculateReminderOnAppointmentRescheduled);
+        scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentCancelledEvent>>()
+            .ShouldContain(handler => handler is CancelRemindersOnAppointmentCancelled);
+        scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentExpiredEvent>>()
+            .ShouldContain(handler => handler is CancelRemindersOnAppointmentExpired);
+    }
+
+    [Fact]
+    public void El_envio_de_recordatorios_vencidos_se_resuelve_con_sus_decoradores()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<ICommandHandler<SendDueRemindersCommand, int>>()
+            .ShouldBeOfType<ValidationDecorator<SendDueRemindersCommand, int>>();
+    }
+
+    [Fact]
+    public void El_compositor_de_recordatorios_se_resuelve_por_scope()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var composer = first.ServiceProvider.GetRequiredService<ReminderComposer>();
+
+        composer.ShouldBeSameAs(first.ServiceProvider.GetRequiredService<ReminderComposer>());
+        composer.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<ReminderComposer>());
     }
 
     [Fact]
@@ -1511,6 +1557,9 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<IPasswordHasher>());
         services.AddSingleton(Substitute.For<ISecureTokenGenerator>());
         services.AddSingleton(Substitute.For<INotificationService>());
+        services.AddSingleton(Substitute.For<ITemplateRenderer>());
+        services.AddSingleton(Substitute.For<IReminderRepository>());
+        services.AddSingleton(Substitute.For<IReminderTemplateRepository>());
         services.AddSingleton<IDateTimeProvider>(new FakeDateTimeProvider());
         services.AddSingleton(Options.Create(new AccountsOptions { EmailConfirmationTokenMinutes = 15 }));
         services.AddSingleton(Substitute.For<IAttemptLimiter>());

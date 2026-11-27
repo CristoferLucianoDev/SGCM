@@ -17,6 +17,7 @@ public static class JobRegistration
         services.AddRecurringJob<GenerateAvailabilityBlocksJob>();
         services.AddRecurringJob<ExpirePendingAppointmentsJob>();
         services.AddRecurringJob<CompleteFinishedAppointmentsJob>();
+        services.AddRecurringJob<SendDueRemindersJob>();
 
         return services;
     }

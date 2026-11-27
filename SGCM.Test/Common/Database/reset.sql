@@ -9,9 +9,12 @@
 DELETE FROM clinical.medical_record_access_log;
 DELETE FROM clinical.medical_record;
 DELETE FROM scheduling.appointment_report_log;
+DELETE FROM messaging.reminder;
 DELETE FROM scheduling.appointment;
 DELETE FROM scheduling.doctor_availability;
 DELETE FROM scheduling.doctor_availability_series;
+-- Las plantillas globales (doctor_id NULL) son datos semilla y se conservan.
+DELETE FROM messaging.reminder_template WHERE doctor_id IS NOT NULL;
 DELETE FROM people.doctor_specialty;
 DELETE FROM people.patient;
 DELETE FROM people.doctor;
