@@ -52,6 +52,7 @@ using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Data.Domain.Scheduling.Appointments.Events;
 using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Data.Domain.Scheduling.Availability.Events;
+using SGCM.Data.Domain.Scheduling.Reports;
 using SGCM.Test.Common.Fakes;
 using SGCM.Test.Common.Mothers;
 using SGCM.Test.Unit.Application.People;
@@ -1478,6 +1479,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<IAppointmentNotificationReader>());
         services.AddSingleton(Substitute.For<IPatientAppointmentHistoryReader>());
         services.AddSingleton(Substitute.For<IAppointmentReportReader>());
+        services.AddSingleton(Substitute.For<IAppointmentReportLogRepository>());
         services.AddSingleton(Options.Create(CreateAvailabilitySeriesCommandMother.Options()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
