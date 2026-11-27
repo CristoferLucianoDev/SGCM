@@ -34,6 +34,7 @@ public static class DependencyInjection
         services.AddScoped<IAppointmentReportBuilder, AppointmentReportBuilder>();
         services.AddScoped<MedicalRecordAccessTracker>();
         services.AddScoped<ReminderComposer>();
+        services.AddScoped<AutomaticReminderScheduler>();
         // La zona horaria de la agenda se valida al arrancar, así que el calendario se crea una sola vez.
         services.AddSingleton(provider =>
             BusinessCalendar.ForTimeZone(provider.GetRequiredService<IOptions<SchedulingOptions>>().Value.TimeZone));
