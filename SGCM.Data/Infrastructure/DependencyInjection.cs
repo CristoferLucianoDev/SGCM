@@ -6,6 +6,8 @@ using SGCM.Data.Application.Abstractions.Persistence;
 using SGCM.Data.Application.Abstractions.Reporting;
 using SGCM.Data.Domain.Clinical.MedicalRecords;
 using SGCM.Data.Domain.Identity.Users;
+using SGCM.Data.Domain.Messaging.Reminders;
+using SGCM.Data.Domain.Messaging.ReminderTemplates;
 using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
@@ -17,6 +19,7 @@ using SGCM.Data.Infrastructure.Persistence.Interceptors;
 using SGCM.Data.Infrastructure.Persistence.Readers;
 using SGCM.Data.Infrastructure.Persistence.Repositories.Clinical;
 using SGCM.Data.Infrastructure.Persistence.Repositories.Identity;
+using SGCM.Data.Infrastructure.Persistence.Repositories.Messaging;
 using SGCM.Data.Infrastructure.Persistence.Repositories.People;
 using SGCM.Data.Application.Abstractions.Security;
 using SGCM.Data.Application.Abstractions.Services;
@@ -79,6 +82,8 @@ public static class DependencyInjection
         services.AddScoped<IAppointmentReportLogRepository, AppointmentReportLogRepository>();
         services.AddScoped<IMedicalRecordRepository, MedicalRecordRepository>();
         services.AddScoped<IMedicalRecordAccessLogRepository, MedicalRecordAccessLogRepository>();
+        services.AddScoped<IReminderRepository, ReminderRepository>();
+        services.AddScoped<IReminderTemplateRepository, ReminderTemplateRepository>();
         // Un exportador por formato: el caso de uso recibe todos y elige el suyo por ReportFormat.
         services.AddSingleton<IReportExporter, PdfReportExporter>();
         services.AddSingleton<IReportExporter, ExcelReportExporter>();
