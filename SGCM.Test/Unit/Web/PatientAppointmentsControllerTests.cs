@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.Routing;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Common;
+using SGCM.Data.Application.Scheduling.Commands.RescheduleAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
 using SGCM.Data.Domain.Common;
@@ -18,6 +19,8 @@ using SGCM.Web.Mappers.Scheduling;
 using Shouldly;
 
 namespace SGCM.Test.Unit.Web;
+
+using Unit = SGCM.Data.Domain.Common.Unit;
 
 public sealed class PatientAppointmentsControllerTests
 {
@@ -39,6 +42,65 @@ public sealed class PatientAppointmentsControllerTests
 
     private readonly IQueryHandler<GetPatientAppointmentDetailQuery, PatientAppointmentDetailDto> _getHandler =
         Substitute.For<IQueryHandler<GetPatientAppointmentDetailQuery, PatientAppointmentDetailDto>>();
+
+    private readonly ICommandHandler<RescheduleAppointmentCommand, Unit> _rescheduleHandler =
+        Substitute.For<ICommandHandler<RescheduleAppointmentCommand, Unit>>();
+
+    [Fact]
+    public async Task Reschedule_pasa_el_comando_y_el_token_al_handler_y_responde_204()
+    {
+        using var cancellation = new CancellationTokenSource();
+        _rescheduleHandler.HandleAsync(Arg.Any<RescheduleAppointmentCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Success(Unit.Value));
+
+        var result = await new PatientAppointmentsController().Reschedule(
+            AppointmentId, new RescheduleAppointmentRequest(StartsAt), _rescheduleHandler, cancellation.Token);
+
+        result.ShouldBeOfType<NoContentResult>();
+        await _rescheduleHandler.Received(1).HandleAsync(
+            new RescheduleAppointmentCommand(AppointmentId, StartsAt), cancellation.Token);
+    }
+
+    public static IEnumerable<object[]> RescheduleErrors()
+    {
+        yield return [Error.Validation("Appointment.StartsAtRequired", "Debe indicar la nueva hora de la cita."), 400];
+        yield return [AppointmentErrors.TooSoon, 400];
+        yield return [AppointmentErrors.ReschedulePatientOnly, 403];
+        yield return [AppointmentErrors.NotFound, 404];
+        yield return [AppointmentErrors.RescheduleDeadlinePassed, 409];
+        yield return [AppointmentErrors.SlotUnavailable, 409];
+        yield return [AppointmentErrors.PatientOverlap, 409];
+    }
+
+    [Theory]
+    [MemberData(nameof(RescheduleErrors))]
+    public async Task Reschedule_utiliza_ErrorResult_con_estado_codigo_y_descripcion(Error error, int status)
+    {
+        _rescheduleHandler.HandleAsync(Arg.Any<RescheduleAppointmentCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<Unit>.Failure(error));
+
+        var result = await new PatientAppointmentsController().Reschedule(
+            AppointmentId, new RescheduleAppointmentRequest(StartsAt), _rescheduleHandler, CancellationToken.None);
+
+        AssertProblem(result, error, status);
+    }
+
+    [Fact]
+    public void Reschedule_es_un_POST_con_id_entero_solo_para_pacientes_con_sus_respuestas()
+    {
+        var method = typeof(PatientAppointmentsController).GetMethod(nameof(PatientAppointmentsController.Reschedule))!;
+
+        var verb = method.GetCustomAttributes<HttpMethodAttribute>().ShouldHaveSingleItem();
+        verb.HttpMethods.ShouldBe(new[] { "POST" });
+        verb.Template.ShouldBe("{id:int}/reschedule");
+        method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Patient));
+        method.GetCustomAttributes<AllowPendingStepAttribute>().ShouldBeEmpty();
+        var responses = method.GetCustomAttributes<ProducesResponseTypeAttribute>().ToArray();
+        responses.Select(value => value.StatusCode).ShouldBe(new[] { 204, 400, 401, 403, 404, 409 }, ignoreOrder: true);
+        responses.Single(value => value.StatusCode == 400).Type.ShouldBe(typeof(ProblemDetails));
+        responses.Single(value => value.StatusCode == 404).Type.ShouldBe(typeof(ProblemDetails));
+        responses.Single(value => value.StatusCode == 409).Type.ShouldBe(typeof(ProblemDetails));
+    }
 
     [Fact]
     public async Task List_pasa_la_consulta_y_el_token_al_handler_y_responde_200_con_la_respuesta_mapeada()
