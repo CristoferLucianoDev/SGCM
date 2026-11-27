@@ -69,6 +69,19 @@ public static class AppointmentErrors
     public static readonly Error ConfirmationDeadlineNotReached = Error.Conflict(
         "Appointment.ConfirmationDeadlineNotReached", "La cita todavía está dentro del plazo de confirmación.");
 
+    /// <summary>La cita no está pendiente ni confirmada, así que ya no se puede reprogramar ni cambiar de médico.</summary>
+    public static readonly Error NotActive = Error.Conflict(
+        "Appointment.NotActive", "La cita ya no está pendiente ni confirmada.");
+
+    /// <summary>El paciente intentó reprogramar o cambiar de médico después del plazo; esas citas se cambian por teléfono.</summary>
+    public static readonly Error RescheduleDeadlinePassed = Error.Conflict(
+        "Appointment.RescheduleDeadlinePassed",
+        "El plazo para reprogramar o cambiar de médico en línea ya pasó; para cambiar esta cita debe llamar al médico.");
+
+    /// <summary>La nueva hora es la misma en que ya está la cita.</summary>
+    public static readonly Error SameSchedule = Error.Validation(
+        "Appointment.SameSchedule", "La nueva hora es la misma de la cita.");
+
     /// <summary>La cita no está confirmada, así que el proceso automático no la completa.</summary>
     public static readonly Error NotConfirmed = Error.Conflict(
         "Appointment.NotConfirmed", "Solo se puede completar una cita confirmada.");

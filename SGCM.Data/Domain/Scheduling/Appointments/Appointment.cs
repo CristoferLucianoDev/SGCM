@@ -243,6 +243,76 @@ public sealed class Appointment : AggregateRoot
     }
 
     /// <summary>
+    /// Reprograma la cita a otra hora por pedido del paciente: dentro del plazo de reprogramación y de la ventana de
+    /// reservas, queda pendiente con el nuevo inicio y el fin según la duración. Emite
+    /// <see cref="AppointmentRescheduledEvent"/>; ante cualquier error la cita no cambia ni emite eventos. Que el
+    /// horario esté libre y dentro de un bloque abierto del médico lo comprueba quien llama.
+    /// </summary>
+    /// <param name="newStartsAt">Nuevo inicio; se guarda en UTC.</param>
+    /// <param name="now">Instante actual, que se compara con el plazo.</param>
+    /// <param name="patientRescheduleDeadlineHours">
+    /// Horas de antelación mínima con que el paciente puede reprogramar, según la configuración.
+    /// </param>
+    /// <param name="durationHours">Duración de la cita en horas, según la configuración.</param>
+    /// <param name="bookingWindow">
+    /// Ventana en la que puede empezar la cita: su inicio es la antelación mínima y su fin, excluido, el horizonte.
+    /// </param>
+    /// <returns>
+    /// Éxito, o <see cref="AppointmentErrors.NotActive"/> si la cita no está pendiente ni confirmada,
+    /// <see cref="AppointmentErrors.RescheduleDeadlinePassed"/> si el plazo ya pasó,
+    /// <see cref="AppointmentErrors.NotOnHour"/>, <see cref="AppointmentErrors.TooSoon"/> o
+    /// <see cref="AppointmentErrors.BeyondHorizon"/> si la nueva hora no es válida, o
+    /// <see cref="AppointmentErrors.SameSchedule"/> si es el mismo inicio actual. Se validan en ese orden.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si el plazo o la duración no son positivos.</exception>
+    /// <exception cref="ArgumentNullException">Si la ventana es nula.</exception>
+    public Result RescheduleByPatient(
+        DateTimeOffset newStartsAt,
+        DateTimeOffset now,
+        int patientRescheduleDeadlineHours,
+        int durationHours,
+        TimeRange bookingWindow)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(patientRescheduleDeadlineHours);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(durationHours);
+        ArgumentNullException.ThrowIfNull(bookingWindow);
+
+        var relocation = ValidatePatientRelocation(newStartsAt, now, patientRescheduleDeadlineHours, bookingWindow);
+        if (relocation != Error.None) return relocation;
+
+        var newStartUtc = newStartsAt.ToUniversalTime();
+        // Reprogramar a la misma hora no cambia nada; el cambio de médico sí puede conservarla, por eso va aparte.
+        if (newStartUtc == StartsAt) return AppointmentErrors.SameSchedule;
+
+        var previousStartsAt = StartsAt;
+        StartsAt = newStartUtc;
+        EndsAt = newStartUtc.AddHours(durationHours);
+        Status = AppointmentStatus.Pending;
+        Raise(new AppointmentRescheduledEvent(this, AppointmentParticipant.Patient, previousStartsAt));
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Validación que comparten la reprogramación del paciente y el cambio de médico: la cita debe estar activa, el
+    /// paciente dentro de su plazo de reprogramación y la nueva hora en punto y dentro de la ventana de reservas.
+    /// Reutiliza <see cref="IsActive"/>, <see cref="IsWithinDeadline"/> y <see cref="ValidateStart"/>, las mismas reglas
+    /// que usan las acciones permitidas y la solicitud de cita.
+    /// </summary>
+    /// <returns>
+    /// <see cref="Error.None"/>, <see cref="AppointmentErrors.NotActive"/>,
+    /// <see cref="AppointmentErrors.RescheduleDeadlinePassed"/> o el error de <see cref="ValidateStart"/>.
+    /// </returns>
+    private Error ValidatePatientRelocation(
+        DateTimeOffset newStartsAt, DateTimeOffset now, int deadlineHours, TimeRange bookingWindow)
+    {
+        if (!IsActive()) return AppointmentErrors.NotActive;
+        if (!IsWithinDeadline(now, deadlineHours)) return AppointmentErrors.RescheduleDeadlinePassed;
+
+        return ValidateStart(newStartsAt, bookingWindow);
+    }
+
+    /// <summary>
     /// Extiende la cita en curso las horas indicadas, si la cita completa, desde su inicio hasta el nuevo fin, cabe
     /// en UN solo bloque abierto del médico y el tramo añadido no se cruza con otra cita activa. No emite eventos;
     /// ante cualquier error la cita no cambia.
