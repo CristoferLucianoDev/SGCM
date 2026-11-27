@@ -1,4 +1,5 @@
 using SGCM.Data.Application.Common;
+using SGCM.Data.Application.Scheduling.Commands.RescheduleAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
 using SGCM.Data.Domain.Scheduling.Appointments;
@@ -43,6 +44,21 @@ public static class PatientAppointmentMapper
             request.To,
             request.PageNumber,
             request.PageSize);
+    }
+
+    /// <summary>
+    /// Convierte la solicitud de reprogramación en el comando, con el id de la cita de la ruta. La nueva hora pasa tal
+    /// cual, aunque sea nula, para que la valide el caso de uso.
+    /// </summary>
+    /// <param name="request">Solicitud recibida.</param>
+    /// <param name="appointmentId">Id de la cita tomado de la ruta.</param>
+    /// <returns>El comando de reprogramación.</returns>
+    /// <exception cref="ArgumentNullException">Si <paramref name="request"/> es nulo.</exception>
+    public static RescheduleAppointmentCommand ToCommand(this RescheduleAppointmentRequest request, int appointmentId)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return new RescheduleAppointmentCommand(appointmentId, request.StartsAt);
     }
 
     /// <summary>

@@ -1,4 +1,5 @@
 using SGCM.Data.Application.Common;
+using SGCM.Data.Application.Scheduling.Commands.RescheduleAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
 using SGCM.Data.Domain.Scheduling.Appointments;
@@ -18,6 +19,25 @@ public sealed class PatientAppointmentMapperTests
     private static readonly DateOnly From = new(2027, 1, 1);
     private static readonly DateOnly To = new(2027, 3, 1);
     private static readonly DateTimeOffset StartsAt = new(2027, 1, 12, 13, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void La_solicitud_de_reprogramacion_se_convierte_en_el_comando_con_el_id_de_la_ruta_y_la_nueva_hora()
+    {
+        new RescheduleAppointmentRequest(StartsAt).ToCommand(99)
+            .ShouldBe(new RescheduleAppointmentCommand(99, StartsAt));
+    }
+
+    [Fact]
+    public void La_solicitud_de_reprogramacion_sin_hora_la_pasa_nula_para_que_la_valide_el_caso_de_uso()
+    {
+        new RescheduleAppointmentRequest().ToCommand(99).ShouldBe(new RescheduleAppointmentCommand(99, null));
+    }
+
+    [Fact]
+    public void Una_solicitud_de_reprogramacion_nula_es_un_error_de_programacion()
+    {
+        Should.Throw<ArgumentNullException>(() => ((RescheduleAppointmentRequest)null!).ToCommand(1));
+    }
 
     [Fact]
     public void ToQuery_conserva_los_filtros_y_la_pagina()

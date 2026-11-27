@@ -2,8 +2,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
 using SGCM.Data.Application.Common;
+using SGCM.Data.Application.Scheduling.Commands.RescheduleAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentDetail;
 using SGCM.Data.Application.Scheduling.Queries.GetPatientAppointmentHistory;
+using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
 using SGCM.Web.Api.Infrastructure;
 using SGCM.Web.Contracts.Scheduling;
@@ -75,5 +77,38 @@ public sealed class PatientAppointmentsController : ApiControllerBase
         var result = await handler.HandleAsync(new GetPatientAppointmentDetailQuery(id), cancellationToken);
 
         return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
+    }
+
+    /// <summary>Reprograma una cita pendiente o confirmada del paciente autenticado a otra hora.</summary>
+    /// <remarks>
+    /// Solo citas propias pendientes o confirmadas, hasta el plazo configurado
+    /// (Scheduling:PatientRescheduleDeadlineHours), con la nueva hora en punto y dentro de la ventana de reservas.
+    /// La cita vuelve a pendiente. 400 con code responde Appointment.StartsAtRequired, Appointment.NotOnHour,
+    /// Appointment.TooSoon, Appointment.BeyondHorizon o Appointment.SameSchedule. 404 responde Appointment.NotFound si la
+    /// cita es ajena o no existe. 409 responde Appointment.NotActive, Appointment.RescheduleDeadlinePassed,
+    /// Appointment.SlotUnavailable o Appointment.PatientOverlap. Los errores de forma de la petición (cuerpo mal
+    /// formado) responden 400 sin code; un id que no es entero no coincide con la ruta y responde 404.
+    /// </remarks>
+    /// <param name="id">Id de la cita, mayor que cero.</param>
+    /// <param name="request">Nueva hora de inicio con su desfase.</param>
+    /// <param name="handler">Manejador del comando.</param>
+    /// <param name="cancellationToken">Token de cancelación de la petición.</param>
+    [HttpPost("{id:int}/reschedule")]
+    [Authorize(Roles = nameof(UserRole.Patient))]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Reschedule(
+        int id,
+        RescheduleAppointmentRequest request,
+        [FromServices] ICommandHandler<RescheduleAppointmentCommand, Unit> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToCommand(id), cancellationToken);
+
+        return result.IsSuccess ? NoContent() : ErrorResult(result.Error);
     }
 }

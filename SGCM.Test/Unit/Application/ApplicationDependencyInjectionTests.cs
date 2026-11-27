@@ -1218,6 +1218,16 @@ public sealed class ApplicationDependencyInjectionTests
     }
 
     [Fact]
+    public void AppointmentRescheduledEvent_incluye_el_manejador_que_envia_la_notificacion()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentRescheduledEvent>>()
+            .Select(handler => handler.GetType()).ShouldContain(typeof(SendAppointmentRescheduledNotification));
+    }
+
+    [Fact]
     public void AppointmentCancelledEvent_tiene_un_solo_manejador_que_envia_la_notificacion()
     {
         using var provider = BuildProvider();
