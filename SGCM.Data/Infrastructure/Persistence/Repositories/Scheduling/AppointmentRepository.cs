@@ -50,6 +50,21 @@ internal sealed class AppointmentRepository(AppDbContext context) : IAppointment
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<int>> ListFinishedIdsAsync(
+        DateTimeOffset now, int maxCount, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxCount);
+
+        // Es el complemento del fin de IsInProgress en el dominio: now >= ends_at.
+        return await context.Appointments.AsNoTracking()
+            .Where(appointment => appointment.Status == AppointmentStatus.Confirmed && appointment.EndsAt <= now)
+            .OrderBy(appointment => appointment.EndsAt)
+            .ThenBy(appointment => appointment.Id)
+            .Take(maxCount)
+            .Select(appointment => appointment.Id)
+            .ToListAsync(cancellationToken);
+    }
+
     /// <summary>
     /// EF no reemplaza una entidad ya rastreada, así que se descarta solo esa copia para releerla tras el
     /// bloqueo; nunca se descartan cambios pendientes.

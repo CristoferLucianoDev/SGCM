@@ -32,4 +32,15 @@ public interface IAppointmentRepository : IRepository<Appointment>
     /// <exception cref="ArgumentOutOfRangeException">Si <paramref name="maxCount"/> no es positivo.</exception>
     Task<IReadOnlyList<int>> ListExpirableIdsAsync(
         DateTimeOffset now, int confirmationDeadlineHours, int maxCount, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Lista los ids de las citas confirmadas que ya llegaron a su fin (ends_at &lt;= now), ordenados por fin y por id.
+    /// Devuelve como máximo <paramref name="maxCount"/> ids, los más antiguos primero. Es un prefiltro sin bloqueo:
+    /// la regla final la aplica <see cref="Appointment.CompleteFinished"/> sobre la cita bloqueada.
+    /// </summary>
+    /// <param name="now">Instante actual.</param>
+    /// <param name="maxCount">Cantidad máxima de ids que se devuelven.</param>
+    /// <returns>Los ids candidatos; vacío si no hay ninguno.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Si <paramref name="maxCount"/> no es positivo.</exception>
+    Task<IReadOnlyList<int>> ListFinishedIdsAsync(DateTimeOffset now, int maxCount, CancellationToken cancellationToken);
 }

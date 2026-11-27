@@ -8,6 +8,7 @@ using SGCM.Data.Domain.People.Doctors;
 using SGCM.Data.Domain.People.InsuranceProviders;
 using SGCM.Data.Domain.People.Patients;
 using SGCM.Data.Domain.People.Specialties;
+using SGCM.Data.Domain.Scheduling.Appointments;
 using SGCM.Data.Domain.Scheduling.Availability;
 using SGCM.Data.Infrastructure.Persistence;
 using SGCM.Data.Infrastructure.Persistence.Interceptors;
@@ -75,6 +76,37 @@ public class UnitOfWorkConflictTests
         conflict.Error.Type.ShouldBe(ErrorType.Conflict);
         conflict.InnerException.ShouldBeSameAs(original);
         conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_traduce_la_cita_fuera_del_bloque_del_trigger_y_conserva_la_causa()
+    {
+        // El trigger informa solo el nombre de la regla: esquema y tabla llegan nulos.
+        var postgres = CreatePostgresException("23514", "tg_appointment_within_block", null, null);
+        var original = new DbUpdateException("Error de prueba.", postgres);
+
+        var conflict = await Should.ThrowAsync<PersistenceConflictException>(() => SaveThrowingAsync(original));
+
+        conflict.Error.ShouldBe(AppointmentErrors.SlotUnavailable);
+        conflict.Error.Code.ShouldBe("Appointment.SlotUnavailable");
+        conflict.Error.Type.ShouldBe(ErrorType.Conflict);
+        conflict.InnerException.ShouldBeSameAs(original);
+        conflict.InnerException!.InnerException.ShouldBeSameAs(postgres);
+    }
+
+    [Theory]
+    [InlineData("23505", "tg_appointment_within_block", null, null)]
+    [InlineData("23P01", "tg_appointment_within_block", null, null)]
+    [InlineData("23514", "tg_appointment_doctor_active", null, null)]
+    [InlineData("23514", "tg_appointment_within_block", "scheduling", "doctor_availability")]
+    public async Task SaveChangesAsync_propaga_sin_traducir_otras_violaciones_de_triggers(
+        string sqlState, string? constraint, string? schema, string? table)
+    {
+        var original = new DbUpdateException("Error de prueba.", CreatePostgresException(sqlState, constraint, schema, table));
+
+        var actual = await Should.ThrowAsync<DbUpdateException>(() => SaveThrowingAsync(original));
+
+        actual.ShouldBeSameAs(original);
     }
 
     [Theory]

@@ -1,5 +1,6 @@
 using SGCM.Data.Application.Scheduling.Commands.CancelAppointment;
 using SGCM.Data.Application.Scheduling.Commands.CancelAppointmentByDoctor;
+using SGCM.Data.Application.Scheduling.Commands.ExtendAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RejectAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorAssignment;
@@ -64,6 +65,13 @@ public sealed class AppointmentMapperTests
         Should.Throw<ArgumentNullException>(() => ((CancelAppointmentRequest)null!).ToCommand(1));
         Should.Throw<ArgumentNullException>(() => ((CancelAppointmentByDoctorRequest)null!).ToCommand(1));
         Should.Throw<ArgumentNullException>(() => ((RejectAppointmentRequest)null!).ToCommand(1));
+        Should.Throw<ArgumentNullException>(() => ((ExtendAppointmentRequest)null!).ToCommand(1));
+    }
+
+    [Fact]
+    public void La_solicitud_de_extension_se_convierte_en_el_comando_con_el_id_de_la_ruta_y_las_horas()
+    {
+        new ExtendAppointmentRequest(2).ToCommand(99).ShouldBe(new ExtendAppointmentCommand(99, 2));
     }
 
     [Fact]

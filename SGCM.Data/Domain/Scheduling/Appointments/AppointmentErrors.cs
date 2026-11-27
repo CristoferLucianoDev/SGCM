@@ -69,6 +69,24 @@ public static class AppointmentErrors
     public static readonly Error ConfirmationDeadlineNotReached = Error.Conflict(
         "Appointment.ConfirmationDeadlineNotReached", "La cita todavía está dentro del plazo de confirmación.");
 
+    /// <summary>La cita no está confirmada, así que el proceso automático no la completa.</summary>
+    public static readonly Error NotConfirmed = Error.Conflict(
+        "Appointment.NotConfirmed", "Solo se puede completar una cita confirmada.");
+
+    /// <summary>La cita confirmada todavía no llegó a su fin, así que el proceso automático no la completa.</summary>
+    public static readonly Error NotFinished = Error.Conflict(
+        "Appointment.NotFinished", "La cita todavía no termina.");
+
+    /// <summary>La cita no es una confirmada en curso, así que el médico no puede extenderla ni terminarla.</summary>
+    public static readonly Error NotInProgress = Error.Conflict(
+        "Appointment.NotInProgress",
+        "Solo se puede extender o terminar una cita confirmada que está en curso.");
+
+    /// <summary>El tramo que se quiere añadir sale del bloque del médico o choca con otra cita activa.</summary>
+    public static readonly Error ExtensionUnavailable = Error.Conflict(
+        "Appointment.ExtensionUnavailable",
+        "La cita no se puede extender: el nuevo fin sale del bloque del médico o choca con otra cita.");
+
     /// <summary>El motivo de la cancelación supera la longitud máxima.</summary>
     public static readonly Error StatusReasonTooLong = Error.Validation(
         "Appointment.StatusReasonTooLong",
@@ -102,6 +120,10 @@ public static class AppointmentErrors
     /// <summary>Solo el médico de la cita la confirma o la rechaza.</summary>
     public static readonly Error DecisionDoctorOnly = Error.Forbidden(
         "Appointment.DecisionDoctorOnly", "Solo el médico de la cita puede confirmarla o rechazarla.");
+
+    /// <summary>Solo el médico de la cita la extiende o la termina.</summary>
+    public static readonly Error ProgressDoctorOnly = Error.Forbidden(
+        "Appointment.ProgressDoctorOnly", "Solo el médico de la cita puede extenderla o terminarla.");
 
     /// <summary>Solo el paciente dueño de la cita la cancela desde este caso de uso.</summary>
     public static readonly Error CancellationPatientOnly = Error.Forbidden(
