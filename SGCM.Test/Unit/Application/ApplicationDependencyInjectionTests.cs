@@ -43,6 +43,7 @@ using SGCM.Data.Application.Scheduling.Commands.GenerateAvailabilityBlocks;
 using SGCM.Data.Application.Scheduling.EventHandlers;
 using SGCM.Data.Application.Scheduling.Queries.GetAvailableSlots;
 using SGCM.Data.Application.Clinical;
+using SGCM.Data.Application.Clinical.Commands.CreateMedicalRecordVersion;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Domain.Clinical.MedicalRecords;
 using SGCM.Data.Domain.Common;
@@ -204,10 +205,23 @@ public sealed class ApplicationDependencyInjectionTests
 
     [Theory]
     [InlineData(typeof(AccessLoggedTestCommand), true)]
+    [InlineData(typeof(CreateMedicalRecordVersionCommand), true)]
     [InlineData(typeof(RegisterPatientAccountCommand), false)]
     public void Only_commands_that_ask_for_it_are_wrapped_in_the_access_log(Type commandType, bool expected)
     {
         DependencyInjection.IsAccessLogged(commandType).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void AddApplication_ResolvesCreateMedicalRecordVersionWrappedInValidation()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        var handler = scope.ServiceProvider
+            .GetRequiredService<ICommandHandler<CreateMedicalRecordVersionCommand, MedicalRecordVersionResult>>();
+
+        handler.ShouldBeOfType<ValidationDecorator<CreateMedicalRecordVersionCommand, MedicalRecordVersionResult>>();
     }
 
     public sealed record AccessLoggedTestCommand(string? IpAddress) : IAccessLoggedCommand<Unit>;
@@ -1523,6 +1537,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<IAppointmentReportReader>());
         services.AddSingleton(Substitute.For<IAppointmentReportLogRepository>());
         services.AddSingleton(Substitute.For<IMedicalRecordAccessLogRepository>());
+        services.AddSingleton(Substitute.For<IMedicalRecordRepository>());
         services.AddSingleton(Substitute.For<IDoctorScheduleReader>());
         services.AddSingleton(Options.Create(CreateAvailabilitySeriesCommandMother.Options()));
 
