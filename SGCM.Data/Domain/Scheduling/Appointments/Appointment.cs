@@ -481,6 +481,28 @@ public sealed class Appointment : AggregateRoot
         return Result.Success();
     }
 
+    /// <summary>
+    /// Comprueba si el médico puede registrar información clínica de esta cita: solo el médico de la cita, en una cita
+    /// confirmada o completada y desde su hora de inicio, esté en curso o ya terminada. La regla vive en la cita porque
+    /// depende de su estado y de su hora; la base aplica la misma condición como última defensa. No cambia la cita.
+    /// </summary>
+    /// <param name="doctorId">Médico que intenta registrar.</param>
+    /// <param name="now">Instante actual, que se compara con el inicio de la cita.</param>
+    /// <returns>
+    /// Éxito, o <see cref="AppointmentErrors.ClinicalRecordDoctorOnly"/> si la cita es de otro médico, o
+    /// <see cref="AppointmentErrors.ClinicalRecordInvalidStatus"/> si no está confirmada ni completada, o
+    /// <see cref="AppointmentErrors.ClinicalRecordNotStarted"/> si aún no empieza. Se validan en ese orden.
+    /// </returns>
+    public Result EnsureClinicalRecordAllowed(int doctorId, DateTimeOffset now)
+    {
+        if (doctorId != DoctorId) return AppointmentErrors.ClinicalRecordDoctorOnly;
+        if (Status is not (AppointmentStatus.Confirmed or AppointmentStatus.Completed))
+            return AppointmentErrors.ClinicalRecordInvalidStatus;
+        if (now < StartsAt) return AppointmentErrors.ClinicalRecordNotStarted;
+
+        return Result.Success();
+    }
+
     // Cambio de estado y evento comunes a las dos formas de completar una cita.
     private void MarkCompleted()
     {
