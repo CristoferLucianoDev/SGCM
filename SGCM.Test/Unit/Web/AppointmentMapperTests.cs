@@ -2,6 +2,7 @@ using SGCM.Data.Application.Scheduling.Commands.CancelAppointment;
 using SGCM.Data.Application.Scheduling.Commands.CancelAppointmentByDoctor;
 using SGCM.Data.Application.Scheduling.Commands.ExtendAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RejectAppointment;
+using SGCM.Data.Application.Scheduling.Commands.RescheduleAppointmentByDoctor;
 using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorAssignment;
 using SGCM.Web.Contracts.Scheduling;
@@ -66,6 +67,21 @@ public sealed class AppointmentMapperTests
         Should.Throw<ArgumentNullException>(() => ((CancelAppointmentByDoctorRequest)null!).ToCommand(1));
         Should.Throw<ArgumentNullException>(() => ((RejectAppointmentRequest)null!).ToCommand(1));
         Should.Throw<ArgumentNullException>(() => ((ExtendAppointmentRequest)null!).ToCommand(1));
+        Should.Throw<ArgumentNullException>(() => ((RescheduleAppointmentByDoctorRequest)null!).ToCommand(1));
+    }
+
+    [Fact]
+    public void La_solicitud_de_reprogramacion_del_medico_se_convierte_en_el_comando_con_el_id_de_la_ruta_y_la_hora()
+    {
+        new RescheduleAppointmentByDoctorRequest(StartsAt).ToCommand(99)
+            .ShouldBe(new RescheduleAppointmentByDoctorCommand(99, StartsAt));
+    }
+
+    [Fact]
+    public void La_solicitud_de_reprogramacion_del_medico_sin_hora_la_pasa_nula_para_que_la_valide_el_caso_de_uso()
+    {
+        new RescheduleAppointmentByDoctorRequest().ToCommand(99)
+            .ShouldBe(new RescheduleAppointmentByDoctorCommand(99, null));
     }
 
     [Fact]

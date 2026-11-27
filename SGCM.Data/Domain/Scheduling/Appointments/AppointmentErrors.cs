@@ -146,6 +146,10 @@ public static class AppointmentErrors
     public static readonly Error ProgressDoctorOnly = Error.Forbidden(
         "Appointment.ProgressDoctorOnly", "Solo el médico de la cita puede extenderla o terminarla.");
 
+    /// <summary>Solo el médico de la cita la reprograma desde este caso de uso.</summary>
+    public static readonly Error RescheduleDoctorOnly = Error.Forbidden(
+        "Appointment.RescheduleDoctorOnly", "Solo el médico de la cita puede reprogramarla desde aquí.");
+
     /// <summary>Solo el paciente dueño de la cita la reprograma desde este caso de uso.</summary>
     public static readonly Error ReschedulePatientOnly = Error.Forbidden(
         "Appointment.ReschedulePatientOnly", "Solo el paciente puede reprogramar sus citas desde aquí.");

@@ -2,6 +2,7 @@ using SGCM.Data.Application.Scheduling.Commands.CancelAppointment;
 using SGCM.Data.Application.Scheduling.Commands.CancelAppointmentByDoctor;
 using SGCM.Data.Application.Scheduling.Commands.ExtendAppointment;
 using SGCM.Data.Application.Scheduling.Commands.RejectAppointment;
+using SGCM.Data.Application.Scheduling.Commands.RescheduleAppointmentByDoctor;
 using SGCM.Data.Application.Scheduling.Commands.RequestAppointment;
 using SGCM.Data.Application.Scheduling.Queries.GetDoctorAssignment;
 using SGCM.Web.Contracts.Scheduling;
@@ -73,6 +74,15 @@ public static class AppointmentMapper
         ArgumentNullException.ThrowIfNull(request);
 
         return new ExtendAppointmentCommand(appointmentId, request.AdditionalHours);
+    }
+
+    /// <exception cref="ArgumentNullException">Si <paramref name="request"/> es nulo.</exception>
+    public static RescheduleAppointmentByDoctorCommand ToCommand(
+        this RescheduleAppointmentByDoctorRequest request, int appointmentId)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return new RescheduleAppointmentByDoctorCommand(appointmentId, request.StartsAt);
     }
 
     /// <exception cref="ArgumentNullException">Si <paramref name="appointment"/> es nulo.</exception>
