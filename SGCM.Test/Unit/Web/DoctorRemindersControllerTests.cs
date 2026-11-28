@@ -1,9 +1,11 @@
 using System.Reflection;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Messaging.Commands.ScheduleReminder;
 using SGCM.Data.Application.Messaging.Queries.GetReminderPreview;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
@@ -22,6 +24,11 @@ public sealed class DoctorRemindersControllerTests
 {
     private const int AppointmentId = 99;
     private const int TemplateId = 1;
+
+    private static readonly DateTimeOffset SendAt = new(2027, 1, 11, 13, 0, 0, TimeSpan.Zero);
+
+    private readonly ICommandHandler<ScheduleReminderCommand, ScheduledReminderDto> _scheduleHandler =
+        Substitute.For<ICommandHandler<ScheduleReminderCommand, ScheduledReminderDto>>();
 
     private readonly IQueryHandler<GetReminderPreviewQuery, ReminderPreviewDto> _previewHandler =
         Substitute.For<IQueryHandler<GetReminderPreviewQuery, ReminderPreviewDto>>();
@@ -81,6 +88,63 @@ public sealed class DoctorRemindersControllerTests
         responses.Select(value => value.StatusCode).ShouldBe(new[] { 200, 400, 401, 403, 404, 409 }, ignoreOrder: true);
         responses.Single(value => value.StatusCode == 200).Type.ShouldBe(typeof(ReminderPreviewResponse));
         responses.Single(value => value.StatusCode == 404).Type.ShouldBe(typeof(ProblemDetails));
+    }
+
+    [Fact]
+    public async Task Schedule_pasa_el_comando_y_el_token_y_responde_201_con_el_recordatorio()
+    {
+        using var cancellation = new CancellationTokenSource();
+        _scheduleHandler.HandleAsync(Arg.Any<ScheduleReminderCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ScheduledReminderDto>.Success(new ScheduledReminderDto(700, AppointmentId, TemplateId, "Hola Ana", SendAt)));
+
+        var result = await new DoctorRemindersController().Schedule(
+            AppointmentId, new ScheduleReminderRequest("Hola Ana", SendAt, TemplateId), _scheduleHandler, cancellation.Token);
+
+        var response = result.ShouldBeOfType<ObjectResult>();
+        response.StatusCode.ShouldBe(StatusCodes.Status201Created);
+        response.Value.ShouldBe(new ScheduledReminderResponse(700, AppointmentId, TemplateId, "Hola Ana", SendAt));
+        await _scheduleHandler.Received(1).HandleAsync(
+            new ScheduleReminderCommand(AppointmentId, TemplateId, "Hola Ana", SendAt), cancellation.Token);
+    }
+
+    public static IEnumerable<object[]> ScheduleErrors()
+    {
+        yield return [ReminderErrors.MessageRequired, 400];
+        yield return [ReminderErrors.MessageTooLong, 400];
+        yield return [ReminderErrors.ScheduledInPast, 400];
+        yield return [ReminderErrors.DoctorOnly, 403];
+        yield return [DoctorErrors.NotFound, 404];
+        yield return [AppointmentErrors.NotFound, 404];
+        yield return [ReminderTemplateErrors.NotFound, 404];
+        yield return [ReminderErrors.AppointmentNotEligible, 409];
+    }
+
+    [Theory]
+    [MemberData(nameof(ScheduleErrors))]
+    public async Task Schedule_utiliza_ErrorResult_con_estado_codigo_y_descripcion(Error error, int status)
+    {
+        _scheduleHandler.HandleAsync(Arg.Any<ScheduleReminderCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result<ScheduledReminderDto>.Failure(error));
+
+        var result = await new DoctorRemindersController().Schedule(
+            AppointmentId, new ScheduleReminderRequest(), _scheduleHandler, CancellationToken.None);
+
+        AssertProblem(result, error, status);
+    }
+
+    [Fact]
+    public void Schedule_es_un_POST_solo_para_medicos_con_sus_respuestas()
+    {
+        var method = typeof(DoctorRemindersController).GetMethod(nameof(DoctorRemindersController.Schedule))!;
+        var verb = method.GetCustomAttributes<HttpMethodAttribute>().ShouldHaveSingleItem();
+        verb.HttpMethods.ShouldBe(new[] { "POST" });
+        verb.Template.ShouldBe("{id:int}/reminders");
+        method.GetCustomAttributes<AuthorizeAttribute>().ShouldHaveSingleItem().Roles.ShouldBe(nameof(UserRole.Doctor));
+        method.GetCustomAttributes<AllowPendingStepAttribute>().ShouldBeEmpty();
+        var responses = method.GetCustomAttributes<ProducesResponseTypeAttribute>().ToArray();
+        responses.Select(value => value.StatusCode).ShouldBe(new[] { 201, 400, 401, 403, 404, 409 }, ignoreOrder: true);
+        responses.Single(value => value.StatusCode == 201).Type.ShouldBe(typeof(ScheduledReminderResponse));
+        responses.Single(value => value.StatusCode == 409).Type.ShouldBe(typeof(ProblemDetails));
     }
 
     private static void AssertProblem(IActionResult result, Error error, int status)
