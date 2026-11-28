@@ -47,6 +47,7 @@ using SGCM.Data.Application.Scheduling.EventHandlers;
 using SGCM.Data.Application.Scheduling.Queries.GetAvailableSlots;
 using SGCM.Data.Application.Clinical;
 using SGCM.Data.Application.Clinical.Commands.CreateMedicalRecordVersion;
+using SGCM.Data.Application.Clinical.Queries.GetMedicalHistory;
 using SGCM.Data.Application.Common;
 using SGCM.Data.Domain.Clinical.MedicalRecords;
 using SGCM.Data.Domain.Common;
@@ -240,6 +241,16 @@ public sealed class ApplicationDependencyInjectionTests
             .GetRequiredService<ICommandHandler<CreateMedicalRecordVersionCommand, MedicalRecordVersionResult>>();
 
         handler.ShouldBeOfType<ValidationDecorator<CreateMedicalRecordVersionCommand, MedicalRecordVersionResult>>();
+    }
+
+    [Fact]
+    public void AddApplication_ResolvesGetMedicalHistoryQueryHandler()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<IQueryHandler<GetMedicalHistoryQuery, MedicalHistoryDto>>()
+            .ShouldBeOfType<GetMedicalHistoryQueryHandler>();
     }
 
     public sealed record AccessLoggedTestCommand(string? IpAddress) : IAccessLoggedCommand<Unit>;
@@ -1601,6 +1612,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<IMedicalRecordAccessLogRepository>());
         services.AddSingleton(Substitute.For<IMedicalRecordRepository>());
         services.AddSingleton(Substitute.For<IDoctorPatientRelationshipReader>());
+        services.AddSingleton(Substitute.For<IMedicalHistoryReader>());
         services.AddSingleton(Substitute.For<IDoctorScheduleReader>());
         services.AddSingleton(Options.Create(CreateAvailabilitySeriesCommandMother.Options()));
 
