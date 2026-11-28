@@ -14,4 +14,9 @@ internal sealed class ReminderTemplateRepository(AppDbContext context) : IRemind
     public Task<ReminderTemplate?> GetByIdAsync(int id, CancellationToken cancellationToken) =>
         context.Set<ReminderTemplate>().AsNoTracking()
             .SingleOrDefaultAsync(template => template.Id == id, cancellationToken);
+
+    public Task<ReminderTemplate?> GetByIdForUpdateAsync(int id, CancellationToken cancellationToken) =>
+        context.Set<ReminderTemplate>().SingleOrDefaultAsync(template => template.Id == id, cancellationToken);
+
+    public void Add(ReminderTemplate template) => context.Set<ReminderTemplate>().Add(template);
 }

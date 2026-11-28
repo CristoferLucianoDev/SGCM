@@ -21,8 +21,8 @@ internal sealed class ReminderTemplateConfiguration : IEntityTypeConfiguration<R
         builder.Property(template => template.Subject).HasMaxLength(ReminderTemplate.SubjectMaxLength).IsRequired();
         builder.Property(template => template.BodyTemplate)
             .HasMaxLength(ReminderTemplate.BodyTemplateMaxLength).IsRequired();
-        builder.Property(template => template.IsActive).IsRequired();
-        // Las columnas de auditoría no se mapean: en este PBI la plantilla solo se lee.
+        // El dominio siempre envía el estado, incluido false, sin delegarlo al DEFAULT SQL.
+        builder.Property(template => template.IsActive).IsRequired().ValueGeneratedNever();
 
         builder.Ignore(template => template.IsGlobal);
         builder.Ignore(template => template.DomainEvents);

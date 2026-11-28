@@ -1,4 +1,5 @@
 using SGCM.Data.Application.Scheduling.Notifications;
+using SGCM.Data.Domain.Messaging.ReminderTemplates;
 
 namespace SGCM.Data.Application.Messaging;
 
@@ -15,8 +16,7 @@ public static class AppointmentTemplateValues
     public const string SpecialtyName = nameof(SpecialtyName);
 
     /// <summary>Las variables permitidas en una plantilla de recordatorio.</summary>
-    public static IReadOnlyCollection<string> Names { get; } =
-        [PatientName, DoctorName, AppointmentDate, StartTime, SpecialtyName];
+    public static IReadOnlyCollection<string> Names { get; } = ReminderTemplate.AllowedVariables;
 
     /// <summary>El valor de cada variable para la cita.</summary>
     public static IReadOnlyDictionary<string, string> From(AppointmentNotificationData appointment)
