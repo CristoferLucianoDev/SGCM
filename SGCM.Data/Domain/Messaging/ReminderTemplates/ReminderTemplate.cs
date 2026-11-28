@@ -4,8 +4,8 @@ namespace SGCM.Data.Domain.Messaging.ReminderTemplates;
 
 /// <summary>
 /// Plantilla de recordatorio con variables como {PatientName}. Con <see cref="DoctorId"/> nulo es global y la ven
-/// todos los médicos; si no, es privada de ese médico. En este PBI solo se lee, para usar la global del recordatorio
-/// automático.
+/// todos los médicos; si no, es privada de ese médico. Aquí solo se lee: la usan el recordatorio automático y los que
+/// programa el médico.
 /// </summary>
 public sealed class ReminderTemplate : AggregateRoot
 {
@@ -34,4 +34,7 @@ public sealed class ReminderTemplate : AggregateRoot
     public bool IsActive { get; private set; }
 
     public bool IsGlobal => DoctorId is null;
+
+    /// <summary>Indica si el médico puede usarla: debe estar activa y ser global o suya.</summary>
+    public bool IsUsableBy(int doctorId) => IsActive && (IsGlobal || DoctorId == doctorId);
 }
