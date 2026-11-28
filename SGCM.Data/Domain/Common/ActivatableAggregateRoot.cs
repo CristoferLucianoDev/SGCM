@@ -20,6 +20,12 @@ public abstract class ActivatableAggregateRoot : AggregateRoot
     protected abstract string EntityName { get; }
 
     /// <summary>
+    /// Punto de extensión que se consulta antes de activar o desactivar: un agregado que no admite el cambio devuelve
+    /// su error. Por defecto siempre lo admite.
+    /// </summary>
+    protected virtual Result EnsureActivationCanChange() => Result.Success();
+
+    /// <summary>
     /// Punto de extensión que se ejecuta después de activar el registro.
     /// </summary>
     protected virtual void OnActivated() { }
@@ -32,9 +38,17 @@ public abstract class ActivatableAggregateRoot : AggregateRoot
     /// <summary>
     /// Activa el registro.
     /// </summary>
-    /// <returns>Éxito, o un error de conflicto si el registro ya estaba activo.</returns>
+    /// <returns>
+    /// Éxito, el error de <see cref="EnsureActivationCanChange"/>, o un error de conflicto si el registro ya estaba activo.
+    /// </returns>
     public Result Activate()
     {
+        var allowed = EnsureActivationCanChange();
+        if (allowed.IsFailure)
+        {
+            return allowed;
+        }
+
         if (IsActive)
         {
             return ActivationErrors.AlreadyActive(EntityName);
@@ -48,9 +62,18 @@ public abstract class ActivatableAggregateRoot : AggregateRoot
     /// <summary>
     /// Desactiva el registro (baja lógica).
     /// </summary>
-    /// <returns>Éxito, o un error de conflicto si el registro ya estaba inactivo.</returns>
+    /// <returns>
+    /// Éxito, el error de <see cref="EnsureActivationCanChange"/>, o un error de conflicto si el registro ya estaba
+    /// inactivo.
+    /// </returns>
     public Result Deactivate()
     {
+        var allowed = EnsureActivationCanChange();
+        if (allowed.IsFailure)
+        {
+            return allowed;
+        }
+
         if (!IsActive)
         {
             return ActivationErrors.AlreadyInactive(EntityName);

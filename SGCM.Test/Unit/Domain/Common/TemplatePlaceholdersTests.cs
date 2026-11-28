@@ -27,4 +27,28 @@ public class TemplatePlaceholdersTests
     {
         TemplatePlaceholders.Extract(template).ShouldBeEmpty();
     }
+
+    [Fact]
+    public void FindUnknown_devuelve_en_orden_y_sin_repetir_lo_que_no_esta_permitido()
+    {
+        var unknown = TemplatePlaceholders.FindUnknown(
+            "Hola {Name}, su {Fecha} con {Name} y {Otra}.", ["Name"]);
+
+        unknown.ShouldBe(["Fecha", "Otra"]);
+    }
+
+    [Theory]
+    [InlineData("{}", "")]
+    [InlineData("{Con espacio}", "Con espacio")]
+    [InlineData("{Nombre1}", "Nombre1")]
+    public void FindUnknown_detecta_cualquier_contenido_entre_llaves_como_la_base(string template, string expected)
+    {
+        TemplatePlaceholders.FindUnknown(template, ["Name"]).ShouldBe([expected]);
+    }
+
+    [Fact]
+    public void FindUnknown_sin_variables_desconocidas_devuelve_una_lista_vacia()
+    {
+        TemplatePlaceholders.FindUnknown("Hola {Name}, gracias.", ["Name"]).ShouldBeEmpty();
+    }
 }
