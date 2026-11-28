@@ -93,6 +93,7 @@ public static class DependencyInjection
         services.AddScoped<ILocationCatalogReader, LocationCatalogReader>();
         services.AddScoped<ITwoFactorStatusReader, TwoFactorStatusReader>();
         services.AddScoped<ISpecialtyListReader, SpecialtyListReader>();
+        services.AddScoped<IReminderTemplateListReader, ReminderTemplateListReader>();
         services.AddScoped<IInsuranceProviderListReader, InsuranceProviderListReader>();
         services.AddScoped<IDoctorSearchReader, DoctorSearchReader>();
         services.AddScoped<IDoctorProfileReader, DoctorProfileReader>();

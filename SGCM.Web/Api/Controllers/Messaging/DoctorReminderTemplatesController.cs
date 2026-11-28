@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Common;
 using SGCM.Data.Application.Messaging.Commands.CreateReminderTemplate;
 using SGCM.Data.Application.Messaging.Commands.DeactivateReminderTemplate;
 using SGCM.Data.Application.Messaging.Commands.UpdateReminderTemplate;
+using SGCM.Data.Application.Messaging.Queries.ListReminderTemplates;
 using SGCM.Data.Application.Messaging.ReminderTemplates;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
@@ -16,6 +18,32 @@ namespace SGCM.Web.Api.Controllers.Messaging;
 [Route("api/doctors/me/reminder-templates")]
 public sealed class DoctorReminderTemplatesController : ApiControllerBase
 {
+    /// <summary>Plantillas que el médico autenticado puede usar, paginadas.</summary>
+    /// <remarks>
+    /// Sus plantillas activas y las globales activas, estas con isReadOnly en true. Primero las globales y después las
+    /// propias, cada grupo por nombre. 400 con code ReminderTemplate.InvalidPageNumber, InvalidPageSize (de 1 a 100) o
+    /// PageOffsetTooLarge.
+    /// </remarks>
+    /// <param name="request">Página y tamaño de página.</param>
+    /// <param name="handler">Manejador de la consulta.</param>
+    /// <param name="cancellationToken">Token de cancelación de la petición.</param>
+    [HttpGet]
+    [Authorize(Roles = nameof(UserRole.Doctor))]
+    [ProducesResponseType(typeof(ListReminderTemplatesResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> List(
+        [FromQuery] ListReminderTemplatesRequest request,
+        [FromServices] IQueryHandler<ListReminderTemplatesQuery, PagedResult<ReminderTemplateDto>> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(request.ToQuery(), cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value.ToResponse()) : ErrorResult(result.Error);
+    }
+
     /// <summary>Crea una plantilla de recordatorio propia del médico autenticado.</summary>
     /// <remarks>
     /// La plantilla queda activa. 400 con code responde ReminderTemplate.NameRequired, NameTooLong, SubjectRequired,

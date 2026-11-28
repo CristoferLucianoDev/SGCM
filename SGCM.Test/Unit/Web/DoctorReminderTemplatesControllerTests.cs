@@ -5,9 +5,11 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 using NSubstitute;
 using SGCM.Data.Application.Abstractions.Messaging;
+using SGCM.Data.Application.Common;
 using SGCM.Data.Application.Messaging.Commands.CreateReminderTemplate;
 using SGCM.Data.Application.Messaging.Commands.DeactivateReminderTemplate;
 using SGCM.Data.Application.Messaging.Commands.UpdateReminderTemplate;
+using SGCM.Data.Application.Messaging.Queries.ListReminderTemplates;
 using SGCM.Data.Application.Messaging.ReminderTemplates;
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Identity.Users;
@@ -33,6 +35,22 @@ public sealed class DoctorReminderTemplatesControllerTests
         Substitute.For<ICommandHandler<UpdateReminderTemplateCommand, ReminderTemplateDto>>();
     private readonly ICommandHandler<DeactivateReminderTemplateCommand, Unit> _deactivate =
         Substitute.For<ICommandHandler<DeactivateReminderTemplateCommand, Unit>>();
+
+    [Fact]
+    public async Task List_pasa_la_paginacion_y_responde_200_con_la_pagina()
+    {
+        var handler = Substitute.For<IQueryHandler<ListReminderTemplatesQuery, PagedResult<ReminderTemplateDto>>>();
+        handler.HandleAsync(Arg.Any<ListReminderTemplatesQuery>(), Arg.Any<CancellationToken>())
+            .Returns(Result<PagedResult<ReminderTemplateDto>>.Success(new PagedResult<ReminderTemplateDto>([Dto], 2, 10, 11)));
+
+        var result = await new DoctorReminderTemplatesController().List(
+            new ListReminderTemplatesRequest(2, 10), handler, CancellationToken.None);
+
+        var page = result.ShouldBeOfType<OkObjectResult>().Value.ShouldBeOfType<ListReminderTemplatesResponse>();
+        page.Items.ShouldBe([Response]);
+        (page.PageNumber, page.PageSize, page.TotalCount).ShouldBe((2, 10, 11));
+        await handler.Received(1).HandleAsync(new ListReminderTemplatesQuery(2, 10), CancellationToken.None);
+    }
 
     [Fact]
     public async Task Create_pasa_el_comando_y_el_token_y_responde_201_con_la_plantilla()
@@ -99,6 +117,7 @@ public sealed class DoctorReminderTemplatesControllerTests
     }
 
     [Theory]
+    [InlineData(nameof(DoctorReminderTemplatesController.List), "GET", null)]
     [InlineData(nameof(DoctorReminderTemplatesController.Create), "POST", null)]
     [InlineData(nameof(DoctorReminderTemplatesController.Update), "PUT", "{id:int}")]
     [InlineData(nameof(DoctorReminderTemplatesController.Deactivate), "PATCH", "{id:int}/deactivate")]

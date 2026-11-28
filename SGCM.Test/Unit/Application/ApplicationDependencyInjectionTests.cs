@@ -1613,6 +1613,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<ITemplateRenderer>());
         services.AddSingleton(Substitute.For<IReminderRepository>());
         services.AddSingleton(Substitute.For<IReminderTemplateRepository>());
+        services.AddSingleton(Substitute.For<IReminderTemplateListReader>());
         services.AddSingleton<IDateTimeProvider>(new FakeDateTimeProvider());
         services.AddSingleton(Options.Create(new AccountsOptions { EmailConfirmationTokenMinutes = 15 }));
         services.AddSingleton(Substitute.For<IAttemptLimiter>());
