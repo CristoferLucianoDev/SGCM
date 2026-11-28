@@ -8,6 +8,13 @@ public static class ReminderTemplateErrors
     public static readonly Error NotFound = Error.NotFound(
         "ReminderTemplate.NotFound", "La plantilla de recordatorio no existe.");
 
+    /// <summary>Solo un médico gestiona plantillas, y solo las suyas.</summary>
+    public static readonly Error DoctorOnly = Error.Forbidden(
+        "ReminderTemplate.DoctorOnly", "Solo un médico puede gestionar plantillas de recordatorio.");
+
+    public static readonly Error InvalidId = Error.Validation(
+        "ReminderTemplate.InvalidId", "El identificador de la plantilla debe ser mayor que cero.");
+
     /// <summary>Las plantillas globales las ven todos los médicos, pero nadie las edita ni las desactiva.</summary>
     public static readonly Error GlobalReadOnly = Error.Forbidden(
         "ReminderTemplate.GlobalReadOnly", "Las plantillas globales no se pueden editar ni desactivar.");

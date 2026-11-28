@@ -15,7 +15,11 @@ using SGCM.Data.Application.Identity.Commands.ChangePassword;
 using SGCM.Data.Application.Identity.Commands.ChangeTemporaryPassword;
 using SGCM.Test.Unit.Domain.Identity.Users;
 using SGCM.Data.Application.Messaging;
+using SGCM.Data.Application.Messaging.Commands.CreateReminderTemplate;
+using SGCM.Data.Application.Messaging.Commands.DeactivateReminderTemplate;
 using SGCM.Data.Application.Messaging.Commands.ScheduleReminder;
+using SGCM.Data.Application.Messaging.Commands.UpdateReminderTemplate;
+using SGCM.Data.Application.Messaging.ReminderTemplates;
 using SGCM.Data.Application.Messaging.Commands.SendDueReminders;
 using SGCM.Data.Application.Messaging.EventHandlers;
 using SGCM.Data.Application.People.Commands.ActivateSpecialty;
@@ -1392,6 +1396,20 @@ public sealed class ApplicationDependencyInjectionTests
             .ShouldContain(handler => handler is CancelRemindersOnAppointmentCancelled);
         scope.ServiceProvider.GetServices<IDomainEventHandler<AppointmentExpiredEvent>>()
             .ShouldContain(handler => handler is CancelRemindersOnAppointmentExpired);
+    }
+
+    [Fact]
+    public void Los_comandos_de_plantillas_se_resuelven_con_sus_decoradores()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+
+        scope.ServiceProvider.GetRequiredService<ICommandHandler<CreateReminderTemplateCommand, ReminderTemplateDto>>()
+            .ShouldBeOfType<ValidationDecorator<CreateReminderTemplateCommand, ReminderTemplateDto>>();
+        scope.ServiceProvider.GetRequiredService<ICommandHandler<UpdateReminderTemplateCommand, ReminderTemplateDto>>()
+            .ShouldBeOfType<ValidationDecorator<UpdateReminderTemplateCommand, ReminderTemplateDto>>();
+        scope.ServiceProvider.GetRequiredService<ICommandHandler<DeactivateReminderTemplateCommand, Unit>>()
+            .ShouldBeOfType<ValidationDecorator<DeactivateReminderTemplateCommand, Unit>>();
     }
 
     [Fact]
