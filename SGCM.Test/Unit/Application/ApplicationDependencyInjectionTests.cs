@@ -208,6 +208,19 @@ public sealed class ApplicationDependencyInjectionTests
         tracker.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<MedicalRecordAccessTracker>());
     }
 
+    [Fact]
+    public void AddApplication_RegistersTheMedicalHistoryAccessPolicyPerRequest()
+    {
+        using var provider = BuildProvider();
+        using var first = provider.CreateScope();
+        using var second = provider.CreateScope();
+
+        var policy = first.ServiceProvider.GetRequiredService<MedicalHistoryAccessPolicy>();
+
+        policy.ShouldBeSameAs(first.ServiceProvider.GetRequiredService<MedicalHistoryAccessPolicy>());
+        policy.ShouldNotBeSameAs(second.ServiceProvider.GetRequiredService<MedicalHistoryAccessPolicy>());
+    }
+
     [Theory]
     [InlineData(typeof(AccessLoggedTestCommand), true)]
     [InlineData(typeof(CreateMedicalRecordVersionCommand), true)]
@@ -1587,6 +1600,7 @@ public sealed class ApplicationDependencyInjectionTests
         services.AddSingleton(Substitute.For<IAppointmentReportLogRepository>());
         services.AddSingleton(Substitute.For<IMedicalRecordAccessLogRepository>());
         services.AddSingleton(Substitute.For<IMedicalRecordRepository>());
+        services.AddSingleton(Substitute.For<IDoctorPatientRelationshipReader>());
         services.AddSingleton(Substitute.For<IDoctorScheduleReader>());
         services.AddSingleton(Options.Create(CreateAvailabilitySeriesCommandMother.Options()));
 
