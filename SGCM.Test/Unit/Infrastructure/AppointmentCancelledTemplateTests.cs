@@ -133,9 +133,10 @@ public sealed class AppointmentCancelledTemplateTests
 
         // El texto fijo de la plantilla va sin codificar; los valores sí se codifican en HTML.
         body.ShouldContain(WebUtility.HtmlEncode("Hola, Ana Pérez") + ":");
-        body.ShouldContain("Su cita con el doctor " + WebUtility.HtmlEncode("Luis Pérez")
-            + " a las 09:00 fue cancelada por el siguiente motivo:");
-        body.ShouldContain("Emergencia familiar");
+        body.ShouldContain("El doctor " + WebUtility.HtmlEncode("Luis Pérez") + " canceló su cita de "
+            + WebUtility.HtmlEncode("Cardiología") + ".");
+        body.ShouldContain("Motivo de la cancelación:</strong> Emergencia familiar");
+        body.ShouldContain("09:00 a 11:00");
         body.ShouldContain("05/01/2027");
         body.ShouldContain(WebUtility.HtmlEncode("Cardiología"));
     }

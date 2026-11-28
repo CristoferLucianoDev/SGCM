@@ -14,6 +14,9 @@ namespace SGCM.Data.Application.Scheduling.Notifications;
 /// <param name="StartTime">Hora local de inicio.</param>
 /// <param name="EndTime">Hora local de fin.</param>
 /// <param name="ReasonForVisit">Motivo que escribió el paciente; <c>null</c> si no escribió ninguno.</param>
+/// <param name="DoctorAddress">
+/// Dirección de consulta del médico: calle, municipio y provincia; <c>null</c> si no se conoce.
+/// </param>
 public sealed record AppointmentNotificationData(
     int AppointmentId,
     string PatientName,
@@ -25,4 +28,5 @@ public sealed record AppointmentNotificationData(
     DateOnly AppointmentDate,
     TimeOnly StartTime,
     TimeOnly EndTime,
-    string? ReasonForVisit);
+    string? ReasonForVisit,
+    string? DoctorAddress = null);

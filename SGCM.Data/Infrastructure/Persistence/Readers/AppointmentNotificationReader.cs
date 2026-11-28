@@ -26,6 +26,9 @@ internal sealed class AppointmentNotificationReader(AppDbContext context, IOptio
                    doctor_user.email AS doctor_email,
                    specialty.name AS specialty_name,
                    doctor.consultation_fee,
+                   doctor.address_line,
+                   municipality.name AS municipality_name,
+                   province.name AS province_name,
                    appointment.starts_at,
                    appointment.ends_at,
                    appointment.reason_for_visit
@@ -34,6 +37,8 @@ internal sealed class AppointmentNotificationReader(AppDbContext context, IOptio
             JOIN app."user" patient_user ON patient_user.id = patient.user_id
             JOIN people.doctor doctor ON doctor.id = appointment.doctor_id
             JOIN app."user" doctor_user ON doctor_user.id = doctor.user_id
+            JOIN people.municipality municipality ON municipality.id = doctor.municipality_id
+            JOIN people.province province ON province.id = doctor.province_id
             JOIN people.specialty specialty ON specialty.id = appointment.specialty_id
             WHERE appointment.id = {appointmentId}
             """).SingleOrDefaultAsync(cancellationToken);
@@ -55,7 +60,8 @@ internal sealed class AppointmentNotificationReader(AppDbContext context, IOptio
             DateOnly.FromDateTime(start.DateTime),
             TimeOnly.FromDateTime(start.DateTime),
             TimeOnly.FromDateTime(end.DateTime),
-            row.ReasonForVisit);
+            row.ReasonForVisit,
+            $"{row.AddressLine.Trim()}, {row.MunicipalityName}, {row.ProvinceName}");
     }
 
     private static string FullName(string firstName, string lastName) => $"{firstName.Trim()} {lastName.Trim()}";
@@ -72,6 +78,9 @@ internal sealed record AppointmentNotificationRow(
     string DoctorEmail,
     string SpecialtyName,
     decimal ConsultationFee,
+    string AddressLine,
+    string MunicipalityName,
+    string ProvinceName,
     DateTimeOffset StartsAt,
     DateTimeOffset EndsAt,
     string? ReasonForVisit);

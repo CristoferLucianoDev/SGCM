@@ -18,12 +18,15 @@ public sealed record AppointmentConfirmedNotification(
     /// <summary>Formato de la tarifa: separador de miles y dos decimales, por ejemplo 1,500.00.</summary>
     public const string ConsultationFeeFormat = "N2";
 
+    /// <summary>Texto que se muestra si no se conoce la dirección de consulta del médico.</summary>
+    public const string NoAddress = "Consulte la dirección en el perfil del médico.";
+
     /// <summary>Clave de la plantilla de la notificación.</summary>
     public override string TemplateKey => ConfirmedTemplateKey;
 
     /// <summary>
     /// Valores que reemplazan las variables de la plantilla; la fecha va como dd/MM/yyyy, las horas en 24 horas y la
-    /// tarifa con dos decimales.
+    /// tarifa con dos decimales. La dirección es la de consulta del médico.
     /// </summary>
     public override IReadOnlyDictionary<string, string> GetValues() =>
         new Dictionary<string, string>
@@ -34,6 +37,7 @@ public sealed record AppointmentConfirmedNotification(
             ["AppointmentDate"] = AppointmentNotificationFormats.Date(Appointment.AppointmentDate),
             ["StartTime"] = AppointmentNotificationFormats.Time(Appointment.StartTime),
             ["EndTime"] = AppointmentNotificationFormats.Time(Appointment.EndTime),
-            ["ConsultationFee"] = Appointment.ConsultationFee.ToString(ConsultationFeeFormat, CultureInfo.InvariantCulture)
+            ["ConsultationFee"] = Appointment.ConsultationFee.ToString(ConsultationFeeFormat, CultureInfo.InvariantCulture),
+            ["DoctorAddress"] = string.IsNullOrWhiteSpace(Appointment.DoctorAddress) ? NoAddress : Appointment.DoctorAddress
         };
 }

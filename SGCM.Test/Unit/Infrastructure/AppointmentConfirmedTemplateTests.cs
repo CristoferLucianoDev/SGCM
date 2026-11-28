@@ -23,7 +23,8 @@ public sealed class AppointmentConfirmedTemplateTests
         new DateOnly(2027, 1, 5),
         new TimeOnly(9, 0),
         new TimeOnly(11, 0),
-        "Control anual");
+        "Control anual",
+        "Calle El Conde 12, Santo Domingo de Guzmán, Distrito Nacional");
 
     private readonly NotificationTemplateStore _templates = new();
     private readonly TemplateRenderer _renderer = new();
@@ -40,6 +41,16 @@ public sealed class AppointmentConfirmedTemplateTests
         values["PatientName"].ShouldBe("Ana Pérez");
         values["DoctorName"].ShouldBe("Luis Pérez");
         values["SpecialtyName"].ShouldBe("Cardiología");
+        values["DoctorAddress"].ShouldBe("Calle El Conde 12, Santo Domingo de Guzmán, Distrito Nacional");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("  ")]
+    public void Sin_direccion_conocida_indica_consultarla_en_el_perfil_del_medico(string? address)
+    {
+        Create(Data with { DoctorAddress = address }).GetValues()["DoctorAddress"]
+            .ShouldBe(AppointmentConfirmedNotification.NoAddress);
     }
 
     [Fact]
@@ -59,7 +70,7 @@ public sealed class AppointmentConfirmedTemplateTests
     }
 
     [Fact]
-    public void El_cuerpo_incluye_saludo_medico_especialidad_fecha_horas_y_tarifa()
+    public void El_cuerpo_incluye_saludo_medico_especialidad_fecha_horas_direccion_y_tarifa()
     {
         var body = Render(Create(Data));
 
@@ -70,6 +81,10 @@ public sealed class AppointmentConfirmedTemplateTests
         body.ShouldContain("05/01/2027");
         body.ShouldContain("09:00 a 11:00");
         body.ShouldContain("RD$ 1,500.00");
+        body.ShouldContain("Médico:</strong> " + WebUtility.HtmlEncode("Luis Pérez"));
+        body.ShouldContain("Especialidad:</strong> " + WebUtility.HtmlEncode("Cardiología"));
+        body.ShouldContain("Dirección:</strong> "
+            + WebUtility.HtmlEncode("Calle El Conde 12, Santo Domingo de Guzmán, Distrito Nacional"));
     }
 
     [Fact]
