@@ -17,24 +17,25 @@ internal static class ClinicalPersistenceData
 
     /// <summary>
     /// Siembra un médico, un paciente y una cita entre ambos en el estado pedido, con un bloque que la cubre
-    /// exactamente, como exige el trigger de coherencia de la cita.
+    /// exactamente, como exige el trigger de coherencia de la cita. Con <paramref name="patientId"/> la cita es de
+    /// ese paciente en lugar de uno nuevo; el médico siempre es nuevo, para que los horarios no se crucen.
     /// </summary>
     public static async Task<ClinicalAppointmentSeed> SeedAppointmentAsync(
-        AppDbContext context, string status, DateTimeOffset? startsAtUtc = null)
+        AppDbContext context, string status, DateTimeOffset? startsAtUtc = null, int? patientId = null)
     {
         var startsAt = startsAtUtc ?? PastStartsAt;
         var doctor = await DoctorPersistenceData.SeedAsync(context, associations: 1);
-        var patientId = await InsertPatientAsync(context);
+        patientId ??= await InsertPatientAsync(context);
         await context.Database.ExecuteSqlInterpolatedAsync(
             $"""
             INSERT INTO scheduling.doctor_availability (doctor_id, series_id, starts_at, ends_at, is_available)
             VALUES ({doctor.DoctorId}, NULL, {startsAt}, {startsAt.AddHours(AppointmentMother.DurationHours)}, true)
             """);
         var appointmentId = await TestDataSeeder.InsertAppointmentInStatusAsync(
-            context, patientId, doctor.DoctorId, doctor.SpecialtyIds[0], startsAt, AppointmentMother.DurationHours,
-            status, StatusReasonFor(status));
+            context, patientId.Value, doctor.DoctorId, doctor.SpecialtyIds[0], startsAt,
+            AppointmentMother.DurationHours, status, StatusReasonFor(status));
 
-        return new ClinicalAppointmentSeed(appointmentId, patientId, doctor.UserId, doctor.DoctorId);
+        return new ClinicalAppointmentSeed(appointmentId, patientId.Value, doctor.UserId, doctor.DoctorId);
     }
 
     // La base exige motivo en una cita rechazada; en una cancelada se pone también, como en el uso real.
