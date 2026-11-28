@@ -1,5 +1,7 @@
+using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.Exceptions;
 using SGCM.Data.Domain.Messaging.Reminders;
+using SGCM.Data.Domain.Scheduling.Appointments;
 using Shouldly;
 
 namespace SGCM.Test.Unit.Domain.Messaging;
@@ -12,6 +14,26 @@ public sealed class ReminderTests
     private const string Message = "Hola Ana, le recordamos su cita de mañana a las 09:00.";
     private static readonly DateTimeOffset Now = new(2027, 1, 11, 12, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset SendAt = Now.AddDays(1);
+
+    [Theory]
+    [InlineData(AppointmentStatus.Confirmed)]
+    [InlineData(AppointmentStatus.Completed)]
+    public void El_medico_programa_recordatorios_para_citas_confirmadas_o_completadas(AppointmentStatus status)
+    {
+        Reminder.EnsureAppointmentEligible(status).IsSuccess.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(AppointmentStatus.Pending)]
+    [InlineData(AppointmentStatus.Rejected)]
+    [InlineData(AppointmentStatus.Cancelled)]
+    public void Una_cita_pendiente_rechazada_o_cancelada_no_admite_recordatorios(AppointmentStatus status)
+    {
+        var result = Reminder.EnsureAppointmentEligible(status);
+
+        result.Error.ShouldBe(ReminderErrors.AppointmentNotEligible);
+        result.Error.Type.ShouldBe(ErrorType.Conflict);
+    }
 
     [Fact]
     public void Programa_un_recordatorio_pendiente_con_el_texto_final_y_la_hora_de_envio_en_UTC()

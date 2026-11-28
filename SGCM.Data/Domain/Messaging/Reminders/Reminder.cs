@@ -1,5 +1,6 @@
 using SGCM.Data.Domain.Common;
 using SGCM.Data.Domain.Common.Exceptions;
+using SGCM.Data.Domain.Scheduling.Appointments;
 
 namespace SGCM.Data.Domain.Messaging.Reminders;
 
@@ -35,6 +36,15 @@ public sealed class Reminder : AggregateRoot
 
     /// <summary>Médico que lo programó; <c>null</c> en el recordatorio automático.</summary>
     public int? CreatedBy { get; private set; }
+
+    /// <summary>
+    /// Indica si una cita en ese estado admite recordatorios programados por el médico: solo confirmadas o completadas.
+    /// </summary>
+    /// <returns>Éxito, o <see cref="ReminderErrors.AppointmentNotEligible"/>.</returns>
+    public static Result EnsureAppointmentEligible(AppointmentStatus status) =>
+        status is AppointmentStatus.Confirmed or AppointmentStatus.Completed
+            ? Result.Success()
+            : ReminderErrors.AppointmentNotEligible;
 
     /// <summary>
     /// Programa un recordatorio pendiente con el texto ya renderizado y la hora de envío.
