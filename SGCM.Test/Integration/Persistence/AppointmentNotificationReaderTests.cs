@@ -38,7 +38,8 @@ public sealed class AppointmentNotificationReaderTests(PostgresFixture database)
             new DateOnly(2027, 1, 12),
             new TimeOnly(9, 0),
             new TimeOnly(11, 0),
-            "Control anual"));
+            "Control anual",
+            await ExpectedAddressAsync(seed.DoctorId)));
     }
 
     [Fact]
@@ -120,6 +121,20 @@ public sealed class AppointmentNotificationReaderTests(PostgresFixture database)
         await using var context = CreateContext();
         var options = Options.Create(new SchedulingOptions { TimeZone = "America/Santo_Domingo" });
         return await new AppointmentNotificationReader(context, options).GetAsync(appointmentId, CancellationToken.None);
+    }
+
+    // La dirección es la calle del perfil del médico con su municipio y su provincia.
+    private async Task<string> ExpectedAddressAsync(int doctorId)
+    {
+        await using var context = CreateContext();
+        return (await context.Database.SqlQuery<string>(
+            $"""
+            SELECT doctor.address_line || ', ' || municipality.name || ', ' || province.name AS "Value"
+            FROM people.doctor doctor
+            JOIN people.municipality municipality ON municipality.id = doctor.municipality_id
+            JOIN people.province province ON province.id = doctor.province_id
+            WHERE doctor.id = {doctorId}
+            """).ToListAsync()).Single();
     }
 
     private AppDbContext CreateContext() => DoctorPersistenceData.Context(Database.ConnectionString);

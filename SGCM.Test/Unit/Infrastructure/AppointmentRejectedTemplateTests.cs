@@ -76,8 +76,8 @@ public sealed class AppointmentRejectedTemplateTests
         // El texto fijo de la plantilla va sin codificar; los valores sí se codifican en HTML.
         body.ShouldContain(WebUtility.HtmlEncode("Hola, Ana Pérez") + ":");
         body.ShouldContain("El doctor " + WebUtility.HtmlEncode("Luis Pérez") + " rechazó su solicitud de cita de "
-            + WebUtility.HtmlEncode("Cardiología") + " por el siguiente motivo:");
-        body.ShouldContain(Reason);
+            + WebUtility.HtmlEncode("Cardiología") + ".");
+        body.ShouldContain("Motivo del rechazo:</strong> " + WebUtility.HtmlEncode(Reason));
         body.ShouldContain("05/01/2027");
         body.ShouldContain("09:00 a 11:00");
     }

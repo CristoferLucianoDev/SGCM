@@ -1,9 +1,11 @@
 ﻿<title>Su solicitud de cita fue rechazada</title>
 <p>Hola, {PatientName}:</p>
-<p>El doctor {DoctorName} rechazó su solicitud de cita de {SpecialtyName} por el siguiente motivo:</p>
-<p>{RejectionReason}</p>
+<p>El doctor {DoctorName} rechazó su solicitud de cita de {SpecialtyName}.</p>
 <ul>
+    <li><strong>Médico:</strong> {DoctorName}</li>
+    <li><strong>Especialidad:</strong> {SpecialtyName}</li>
     <li><strong>Fecha:</strong> {AppointmentDate}</li>
     <li><strong>Hora:</strong> {StartTime} a {EndTime}</li>
+    <li><strong>Motivo del rechazo:</strong> {RejectionReason}</li>
 </ul>
 <p>Puede solicitar otro horario desde el Sistema de Gestión de Citas Médicas.</p>
